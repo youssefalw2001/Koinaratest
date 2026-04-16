@@ -13,6 +13,7 @@ import {
   GetLeaderboardResponse,
 } from "@workspace/api-zod";
 import { serializeRow, serializeRows } from "../lib/serialize";
+import { isVipActive } from "../lib/vip";
 
 const router: IRouter = Router();
 
@@ -22,13 +23,6 @@ const DAILY_GC_CAP_VIP = 3000;
 const MIN_BET_TC = 50;
 const ROUND_DURATION_SEC = 60;
 const RESOLVE_TOLERANCE_SEC = 5;
-
-function isVipActive(user: { isVip: boolean; vipExpiresAt: Date | null; vipTrialExpiresAt: Date | null }): boolean {
-  const now = new Date();
-  if (user.isVip && user.vipExpiresAt && user.vipExpiresAt > now) return true;
-  if (user.vipTrialExpiresAt && user.vipTrialExpiresAt > now) return true;
-  return false;
-}
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
@@ -139,8 +133,8 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
       const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
       const vipNow = isVipActive(user);
       const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
-      const gcMultiplier = vipNow ? 2 : 1;
-      const rawPayout = Math.floor(prediction.amount * GC_RATIO * gcMultiplier);
+      // Payout is always bet_TC × 0.85; VIP advantage is a higher daily earning cap only
+      const rawPayout = Math.floor(prediction.amount * GC_RATIO);
       const remaining = dailyCap - currentDailyGc;
       gcPayout = Math.min(rawPayout, Math.max(0, remaining));
 

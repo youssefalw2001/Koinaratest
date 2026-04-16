@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { isVipActive } from "../lib/vip";
 import { eq, and, sql } from "drizzle-orm";
 import { db, questsTable, questClaimsTable, usersTable } from "@workspace/db";
 import {
@@ -57,10 +58,7 @@ router.post("/quests/:id/claim", async (req, res): Promise<void> => {
     return;
   }
 
-  const vipActive = user.isVip && user.vipExpiresAt ? new Date(user.vipExpiresAt) > new Date() : false;
-  const trialActive = user.vipTrialExpiresAt ? new Date(user.vipTrialExpiresAt) > new Date() : false;
-
-  if (quest.isVipOnly && !vipActive && !trialActive) {
+  if (quest.isVipOnly && !isVipActive(user)) {
     res.status(400).json({ error: "This quest is VIP-only" });
     return;
   }

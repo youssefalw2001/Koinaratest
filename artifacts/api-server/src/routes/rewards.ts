@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { isVipActive } from "../lib/vip";
 import { eq, sql } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import {
@@ -44,9 +45,9 @@ router.post("/rewards/daily", async (req, res): Promise<void> => {
   const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
   const newStreak = lastLogin === yesterday ? user.loginStreak + 1 : 1;
 
-  const isVip = user.isVip && user.vipExpiresAt ? new Date(user.vipExpiresAt) > new Date() : false;
-  const baseTC = isVip ? VIP_BASE_DAILY_TC : BASE_DAILY_TC;
-  const streakBonus = isVip ? VIP_STREAK_BONUS_TC : STREAK_BONUS_TC;
+  const vip = isVipActive(user);
+  const baseTC = vip ? VIP_BASE_DAILY_TC : BASE_DAILY_TC;
+  const streakBonus = vip ? VIP_STREAK_BONUS_TC : STREAK_BONUS_TC;
   const tcReward = baseTC + (newStreak - 1) * streakBonus;
 
   const [updatedUser] = await db
@@ -63,10 +64,10 @@ router.post("/rewards/daily", async (req, res): Promise<void> => {
     tcAwarded: tcReward,
     newTcBalance: updatedUser.tradeCredits,
     streak: newStreak,
-    message: isVip
+    message: vip
       ? `VIP Bonus! Day ${newStreak} streak — ${tcReward} TC!`
       : `Day ${newStreak} streak — ${tcReward} Trade Credits!`,
-    isVipBonus: isVip,
+    isVipBonus: vip,
   };
 
   res.json(ClaimDailyRewardResponse.parse(response));

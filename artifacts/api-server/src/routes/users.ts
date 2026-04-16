@@ -211,9 +211,12 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  // Paid plans (weekly/monthly) require a transaction hash for payment verification
-  if ((plan === "weekly" || plan === "monthly") && !txHash) {
-    res.status(400).json({ error: "Transaction hash required for paid VIP plans" });
+  // Paid TON plans (weekly/monthly) require verified on-chain payment — activation
+  // is handled by the payment-flow task. Reject until that integration is live.
+  if (plan === "weekly" || plan === "monthly") {
+    res.status(501).json({
+      error: "TON payment plans are not yet activated. Use TC plan or wait for on-chain verification.",
+    });
     return;
   }
 
