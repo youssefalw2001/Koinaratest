@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, count, sql } from "drizzle-orm";
+import { eq, count, sql, desc } from "drizzle-orm";
 import { db, usersTable, predictionsTable } from "@workspace/db";
 import {
   RegisterUserBody,
@@ -11,12 +11,16 @@ import {
   UpdateWalletBody,
   UpdateWalletResponse,
   UpgradeToVipParams,
+  UpgradeToVipBody,
   UpgradeToVipResponse,
   RegisterUserResponse,
 } from "@workspace/api-zod";
-import { serializeRow, serializeRows } from "../lib/serialize";
+import { serializeRow } from "../lib/serialize";
 
 const router: IRouter = Router();
+
+const USER_SCHEMA = (row: Record<string, unknown>) =>
+  RegisterUserResponse.parse(serializeRow(row));
 
 router.post("/users/register", async (req, res): Promise<void> => {
   const parsed = RegisterUserBody.safeParse(req.body);
@@ -26,6 +30,7 @@ router.post("/users/register", async (req, res): Promise<void> => {
   }
 
   const { telegramId, username, firstName, lastName, photoUrl, referredBy } = parsed.data;
+  const today = new Date().toISOString().split("T")[0];
 
   const existing = await db
     .select()
@@ -34,16 +39,16 @@ router.post("/users/register", async (req, res): Promise<void> => {
     .limit(1);
 
   if (existing.length > 0) {
-    const updatedRows = await db
+    const [updated] = await db
       .update(usersTable)
       .set({ username, firstName, lastName, photoUrl })
       .where(eq(usersTable.telegramId, telegramId))
       .returning();
-    res.json(RegisterUserResponse.parse(serializeRow(updatedRows[0] as Record<string, unknown>)));
+    res.json(USER_SCHEMA(updated as Record<string, unknown>));
     return;
   }
 
-  const newUserRows = await db
+  const [newUser] = await db
     .insert(usersTable)
     .values({
       telegramId,
@@ -52,31 +57,14 @@ router.post("/users/register", async (req, res): Promise<void> => {
       lastName,
       photoUrl,
       referredBy: referredBy ?? null,
-      points: 500,
-      totalEarned: 500,
+      tradeCredits: 500,
+      goldCoins: 0,
+      totalGcEarned: 0,
+      registrationDate: today,
     })
     .returning();
 
-  const newUser = newUserRows[0];
-
-  if (referredBy) {
-    const referrer = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.telegramId, referredBy))
-      .limit(1);
-    if (referrer.length > 0) {
-      await db
-        .update(usersTable)
-        .set({
-          points: sql`${usersTable.points} + 100`,
-          totalEarned: sql`${usersTable.totalEarned} + 100`,
-        })
-        .where(eq(usersTable.telegramId, referredBy));
-    }
-  }
-
-  res.status(200).json(RegisterUserResponse.parse(serializeRow(newUser as Record<string, unknown>)));
+  res.status(200).json(USER_SCHEMA(newUser as Record<string, unknown>));
 });
 
 router.get("/users/:telegramId", async (req, res): Promise<void> => {
@@ -117,11 +105,10 @@ router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
   const resolved = preds.filter((p) => p.status !== "pending");
   const wins = resolved.filter((p) => p.status === "won").length;
   const losses = resolved.filter((p) => p.status === "lost").length;
-  const totalWagered = preds.reduce((acc, p) => acc + p.amount, 0);
-  const totalPayout = resolved
+  const totalTcWagered = preds.reduce((acc, p) => acc + p.amount, 0);
+  const totalGcEarned = resolved
     .filter((p) => p.status === "won")
     .reduce((acc, p) => acc + (p.payout ?? 0), 0);
-  const netProfit = totalPayout - totalWagered;
   const winRate = resolved.length > 0 ? wins / resolved.length : 0;
 
   const referralCountResult = await db
@@ -131,25 +118,23 @@ router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
   const referralCount = referralCountResult[0]?.cnt ?? 0;
 
   const allUsers = await db
-    .select({ telegramId: usersTable.telegramId, points: usersTable.points })
+    .select({ telegramId: usersTable.telegramId, totalGcEarned: usersTable.totalGcEarned })
     .from(usersTable)
-    .orderBy(sql`${usersTable.points} DESC`);
+    .orderBy(desc(usersTable.totalGcEarned));
 
   const rankIndex = allUsers.findIndex((u) => u.telegramId === telegramId);
   const rank = rankIndex >= 0 ? rankIndex + 1 : allUsers.length + 1;
 
-  const stats = {
+  res.json(GetUserStatsResponse.parse({
     totalPredictions: preds.length,
     wins,
     losses,
     winRate,
-    totalWagered,
-    netProfit,
+    totalTcWagered,
+    totalGcEarned,
     referralCount: Number(referralCount),
     rank,
-  };
-
-  res.json(GetUserStatsResponse.parse(stats));
+  }));
 });
 
 router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
@@ -186,6 +171,12 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
+  const body = UpgradeToVipBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
   const [user] = await db
     .select()
     .from(usersTable)
@@ -197,23 +188,39 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.isVip) {
-    res.status(400).json({ error: "Already VIP" });
+  const { plan, txHash } = body.data;
+  const now = new Date();
+
+  if (plan === "tc") {
+    const TC_FEE = 500;
+    if (user.tradeCredits < TC_FEE) {
+      res.status(400).json({ error: `Need ${TC_FEE} Trade Credits to activate VIP.` });
+      return;
+    }
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const [updated] = await db
+      .update(usersTable)
+      .set({
+        isVip: true,
+        vipPlan: "tc_weekly",
+        vipExpiresAt: expiresAt,
+        tradeCredits: sql`${usersTable.tradeCredits} - ${TC_FEE}`,
+      })
+      .where(eq(usersTable.telegramId, params.data.telegramId))
+      .returning();
+    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;
   }
 
-  const VIP_FEE = 500;
-
-  if (user.points < VIP_FEE) {
-    res.status(400).json({ error: `Insufficient points. Need ${VIP_FEE} Alpha Points.` });
-    return;
-  }
+  const durationDays = plan === "monthly" ? 30 : 7;
+  const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
   const [updated] = await db
     .update(usersTable)
     .set({
       isVip: true,
-      points: sql`${usersTable.points} - ${VIP_FEE}`,
+      vipPlan: plan,
+      vipExpiresAt: expiresAt,
     })
     .where(eq(usersTable.telegramId, params.data.telegramId))
     .returning();

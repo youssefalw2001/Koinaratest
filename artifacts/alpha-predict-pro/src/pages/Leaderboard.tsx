@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Trophy, Crown, Zap } from "lucide-react";
+import { Trophy, Crown } from "lucide-react";
 import { useGetLeaderboard } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 
@@ -17,10 +17,11 @@ export default function Leaderboard() {
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
       <div className="flex items-center gap-2 mb-2">
-        <Trophy size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Alpha Leaderboard</span>
+        <Trophy size={16} className="text-[#f5c518] drop-shadow-[0_0_6px_#f5c518]" />
+        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Gold Leaderboard</span>
       </div>
-      <h1 className="font-mono text-2xl font-black text-white mb-6">Top Traders</h1>
+      <h1 className="font-mono text-2xl font-black text-white mb-1">Top Traders</h1>
+      <p className="font-mono text-xs text-white/30 mb-6">Ranked by lifetime Gold Coins earned 🪙</p>
 
       {isLoading && (
         <div className="space-y-2">
@@ -42,10 +43,10 @@ export default function Leaderboard() {
               transition={{ delay: idx * 0.04 }}
               className={`flex items-center gap-3 p-3 rounded-xl border ${
                 isCurrentUser
-                  ? "border-[#00f0ff]/50 bg-[#00f0ff]/10"
+                  ? "border-[#f5c518]/50 bg-[#f5c518]/8"
                   : "border-white/10 bg-white/[0.02]"
               }`}
-              style={isCurrentUser ? { boxShadow: "0 0 15px rgba(0,240,255,0.15)" } : {}}
+              style={isCurrentUser ? { boxShadow: "0 0 15px rgba(245,197,24,0.15)" } : {}}
             >
               {/* Rank */}
               <div className="w-8 text-center">
@@ -62,9 +63,9 @@ export default function Leaderboard() {
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center font-mono text-sm font-black shrink-0"
                 style={{
-                  background: entry.isVip ? "rgba(255,45,120,0.2)" : "rgba(0,240,255,0.1)",
-                  border: `1px solid ${entry.isVip ? "#ff2d78" : "#00f0ff"}40`,
-                  color: entry.isVip ? "#ff2d78" : "#00f0ff",
+                  background: entry.isVip ? "rgba(245,197,24,0.15)" : "rgba(0,240,255,0.1)",
+                  border: `1px solid ${entry.isVip ? "#f5c518" : "#00f0ff"}40`,
+                  color: entry.isVip ? "#f5c518" : "#00f0ff",
                 }}
               >
                 {(entry.firstName ?? entry.username ?? entry.telegramId).charAt(0).toUpperCase()}
@@ -76,7 +77,7 @@ export default function Leaderboard() {
                   <span className="font-mono text-sm font-bold text-white truncate">
                     {entry.firstName ?? entry.username ?? `User_${entry.telegramId.slice(-4)}`}
                   </span>
-                  {entry.isVip && <Crown size={10} className="text-[#ff2d78] shrink-0" />}
+                  {entry.isVip && <Crown size={10} className="text-[#f5c518] shrink-0" />}
                   {isCurrentUser && <span className="font-mono text-[9px] text-[#00f0ff] tracking-wider shrink-0">YOU</span>}
                 </div>
                 {entry.username && (
@@ -84,10 +85,10 @@ export default function Leaderboard() {
                 )}
               </div>
 
-              {/* Points */}
+              {/* Gold Coins */}
               <div className="flex items-center gap-1 shrink-0">
-                <Zap size={10} className="text-[#00f0ff]" />
-                <span className="font-mono text-sm font-black text-white">{entry.points.toLocaleString()}</span>
+                <span className="text-xs">🪙</span>
+                <span className="font-mono text-sm font-black text-[#f5c518]">{(entry.goldCoins ?? 0).toLocaleString()}</span>
               </div>
             </motion.div>
           );

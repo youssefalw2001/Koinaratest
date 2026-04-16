@@ -16,7 +16,10 @@ import { serializeRow, serializeRows } from "../lib/serialize";
 
 const router: IRouter = Router();
 
-const PAYOUT_MULTIPLIER = 1.7;
+const GC_RATIO = 0.85;
+const DAILY_GC_CAP_FREE = 800;
+const DAILY_GC_CAP_VIP = 3000;
+const MIN_BET_TC = 50;
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
@@ -27,8 +30,8 @@ router.post("/predictions", async (req, res): Promise<void> => {
 
   const { telegramId, direction, amount, entryPrice } = parsed.data;
 
-  if (amount < 10) {
-    res.status(400).json({ error: "Minimum bet is 10 Alpha Points" });
+  if (amount < MIN_BET_TC) {
+    res.status(400).json({ error: `Minimum bet is ${MIN_BET_TC} Trade Credits` });
     return;
   }
 
@@ -43,14 +46,20 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.points < amount) {
-    res.status(400).json({ error: "Insufficient Alpha Points" });
+  const maxBet = user.isVip ? 5000 : 1000;
+  if (amount > maxBet) {
+    res.status(400).json({ error: `Maximum bet is ${maxBet} Trade Credits` });
+    return;
+  }
+
+  if (user.tradeCredits < amount) {
+    res.status(400).json({ error: "Insufficient Trade Credits" });
     return;
   }
 
   await db
     .update(usersTable)
-    .set({ points: sql`${usersTable.points} - ${amount}` })
+    .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${amount}` })
     .where(eq(usersTable.telegramId, telegramId));
 
   const [prediction] = await db
@@ -97,24 +106,46 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     (prediction.direction === "long" && priceWentUp) ||
     (prediction.direction === "short" && !priceWentUp);
 
-  const payout = isWin ? Math.floor(prediction.amount * PAYOUT_MULTIPLIER) : 0;
+  let gcPayout = 0;
+
+  if (isWin) {
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, prediction.telegramId))
+      .limit(1);
+
+    if (user) {
+      const today = new Date().toISOString().split("T")[0];
+      const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
+      const dailyCap = user.isVip ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
+      const gcMultiplier = user.isVip ? 2 : 1;
+      const rawPayout = Math.floor(prediction.amount * GC_RATIO * gcMultiplier);
+      const remaining = dailyCap - currentDailyGc;
+      gcPayout = Math.min(rawPayout, Math.max(0, remaining));
+
+      if (gcPayout > 0) {
+        const newDailyGc = currentDailyGc + gcPayout;
+        await db
+          .update(usersTable)
+          .set({
+            goldCoins: sql`${usersTable.goldCoins} + ${gcPayout}`,
+            totalGcEarned: sql`${usersTable.totalGcEarned} + ${gcPayout}`,
+            dailyGcEarned: newDailyGc,
+            dailyGcDate: today,
+          })
+          .where(eq(usersTable.telegramId, prediction.telegramId));
+      }
+    }
+  }
+
   const status = isWin ? "won" : "lost";
 
   const [resolved] = await db
     .update(predictionsTable)
-    .set({ exitPrice, status, payout, resolvedAt: new Date() })
+    .set({ exitPrice, status, payout: gcPayout, resolvedAt: new Date() })
     .where(eq(predictionsTable.id, params.data.id))
     .returning();
-
-  if (isWin) {
-    await db
-      .update(usersTable)
-      .set({
-        points: sql`${usersTable.points} + ${payout}`,
-        totalEarned: sql`${usersTable.totalEarned} + ${payout}`,
-      })
-      .where(eq(usersTable.telegramId, prediction.telegramId));
-  }
 
   res.json(ResolvePredictionResponse.parse(serializeRow(resolved as Record<string, unknown>)));
 });
@@ -128,15 +159,14 @@ router.get("/predictions/leaderboard", async (req, res): Promise<void> => {
       telegramId: usersTable.telegramId,
       username: usersTable.username,
       firstName: usersTable.firstName,
-      points: usersTable.points,
+      goldCoins: usersTable.goldCoins,
       isVip: usersTable.isVip,
     })
     .from(usersTable)
-    .orderBy(desc(usersTable.points))
+    .orderBy(desc(usersTable.totalGcEarned))
     .limit(Number(limit));
 
   const leaderboard = users.map((u, idx) => ({ ...u, rank: idx + 1 }));
-
   res.json(GetLeaderboardResponse.parse(leaderboard));
 });
 

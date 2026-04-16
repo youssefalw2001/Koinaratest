@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Zap, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy } from "lucide-react";
+import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy } from "lucide-react";
 import { useGetUserStats, useClaimDailyReward, getGetUserQueryKey, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ export default function Profile() {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [dailyClaimed, setDailyClaimed] = useState(false);
-  const [dailyResult, setDailyResult] = useState<{ points: number; streak: number; isVip: boolean } | null>(null);
+  const [dailyResult, setDailyResult] = useState<{ tc: number; streak: number; isVip: boolean } | null>(null);
 
   const { data: stats, isLoading: statsLoading } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") }
@@ -23,14 +23,14 @@ export default function Profile() {
     try {
       const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
       setDailyClaimed(true);
-      setDailyResult({ points: result.pointsAwarded, streak: result.streak, isVip: result.isVipBonus });
+      setDailyResult({ tc: result.tcAwarded, streak: result.streak, isVip: result.isVipBonus });
       setTimeout(() => setDailyResult(null), 4000);
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       queryClient.invalidateQueries({ queryKey: getGetUserStatsQueryKey(user.telegramId) });
     } catch {}
   };
 
-  const referralLink = user ? `https://t.me/AlphaPredictProBot?start=${user.telegramId}` : "";
+  const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
 
   const handleCopyReferral = async () => {
     await navigator.clipboard.writeText(referralLink);
@@ -42,13 +42,12 @@ export default function Profile() {
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-6">
         <User size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
         <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Profile</span>
       </div>
 
-      {/* Daily Reward Result Toast */}
+      {/* Daily Reward Toast */}
       <AnimatePresence>
         {dailyResult && (
           <motion.div
@@ -60,13 +59,13 @@ export default function Profile() {
             <div
               className="p-4 rounded-2xl border-2 text-center"
               style={{
-                borderColor: dailyResult.isVip ? "#ff2d78" : "#00f0ff",
-                background: dailyResult.isVip ? "rgba(255,45,120,0.2)" : "rgba(0,240,255,0.2)",
-                boxShadow: dailyResult.isVip ? "0 0 40px rgba(255,45,120,0.5)" : "0 0 40px rgba(0,240,255,0.5)",
+                borderColor: dailyResult.isVip ? "#f5c518" : "#00f0ff",
+                background: dailyResult.isVip ? "rgba(245,197,24,0.18)" : "rgba(0,240,255,0.18)",
+                boxShadow: dailyResult.isVip ? "0 0 40px rgba(245,197,24,0.5)" : "0 0 40px rgba(0,240,255,0.5)",
               }}
             >
-              <div className="font-mono text-4xl font-black mb-1" style={{ color: dailyResult.isVip ? "#ff2d78" : "#00f0ff" }}>
-                +{dailyResult.points} AP
+              <div className="font-mono text-4xl font-black mb-1" style={{ color: dailyResult.isVip ? "#f5c518" : "#00f0ff" }}>
+                +{dailyResult.tc} 🔵 TC
               </div>
               <div className="font-mono text-xs text-white/70">
                 {dailyResult.isVip ? "VIP BONUS — " : ""}Day {dailyResult.streak} streak!
@@ -82,27 +81,33 @@ export default function Profile() {
           <div
             className="w-16 h-16 rounded-full flex items-center justify-center font-mono text-2xl font-black shrink-0"
             style={{
-              background: user.isVip ? "rgba(255,45,120,0.2)" : "rgba(0,240,255,0.1)",
-              border: `2px solid ${user.isVip ? "#ff2d78" : "#00f0ff"}`,
-              boxShadow: user.isVip ? "0 0 15px rgba(255,45,120,0.4)" : "0 0 15px rgba(0,240,255,0.3)",
-              color: user.isVip ? "#ff2d78" : "#00f0ff",
+              background: user.isVip ? "rgba(245,197,24,0.15)" : "rgba(0,240,255,0.1)",
+              border: `2px solid ${user.isVip ? "#f5c518" : "#00f0ff"}`,
+              boxShadow: user.isVip ? "0 0 15px rgba(245,197,24,0.4)" : "0 0 15px rgba(0,240,255,0.3)",
+              color: user.isVip ? "#f5c518" : "#00f0ff",
             }}
           >
-            {(user.firstName ?? user.username ?? "A").charAt(0).toUpperCase()}
+            {(user.firstName ?? user.username ?? "K").charAt(0).toUpperCase()}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="font-mono text-lg font-black text-white">
-                {user.firstName ?? user.username ?? "Alpha Trader"}
+                {user.firstName ?? user.username ?? "Koin Trader"}
               </span>
-              {user.isVip && <Crown size={14} className="text-[#ff2d78]" />}
+              {user.isVip && <Crown size={14} className="text-[#f5c518]" />}
             </div>
             {user.username && (
               <span className="font-mono text-xs text-white/40">@{user.username}</span>
             )}
-            <div className="flex items-center gap-2 mt-1">
-              <Zap size={12} className="text-[#00f0ff]" />
-              <span className="font-mono text-sm font-bold text-white">{(user.points ?? 0).toLocaleString()} AP</span>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs">🔵</span>
+                <span className="font-mono text-xs font-bold text-[#00f0ff]">{(user.tradeCredits ?? 0).toLocaleString()} TC</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs">🪙</span>
+                <span className="font-mono text-xs font-bold text-[#f5c518]">{(user.goldCoins ?? 0).toLocaleString()} GC</span>
+              </div>
             </div>
           </div>
         </div>
@@ -117,19 +122,21 @@ export default function Profile() {
           dailyClaimed
             ? "border-white/10 bg-white/5 opacity-50"
             : user?.isVip
-            ? "border-[#ff2d78] bg-[#ff2d78]/10"
+            ? "border-[#f5c518] bg-[#f5c518]/10"
             : "border-[#00f0ff] bg-[#00f0ff]/10"
         }`}
         style={!dailyClaimed ? {
-          boxShadow: user?.isVip ? "0 0 20px rgba(255,45,120,0.3)" : "0 0 20px rgba(0,240,255,0.3)"
+          boxShadow: user?.isVip ? "0 0 20px rgba(245,197,24,0.25)" : "0 0 20px rgba(0,240,255,0.25)"
         } : {}}
         data-testid="btn-claim-daily"
       >
         <div className="flex items-center gap-3">
           <Flame
             size={20}
-            className={dailyClaimed ? "text-white/30" : user?.isVip ? "text-[#ff2d78]" : "text-[#00f0ff]"}
-            style={{ filter: dailyClaimed ? "none" : `drop-shadow(0 0 6px ${user?.isVip ? "#ff2d78" : "#00f0ff"})` }}
+            style={{
+              color: dailyClaimed ? "rgba(255,255,255,0.3)" : user?.isVip ? "#f5c518" : "#00f0ff",
+              filter: dailyClaimed ? "none" : `drop-shadow(0 0 6px ${user?.isVip ? "#f5c518" : "#00f0ff"})`,
+            }}
           />
           <div className="text-left">
             <div className="font-mono text-sm font-black text-white">
@@ -144,12 +151,9 @@ export default function Profile() {
           {dailyClaimed ? (
             <CheckCircle size={16} className="text-white/30" />
           ) : (
-            <>
-              <Zap size={12} style={{ color: user?.isVip ? "#ff2d78" : "#00f0ff" }} />
-              <span className="font-mono text-sm font-black" style={{ color: user?.isVip ? "#ff2d78" : "#00f0ff" }}>
-                {user?.isVip ? "100+" : "50+"} AP
-              </span>
-            </>
+            <span className="font-mono text-sm font-black" style={{ color: user?.isVip ? "#f5c518" : "#00f0ff" }}>
+              {user?.isVip ? "150+" : "100+"} TC
+            </span>
           )}
         </div>
       </motion.button>
@@ -158,8 +162,8 @@ export default function Profile() {
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
           { label: "Win Rate", value: statsLoading ? "..." : `${winRate}%`, icon: TrendingUp, color: winRate >= 50 ? "#00f0ff" : "#ff2d78" },
-          { label: "Total Predictions", value: statsLoading ? "..." : (stats?.totalPredictions ?? 0), icon: Target, color: "#00f0ff" },
-          { label: "Net Profit", value: statsLoading ? "..." : `${stats?.netProfit ?? 0} AP`, icon: Award, color: (stats?.netProfit ?? 0) >= 0 ? "#00f0ff" : "#ff2d78" },
+          { label: "Total Trades", value: statsLoading ? "..." : (stats?.totalPredictions ?? 0), icon: Target, color: "#00f0ff" },
+          { label: "GC Earned", value: statsLoading ? "..." : `${stats?.totalGcEarned ?? 0}`, icon: Award, color: "#f5c518" },
           { label: "Referrals", value: statsLoading ? "..." : (stats?.referralCount ?? 0), icon: Share2, color: "#ff2d78" },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="p-3 rounded-xl border border-white/10 bg-white/[0.02]">
@@ -175,7 +179,7 @@ export default function Profile() {
       {/* Login Streak */}
       <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] mb-4">
         <div className="flex items-center gap-2 mb-3">
-          <Flame size={14} className="text-[#ff2d78]" />
+          <Flame size={14} className="text-[#f5c518]" />
           <span className="font-mono text-xs text-white/50 tracking-wider uppercase">Login Streak</span>
         </div>
         <div className="flex gap-2">
@@ -186,28 +190,26 @@ export default function Profile() {
                 key={i}
                 className="flex-1 h-8 rounded"
                 style={{
-                  background: active
-                    ? `linear-gradient(135deg, #ff2d78, #00f0ff)`
-                    : "rgba(255,255,255,0.05)",
-                  border: active ? "1px solid rgba(0,240,255,0.4)" : "1px solid rgba(255,255,255,0.1)",
+                  background: active ? "linear-gradient(135deg, #f5c518, #ff2d78)" : "rgba(255,255,255,0.05)",
+                  border: active ? "1px solid rgba(245,197,24,0.5)" : "1px solid rgba(255,255,255,0.1)",
                 }}
               />
             );
           })}
         </div>
         <div className="font-mono text-[10px] text-white/30 mt-2">
-          {user?.loginStreak ?? 0} day streak — {user?.isVip ? "VIP 2x bonus" : "Go VIP for 2x"}
+          {user?.loginStreak ?? 0} day streak — {user?.isVip ? "VIP 2x bonus active" : "Go VIP for 2x"}
         </div>
       </div>
 
       {/* Referral */}
-      <div className="p-4 rounded-xl border border-[#ff2d78]/30 bg-[#ff2d78]/5">
+      <div className="p-4 rounded-xl border border-[#ff2d78]/30 bg-[#ff2d78]/5 mb-4">
         <div className="flex items-center gap-2 mb-2">
           <Share2 size={14} className="text-[#ff2d78]" />
-          <span className="font-mono text-xs text-[#ff2d78] tracking-wider uppercase">Referral Program</span>
+          <span className="font-mono text-xs text-[#ff2d78] tracking-wider uppercase">Referral</span>
         </div>
         <div className="font-mono text-[10px] text-white/40 mb-3">
-          Earn 100 AP for every friend you invite
+          Invite friends — earn TC commission on their winnings
         </div>
         <div className="flex gap-2">
           <div className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-2 font-mono text-[11px] text-white/50 truncate">
@@ -224,18 +226,19 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* VIP Upgrade CTA for free users */}
+      {/* VIP CTA for free users */}
       {user && !user.isVip && (
-        <div className="mt-4 p-4 rounded-2xl border-2 border-[#ff2d78]/60 bg-[#ff2d78]/5 text-center"
-          style={{ boxShadow: "0 0 25px rgba(255,45,120,0.2)" }}
+        <div
+          className="p-4 rounded-2xl border-2 border-[#f5c518]/60 bg-[#f5c518]/5 text-center"
+          style={{ boxShadow: "0 0 25px rgba(245,197,24,0.15)" }}
         >
-          <Crown size={24} className="text-[#ff2d78] mx-auto mb-2 drop-shadow-[0_0_10px_#ff2d78]" />
-          <div className="font-mono text-sm font-black text-[#ff2d78] mb-1">VIP EARNS 2x MORE</div>
-          <div className="font-mono text-[10px] text-white/40 mb-3">
-            100 daily points, 2.5x quest rewards, withdrawal access
+          <Crown size={24} className="text-[#f5c518] mx-auto mb-2 drop-shadow-[0_0_10px_#f5c518]" />
+          <div className="font-mono text-sm font-black text-[#f5c518] mb-1">VIP EARNS 2x MORE</div>
+          <div className="font-mono text-[10px] text-white/40 mb-2">
+            2x GC wins · 3,000 GC daily cap · Withdrawal access
           </div>
-          <div className="font-mono text-xs text-white/50">
-            Only 500 Alpha Points — Go to Wallet to upgrade
+          <div className="font-mono text-xs text-white/40">
+            Only 500 TC — activate in Wallet
           </div>
         </div>
       )}

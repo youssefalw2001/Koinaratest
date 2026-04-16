@@ -33,7 +33,7 @@ export default function Earn() {
   const { data: quests, isLoading } = useListQuests();
   const claimQuest = useClaimQuest();
   const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
-  const [lastClaim, setLastClaim] = useState<{ points: number; id: number } | null>(null);
+  const [lastClaim, setLastClaim] = useState<{ tc: number; id: number } | null>(null);
 
   const handleClaim = async (questId: number, externalUrl: string) => {
     if (!user) return;
@@ -41,7 +41,7 @@ export default function Earn() {
     try {
       const result = await claimQuest.mutateAsync({ id: questId, data: { telegramId: user.telegramId } });
       setClaimedIds(prev => new Set([...prev, questId]));
-      setLastClaim({ points: result.pointsAwarded, id: questId });
+      setLastClaim({ tc: result.tcAwarded, id: questId });
       setTimeout(() => setLastClaim(null), 3000);
       queryClient.invalidateQueries({ queryKey: getListQuestsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
@@ -53,24 +53,23 @@ export default function Earn() {
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-2">
-        <Gift size={16} className="text-[#ff2d78] drop-shadow-[0_0_6px_#ff2d78]" />
+        <Gift size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
         <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Earn Center</span>
       </div>
-      <h1 className="font-mono text-2xl font-black text-white mb-1">Alpha Quests</h1>
-      <p className="font-mono text-xs text-white/40 mb-6">Complete missions. Stack Alpha Points. Zero risk, pure reward.</p>
+      <h1 className="font-mono text-2xl font-black text-white mb-1">Koinara Quests</h1>
+      <p className="font-mono text-xs text-white/40 mb-6">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
-      {/* VIP Banner for non-VIP users */}
+      {/* VIP Banner */}
       {user && !user.isVip && (
         <div
-          className="flex items-center gap-3 p-3 rounded-xl border-2 border-[#ff2d78]/50 bg-[#ff2d78]/10 mb-6"
-          style={{ boxShadow: "0 0 20px rgba(255,45,120,0.2)" }}
+          className="flex items-center gap-3 p-3 rounded-xl border-2 border-[#f5c518]/50 bg-[#f5c518]/8 mb-6"
+          style={{ boxShadow: "0 0 20px rgba(245,197,24,0.15)" }}
         >
-          <Crown size={20} className="text-[#ff2d78] shrink-0 drop-shadow-[0_0_6px_#ff2d78]" />
+          <Crown size={20} className="text-[#f5c518] shrink-0 drop-shadow-[0_0_6px_#f5c518]" />
           <div>
-            <div className="font-mono text-xs font-bold text-[#ff2d78]">VIP earns 2.5x MORE on quests</div>
-            <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value offers</div>
+            <div className="font-mono text-xs font-bold text-[#f5c518]">VIP earns 2x more on every win</div>
+            <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value quests</div>
           </div>
         </div>
       )}
@@ -88,8 +87,8 @@ export default function Earn() {
               className="flex items-center gap-3 p-3 rounded-xl border border-[#00f0ff]/50 bg-[#00f0ff]/15"
               style={{ boxShadow: "0 0 20px rgba(0,240,255,0.3)" }}
             >
-              <Zap size={16} className="text-[#00f0ff]" />
-              <span className="font-mono text-sm text-[#00f0ff] font-bold">+{lastClaim.points} Alpha Points Claimed!</span>
+              <span className="text-base">🔵</span>
+              <span className="font-mono text-sm text-[#00f0ff] font-bold">+{lastClaim.tc} Trade Credits Claimed!</span>
             </div>
           </motion.div>
         )}
@@ -135,8 +134,8 @@ export default function Earn() {
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <div className="flex items-center gap-1">
-                      <Zap size={10} className="text-[#00f0ff]" />
-                      <span className="font-mono text-sm font-black text-[#00f0ff]">+{quest.reward}</span>
+                      <span className="text-xs">🔵</span>
+                      <span className="font-mono text-sm font-black text-[#00f0ff]">+{quest.reward} TC</span>
                     </div>
                     <button
                       onClick={() => handleClaim(quest.id, quest.externalUrl)}
@@ -148,11 +147,7 @@ export default function Earn() {
                       }`}
                       data-testid={`btn-claim-${quest.id}`}
                     >
-                      {isClaimed ? "Claimed" : (
-                        <>
-                          Claim <ExternalLink size={9} />
-                        </>
-                      )}
+                      {isClaimed ? "Claimed" : <><span>Claim</span><ExternalLink size={9} /></>}
                     </button>
                   </div>
                 </motion.div>
@@ -166,8 +161,8 @@ export default function Earn() {
       {vipQuests.length > 0 && (
         <>
           <div className="flex items-center gap-2 mb-3">
-            <Crown size={12} className="text-[#ff2d78]" />
-            <span className="font-mono text-[10px] text-[#ff2d78] tracking-widest uppercase">VIP Exclusive</span>
+            <Crown size={12} className="text-[#f5c518]" />
+            <span className="font-mono text-[10px] text-[#f5c518] tracking-widest uppercase">VIP Exclusive</span>
           </div>
           <div className="space-y-3">
             {vipQuests.map((quest) => {
@@ -178,37 +173,37 @@ export default function Earn() {
                 <motion.div
                   key={quest.id}
                   className={`relative flex items-center gap-3 p-4 rounded-xl border-2 ${
-                    isLocked ? "border-[#ff2d78]/30 opacity-70" : "border-[#ff2d78]/50"
-                  } bg-[#ff2d78]/5`}
-                  style={{ boxShadow: isLocked ? "none" : "0 0 15px rgba(255,45,120,0.15)" }}
+                    isLocked ? "border-[#f5c518]/25 opacity-70" : "border-[#f5c518]/50"
+                  } bg-[#f5c518]/5`}
+                  style={{ boxShadow: isLocked ? "none" : "0 0 15px rgba(245,197,24,0.12)" }}
                 >
                   {isLocked && (
                     <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 z-10">
-                      <Lock size={20} className="text-[#ff2d78]" />
+                      <Lock size={20} className="text-[#f5c518]" />
                     </div>
                   )}
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center border border-[#ff2d78]/30 bg-[#ff2d78]/10">
-                    <Icon size={18} className="text-[#ff2d78]" />
+                  <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center border border-[#f5c518]/30 bg-[#f5c518]/10">
+                    <Icon size={18} className="text-[#f5c518]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="font-mono text-sm font-bold text-white">{quest.title}</span>
-                      <Crown size={10} className="text-[#ff2d78]" />
+                      <Crown size={10} className="text-[#f5c518]" />
                     </div>
                     <div className="font-mono text-[11px] text-white/40">{quest.description}</div>
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <div className="flex items-center gap-1">
-                      <Zap size={10} className="text-[#ff2d78]" />
-                      <span className="font-mono text-sm font-black text-[#ff2d78]">+{quest.reward}</span>
+                      <span className="text-xs">🔵</span>
+                      <span className="font-mono text-sm font-black text-[#f5c518]">+{quest.reward} TC</span>
                     </div>
                     <button
                       onClick={() => !isLocked && !isClaimed && handleClaim(quest.id, quest.externalUrl)}
                       disabled={isLocked || isClaimed}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded font-mono text-xs font-bold border border-[#ff2d78] text-[#ff2d78] bg-[#ff2d78]/10 disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 rounded font-mono text-xs font-bold border border-[#f5c518] text-[#f5c518] bg-[#f5c518]/10 disabled:opacity-50"
                       data-testid={`btn-claim-vip-${quest.id}`}
                     >
-                      {isClaimed ? "Claimed" : isLocked ? <Lock size={10} /> : <>Claim <ExternalLink size={9} /></>}
+                      {isClaimed ? "Claimed" : isLocked ? <Lock size={10} /> : <><span>Claim</span><ExternalLink size={9} /></>}
                     </button>
                   </div>
                 </motion.div>

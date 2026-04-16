@@ -32,6 +32,7 @@ import type {
   RegisterUserBody,
   ResolvePredictionBody,
   UpdateWalletBody,
+  UpgradeToVipBody,
   User,
   UserStats,
 } from "./api.schemas";
@@ -467,11 +468,14 @@ export const getUpgradeToVipUrl = (telegramId: string) => {
 
 export const upgradeToVip = async (
   telegramId: string,
+  upgradeToVipBody: UpgradeToVipBody,
   options?: RequestInit,
 ): Promise<User> => {
   return customFetch<User>(getUpgradeToVipUrl(telegramId), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(upgradeToVipBody),
   });
 };
 
@@ -482,14 +486,14 @@ export const getUpgradeToVipMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof upgradeToVip>>,
     TError,
-    { telegramId: string },
+    { telegramId: string; data: BodyType<UpgradeToVipBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof upgradeToVip>>,
   TError,
-  { telegramId: string },
+  { telegramId: string; data: BodyType<UpgradeToVipBody> },
   TContext
 > => {
   const mutationKey = ["upgradeToVip"];
@@ -503,11 +507,11 @@ export const getUpgradeToVipMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof upgradeToVip>>,
-    { telegramId: string }
+    { telegramId: string; data: BodyType<UpgradeToVipBody> }
   > = (props) => {
-    const { telegramId } = props ?? {};
+    const { telegramId, data } = props ?? {};
 
-    return upgradeToVip(telegramId, requestOptions);
+    return upgradeToVip(telegramId, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -520,7 +524,7 @@ export type UpgradeToVipMutationResult = NonNullable<
 export type UpgradeToVipMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Upgrade user to VIP (pay verification fee in points or mark as paid)
+ * @summary Upgrade user to VIP
  */
 export const useUpgradeToVip = <
   TError = ErrorType<ErrorResponse>,
@@ -529,14 +533,14 @@ export const useUpgradeToVip = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof upgradeToVip>>,
     TError,
-    { telegramId: string },
+    { telegramId: string; data: BodyType<UpgradeToVipBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof upgradeToVip>>,
   TError,
-  { telegramId: string },
+  { telegramId: string; data: BodyType<UpgradeToVipBody> },
   TContext
 > => {
   return useMutation(getUpgradeToVipMutationOptions(options));

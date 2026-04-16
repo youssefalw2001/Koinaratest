@@ -8,9 +8,10 @@ import {
 
 const router: IRouter = Router();
 
-const BASE_DAILY = 50;
-const STREAK_BONUS_PER_DAY = 10;
-const VIP_MULTIPLIER = 2;
+const BASE_DAILY_TC = 100;
+const STREAK_BONUS_TC = 10;
+const VIP_BASE_DAILY_TC = 150;
+const VIP_STREAK_BONUS_TC = 15;
 
 router.post("/rewards/daily", async (req, res): Promise<void> => {
   const parsed = ClaimDailyRewardBody.safeParse(req.body);
@@ -43,31 +44,29 @@ router.post("/rewards/daily", async (req, res): Promise<void> => {
   const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
   const newStreak = lastLogin === yesterday ? user.loginStreak + 1 : 1;
 
-  let reward = BASE_DAILY + (newStreak - 1) * STREAK_BONUS_PER_DAY;
-
-  if (user.isVip) {
-    reward = Math.floor(reward * VIP_MULTIPLIER);
-  }
+  const isVip = user.isVip && user.vipExpiresAt ? new Date(user.vipExpiresAt) > new Date() : false;
+  const baseTC = isVip ? VIP_BASE_DAILY_TC : BASE_DAILY_TC;
+  const streakBonus = isVip ? VIP_STREAK_BONUS_TC : STREAK_BONUS_TC;
+  const tcReward = baseTC + (newStreak - 1) * streakBonus;
 
   const [updatedUser] = await db
     .update(usersTable)
     .set({
       loginStreak: newStreak,
       lastLoginDate: today,
-      points: sql`${usersTable.points} + ${reward}`,
-      totalEarned: sql`${usersTable.totalEarned} + ${reward}`,
+      tradeCredits: sql`${usersTable.tradeCredits} + ${tcReward}`,
     })
     .where(eq(usersTable.telegramId, telegramId))
     .returning();
 
   const response = {
-    pointsAwarded: reward,
-    newBalance: updatedUser.points,
+    tcAwarded: tcReward,
+    newTcBalance: updatedUser.tradeCredits,
     streak: newStreak,
-    message: user.isVip
-      ? `VIP Bonus! Day ${newStreak} streak — ${reward} Alpha Points!`
-      : `Day ${newStreak} streak — ${reward} Alpha Points!`,
-    isVipBonus: user.isVip,
+    message: isVip
+      ? `VIP Bonus! Day ${newStreak} streak — ${tcReward} TC!`
+      : `Day ${newStreak} streak — ${tcReward} Trade Credits!`,
+    isVipBonus: isVip,
   };
 
   res.json(ClaimDailyRewardResponse.parse(response));

@@ -65,8 +65,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
             }
           : {
               telegramId: "demo_user_123",
-              username: "alpha_trader",
-              firstName: "Alpha",
+              username: "koin_trader",
+              firstName: "Koin",
               referredBy: null,
             };
 

@@ -61,11 +61,15 @@
   --popover-foreground: 0 0% 100%;
   --popover-border: 0 0% 15%;
   
-  --primary: 184 100% 50%; /* #00f0ff Cyan */
+  --primary: 184 100% 50%; /* #00f0ff Cyan — Trade Credits */
   --primary-foreground: 0 0% 0%;
   
-  --secondary: 339 100% 59%; /* #ff2d78 Magenta */
+  --secondary: 339 100% 59%; /* #ff2d78 Magenta — Loss/Danger */
   --secondary-foreground: 0 0% 100%;
+  
+  /* Gold Coins accent */
+  --gold: 45 95% 53%; /* #f5c518 */
+  --gold-dim: 43 80% 40%;
   
   --muted: 0 0% 15%;
   --muted-foreground: 0 0% 65%;
@@ -105,12 +109,18 @@
   .glow-magenta {
     box-shadow: 0 0 15px rgba(255, 45, 120, 0.5), inset 0 0 10px rgba(255, 45, 120, 0.2);
   }
+  .glow-gold {
+    box-shadow: 0 0 15px rgba(245, 197, 24, 0.5), inset 0 0 10px rgba(245, 197, 24, 0.15);
+  }
   
   .text-glow-cyan {
     text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
   }
   .text-glow-magenta {
     text-shadow: 0 0 8px rgba(255, 45, 120, 0.8);
+  }
+  .text-glow-gold {
+    text-shadow: 0 0 8px rgba(245, 197, 24, 0.9);
   }
   
   /* Hide scrollbar for mobile feel */

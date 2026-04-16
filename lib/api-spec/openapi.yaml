@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: Alpha Predict Pro API
+  version: 0.2.0
+  description: Koinara API
 servers:
   - url: /api
     description: Base API path
@@ -124,13 +124,19 @@ paths:
     post:
       operationId: upgradeToVip
       tags: [users]
-      summary: Upgrade user to VIP (pay verification fee in points or mark as paid)
+      summary: Upgrade user to VIP (deduct TC or record TON payment)
       parameters:
         - in: path
           name: telegramId
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradeToVipBody"
       responses:
         "200":
           description: VIP status granted
@@ -139,7 +145,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
         "400":
-          description: Not enough points or already VIP
+          description: Insufficient credits or already VIP
           content:
             application/json:
               schema:
@@ -149,7 +155,7 @@ paths:
     post:
       operationId: createPrediction
       tags: [predictions]
-      summary: Place a prediction (Long or Short)
+      summary: Place a trade prediction (Long or Short) — deducts Trade Credits
       requestBody:
         required: true
         content:
@@ -164,7 +170,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Prediction"
         "400":
-          description: Insufficient points or active prediction already exists
+          description: Insufficient Trade Credits or validation error
           content:
             application/json:
               schema:
@@ -174,7 +180,7 @@ paths:
     post:
       operationId: resolvePrediction
       tags: [predictions]
-      summary: Resolve a prediction with the final price
+      summary: Resolve a prediction — awards Gold Coins on win
       parameters:
         - in: path
           name: id
@@ -226,7 +232,7 @@ paths:
     get:
       operationId: getLeaderboard
       tags: [predictions]
-      summary: Get top players by total points
+      summary: Get top players by Gold Coins earned
       parameters:
         - in: query
           name: limit
@@ -248,7 +254,7 @@ paths:
     get:
       operationId: listQuests
       tags: [quests]
-      summary: List all available quests/CPA offers
+      summary: List all available quests
       responses:
         "200":
           description: List of quests
@@ -263,7 +269,7 @@ paths:
     post:
       operationId: claimQuest
       tags: [quests]
-      summary: Claim points reward for completing a quest
+      summary: Claim Trade Credits reward for completing a quest
       parameters:
         - in: path
           name: id
@@ -278,7 +284,7 @@ paths:
               $ref: "#/components/schemas/ClaimQuestBody"
       responses:
         "200":
-          description: Quest claimed, points awarded
+          description: Quest claimed, Trade Credits awarded
           content:
             application/json:
               schema:
@@ -294,7 +300,7 @@ paths:
     post:
       operationId: claimDailyReward
       tags: [rewards]
-      summary: Claim daily login reward (streak-based)
+      summary: Claim daily login reward in Trade Credits (streak-based)
       requestBody:
         required: true
         content:
@@ -359,6 +365,17 @@ components:
       required:
         - walletAddress
 
+    UpgradeToVipBody:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [weekly, monthly, tc]
+        txHash:
+          type: ["string", "null"]
+      required:
+        - plan
+
     User:
       type: object
       properties:
@@ -374,11 +391,19 @@ components:
           type: ["string", "null"]
         photoUrl:
           type: ["string", "null"]
-        points:
+        tradeCredits:
           type: integer
-        totalEarned:
+        goldCoins:
+          type: integer
+        totalGcEarned:
           type: integer
         isVip:
+          type: boolean
+        vipExpiresAt:
+          type: ["string", "null"]
+        vipTrialExpiresAt:
+          type: ["string", "null"]
+        hasVerified:
           type: boolean
         walletAddress:
           type: ["string", "null"]
@@ -388,15 +413,27 @@ components:
           type: integer
         lastLoginDate:
           type: ["string", "null"]
+        registrationDate:
+          type: ["string", "null"]
+        dailyGcEarned:
+          type: integer
+        dailyGcDate:
+          type: ["string", "null"]
+        weeklyWithdrawnGc:
+          type: integer
         createdAt:
           type: string
       required:
         - id
         - telegramId
-        - points
-        - totalEarned
+        - tradeCredits
+        - goldCoins
+        - totalGcEarned
         - isVip
+        - hasVerified
         - loginStreak
+        - dailyGcEarned
+        - weeklyWithdrawnGc
         - createdAt
 
     UserStats:
@@ -410,9 +447,9 @@ components:
           type: integer
         winRate:
           type: number
-        totalWagered:
+        totalTcWagered:
           type: integer
-        netProfit:
+        totalGcEarned:
           type: integer
         referralCount:
           type: integer
@@ -423,8 +460,8 @@ components:
         - wins
         - losses
         - winRate
-        - totalWagered
-        - netProfit
+        - totalTcWagered
+        - totalGcEarned
         - referralCount
         - rank
 
@@ -496,7 +533,7 @@ components:
           type: ["string", "null"]
         firstName:
           type: ["string", "null"]
-        points:
+        goldCoins:
           type: integer
         isVip:
           type: boolean
@@ -504,7 +541,7 @@ components:
           type: integer
       required:
         - telegramId
-        - points
+        - goldCoins
         - isVip
         - rank
 
@@ -548,15 +585,15 @@ components:
     ClaimQuestResponse:
       type: object
       properties:
-        pointsAwarded:
+        tcAwarded:
           type: integer
-        newBalance:
+        newTcBalance:
           type: integer
         message:
           type: string
       required:
-        - pointsAwarded
-        - newBalance
+        - tcAwarded
+        - newTcBalance
         - message
 
     DailyRewardBody:
@@ -570,9 +607,9 @@ components:
     DailyRewardResponse:
       type: object
       properties:
-        pointsAwarded:
+        tcAwarded:
           type: integer
-        newBalance:
+        newTcBalance:
           type: integer
         streak:
           type: integer
@@ -581,8 +618,8 @@ components:
         isVipBonus:
           type: boolean
       required:
-        - pointsAwarded
-        - newBalance
+        - tcAwarded
+        - newTcBalance
         - streak
         - message
         - isVipBonus

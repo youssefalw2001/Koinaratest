@@ -5,10 +5,10 @@ import { useCreatePrediction, useResolvePrediction, useGetUserPredictions, getGe
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
-const ROUND_DURATION = 6;
-const PAYOUT_MULTIPLIER = 1.7;
-const MIN_BET = 10;
-const DEFAULT_BET = 50;
+const ROUND_DURATION = 60;
+const GC_RATIO = 0.85;
+const MIN_BET = 50;
+const DEFAULT_BET = 100;
 
 interface PriceResult {
   direction: string;
@@ -40,12 +40,12 @@ export default function Terminal() {
 
   const createPrediction = useCreatePrediction();
   const resolvePrediction = useResolvePrediction();
-
   const { data: recentPredictions } = useGetUserPredictions(
     user?.telegramId ?? "",
     { query: { limit: 5, enabled: !!user, queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") } }
   );
 
+  // Binance WS with fallback price simulation
   useEffect(() => {
     let fallbackInterval: NodeJS.Timeout | null = null;
     let connected = false;
@@ -69,35 +69,21 @@ export default function Terminal() {
       wsRef.current = ws;
       ws.onopen = () => {
         connected = true;
-        if (fallbackInterval) {
-          clearInterval(fallbackInterval);
-          fallbackInterval = null;
-        }
+        if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null; }
       };
       ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
-        const newPrice = parseFloat(data.p);
-        setPrice(prev => {
-          setPrevPrice(prev);
-          return newPrice;
-        });
+        setPrice(prev => { setPrevPrice(prev); return parseFloat(data.p); });
       };
       ws.onerror = () => ws.close();
       ws.onclose = () => {
         connected = false;
-        if (wsRef.current === ws) {
-          startFallback();
-          setTimeout(connect, 5000);
-        }
+        if (wsRef.current === ws) { startFallback(); setTimeout(connect, 5000); }
       };
     };
 
-    const timer = setTimeout(() => {
-      if (!connected) startFallback();
-    }, 2000);
-
+    const timer = setTimeout(() => { if (!connected) startFallback(); }, 2000);
     connect();
-
     return () => {
       clearTimeout(timer);
       if (fallbackInterval) clearInterval(fallbackInterval);
@@ -108,13 +94,9 @@ export default function Terminal() {
   const startCountdown = useCallback((predId: number, direction: string, amount: number, entryPrice: number) => {
     setCountdown(ROUND_DURATION);
     setActivePrediction({ id: predId, direction, amount, entryPrice });
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => {
       setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          countdownRef.current = null;
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(interval); countdownRef.current = null; return 0; }
         return prev - 1;
       });
     }, 1000);
@@ -125,9 +107,7 @@ export default function Terminal() {
       try {
         const resolved = await resolvePrediction.mutateAsync({ id: predId, data: { exitPrice: exitP } });
         const result: PriceResult = {
-          direction,
-          amount,
-          entryPrice,
+          direction, amount, entryPrice,
           exitPrice: exitP,
           won: resolved.status === "won",
           payout: resolved.payout ?? 0,
@@ -136,16 +116,15 @@ export default function Terminal() {
         setResults(prev => [result, ...prev].slice(0, 5));
         setShowResult(result);
         setActivePrediction(null);
-        setTimeout(() => setShowResult(null), 3000);
+        setTimeout(() => setShowResult(null), 4000);
         queryClient.invalidateQueries({ queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") });
-      } catch {
-        setActivePrediction(null);
-      }
+        queryClient.invalidateQueries({ queryKey: ["getUser", user?.telegramId] });
+      } catch { setActivePrediction(null); }
     }, ROUND_DURATION * 1000);
   }, [price, resolvePrediction, queryClient, user]);
 
   const handlePredict = async (direction: "long" | "short") => {
-    if (!user || activePrediction || bet < MIN_BET || bet > (user.points ?? 0)) return;
+    if (!user || activePrediction || bet < MIN_BET || bet > (user.tradeCredits ?? 0)) return;
     try {
       const pred = await createPrediction.mutateAsync({
         data: { telegramId: user.telegramId, direction, amount: bet, entryPrice: price }
@@ -156,41 +135,27 @@ export default function Terminal() {
 
   const priceUp = price > prevPrice;
   const priceColor = priceUp ? "#00f0ff" : "#ff2d78";
-  const priceGlow = priceUp
-    ? "drop-shadow-[0_0_20px_#00f0ff]"
-    : "drop-shadow-[0_0_20px_#ff2d78]";
+  const maxBet = user?.isVip ? 5000 : 1000;
+  const betOptions = [50, 100, 250, 500, 1000];
+  const expectedGc = Math.floor(bet * GC_RATIO * (user?.isVip ? 2 : 1));
 
-  const betOptions = [10, 25, 50, 100, 250];
+  const ringProgress = countdown / ROUND_DURATION;
+  const ringColor = ringProgress > 0.5 ? "#00f0ff" : ringProgress > 0.2 ? "#f5c518" : "#ff2d78";
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Zap size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
-          <span className="font-mono text-xs text-white/60 tracking-widest uppercase">BTC/USDT Terminal</span>
-        </div>
-        {user && (
-          <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded px-2 py-1">
-            <Zap size={12} className="text-[#00f0ff]" />
-            <span className="font-mono text-xs text-white font-bold">{(user.points ?? 0).toLocaleString()}</span>
-            <span className="font-mono text-[10px] text-white/40">AP</span>
-          </div>
-        )}
-      </div>
-
       {/* Live Price Display */}
       <div className="relative flex flex-col items-center justify-center py-8 mb-4 border border-white/10 rounded-xl bg-white/[0.02] overflow-hidden">
         <div className="absolute inset-0 opacity-10" style={{
           backgroundImage: `radial-gradient(circle at 50% 50%, ${priceColor}, transparent 70%)`
         }} />
-        <span className="font-mono text-[10px] text-white/40 tracking-widest mb-2">LIVE PRICE</span>
+        <span className="font-mono text-[10px] text-white/40 tracking-widest mb-2">BTC/USDT LIVE</span>
         <motion.div
           key={Math.floor(price)}
-          initial={{ scale: 1.05 }}
+          initial={{ scale: 1.04 }}
           animate={{ scale: 1 }}
-          className={`font-mono text-5xl font-black tracking-tight ${priceGlow}`}
-          style={{ color: priceColor }}
+          className="font-mono text-5xl font-black tracking-tight"
+          style={{ color: priceColor, filter: `drop-shadow(0 0 20px ${priceColor})` }}
         >
           {price > 0 ? `$${price.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}` : "CONNECTING..."}
         </motion.div>
@@ -206,32 +171,50 @@ export default function Terminal() {
         </div>
       </div>
 
-      {/* Countdown Ring */}
+      {/* Active Trade Countdown */}
       {activePrediction && (
         <div className="flex flex-col items-center mb-4 py-4 border border-white/10 rounded-xl bg-white/[0.02]">
-          <div className="relative w-16 h-16 mb-2">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
-              <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="4" />
+          <div className="relative w-20 h-20 mb-3">
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
               <circle
-                cx="32" cy="32" r="28" fill="none"
-                stroke={activePrediction.direction === "long" ? "#00f0ff" : "#ff2d78"}
-                strokeWidth="4"
-                strokeDasharray={`${2 * Math.PI * 28}`}
-                strokeDashoffset={`${2 * Math.PI * 28 * (1 - countdown / ROUND_DURATION)}`}
+                cx="40" cy="40" r="34" fill="none"
+                stroke={ringColor}
+                strokeWidth="5"
+                strokeDasharray={`${2 * Math.PI * 34}`}
+                strokeDashoffset={`${2 * Math.PI * 34 * (1 - ringProgress)}`}
                 strokeLinecap="round"
-                style={{ transition: "stroke-dashoffset 1s linear" }}
+                style={{ transition: "stroke-dashoffset 1s linear, stroke 0.5s ease" }}
               />
             </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="font-mono text-xl font-black text-white">{countdown}</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="font-mono text-2xl font-black text-white leading-none">{countdown}</span>
+              <span className="font-mono text-[9px] text-white/30">SEC</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Clock size={12} className="text-white/40" />
-            <span className="font-mono text-xs text-white/60">
-              {activePrediction.direction.toUpperCase()} — {activePrediction.amount} AP @ ${activePrediction.entryPrice.toFixed(2)}
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`font-mono text-xs font-bold ${activePrediction.direction === "long" ? "text-[#00f0ff]" : "text-[#ff2d78]"}`}>
+              {activePrediction.direction.toUpperCase()}
             </span>
+            <span className="font-mono text-[10px] text-white/40">—</span>
+            <span className="font-mono text-xs text-white/60">{activePrediction.amount} TC</span>
           </div>
+          <div className="font-mono text-[10px] text-white/30">
+            ENTRY: ${activePrediction.entryPrice.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </div>
+          {price > 0 && (
+            <div className={`font-mono text-sm font-bold mt-1 ${
+              ((activePrediction.direction === "long" && price > activePrediction.entryPrice) ||
+               (activePrediction.direction === "short" && price < activePrediction.entryPrice))
+                ? "text-[#00f0ff]" : "text-[#ff2d78]"
+            }`}>
+              {((activePrediction.direction === "long" && price > activePrediction.entryPrice) ||
+                (activePrediction.direction === "short" && price < activePrediction.entryPrice))
+                ? `+${Math.floor(activePrediction.amount * GC_RATIO)} GC`
+                : `-${activePrediction.amount} TC`
+              }
+            </div>
+          )}
         </div>
       )}
 
@@ -242,13 +225,13 @@ export default function Terminal() {
             initial={{ opacity: 0, scale: 0.8, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: -20 }}
-            className={`fixed inset-0 z-50 flex items-center justify-center pointer-events-none`}
+            className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
             <div
-              className={`relative px-10 py-8 rounded-2xl border-2 text-center`}
+              className="relative px-10 py-8 rounded-2xl border-2 text-center"
               style={{
                 borderColor: showResult.won ? "#00f0ff" : "#ff2d78",
-                background: showResult.won ? "rgba(0,240,255,0.15)" : "rgba(255,45,120,0.15)",
+                background: showResult.won ? "rgba(0,240,255,0.12)" : "rgba(255,45,120,0.12)",
                 boxShadow: showResult.won
                   ? "0 0 60px rgba(0,240,255,0.5), 0 0 120px rgba(0,240,255,0.2)"
                   : "0 0 60px rgba(255,45,120,0.5), 0 0 120px rgba(255,45,120,0.2)",
@@ -257,12 +240,19 @@ export default function Terminal() {
               <div className="font-mono text-5xl font-black mb-2" style={{ color: showResult.won ? "#00f0ff" : "#ff2d78" }}>
                 {showResult.won ? "WIN" : "LOSS"}
               </div>
-              {showResult.won && (
-                <div className="font-mono text-2xl text-white font-bold">
-                  +{showResult.payout.toLocaleString()} AP
+              {showResult.won ? (
+                <>
+                  <div className="font-mono text-2xl font-bold" style={{ color: "#f5c518" }}>
+                    +{showResult.payout.toLocaleString()} 🪙 GC
+                  </div>
+                  <div className="font-mono text-[10px] text-white/40 mt-1">Gold Coins added to balance</div>
+                </>
+              ) : (
+                <div className="font-mono text-sm text-white/50 mt-1">
+                  -{showResult.amount} TC lost
                 </div>
               )}
-              <div className="font-mono text-xs text-white/50 mt-1">
+              <div className="font-mono text-xs text-white/30 mt-2">
                 {showResult.direction.toUpperCase()} @ ${showResult.exitPrice.toFixed(2)}
               </div>
             </div>
@@ -276,10 +266,10 @@ export default function Terminal() {
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">Bet Amount</span>
-              <span className="font-mono text-xs text-[#00f0ff]">{bet} Alpha Points</span>
+              <span className="font-mono text-xs text-[#00f0ff]">{bet} 🔵 TC</span>
             </div>
-            <div className="flex gap-2">
-              {betOptions.map(opt => (
+            <div className="flex gap-1.5">
+              {betOptions.filter(o => o <= maxBet).map(opt => (
                 <button
                   key={opt}
                   onClick={() => setBet(opt)}
@@ -288,26 +278,31 @@ export default function Terminal() {
                       ? "border-[#00f0ff] text-[#00f0ff] bg-[#00f0ff]/10"
                       : "border-white/10 text-white/40 hover:border-white/30"
                   }`}
-                  data-testid={`btn-bet-${opt}`}
                 >
-                  {opt}
+                  {opt >= 1000 ? `${opt / 1000}K` : opt}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Custom bet input */}
-          <div className="mb-4">
+          <div className="mb-3">
             <input
               type="number"
               value={bet}
               min={MIN_BET}
-              max={user?.points ?? 9999}
-              onChange={e => setBet(Math.max(MIN_BET, parseInt(e.target.value) || MIN_BET))}
+              max={maxBet}
+              onChange={e => setBet(Math.max(MIN_BET, Math.min(maxBet, parseInt(e.target.value) || MIN_BET)))}
               className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 font-mono text-sm text-white focus:border-[#00f0ff] focus:outline-none"
-              placeholder="Custom amount"
-              data-testid="input-bet-custom"
+              placeholder="Custom amount (TC)"
             />
+          </div>
+
+          {/* Expected payout */}
+          <div className="flex items-center justify-between mb-3 px-3 py-2 rounded bg-[#f5c518]/5 border border-[#f5c518]/15">
+            <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
+            <span className="font-mono text-sm font-bold text-[#f5c518]">
+              +{expectedGc} 🪙 GC {user?.isVip ? "(VIP 2x)" : ""}
+            </span>
           </div>
 
           {/* Predict Buttons */}
@@ -315,10 +310,9 @@ export default function Terminal() {
             <motion.button
               whileTap={{ scale: 0.96 }}
               onClick={() => handlePredict("long")}
-              disabled={!user || !price || bet < MIN_BET || bet > (user?.points ?? 0)}
+              disabled={!user || !price || bet < MIN_BET || bet > (user?.tradeCredits ?? 0)}
               className="relative flex flex-col items-center py-5 rounded-xl border-2 border-[#00f0ff] bg-[#00f0ff]/10 font-mono font-black text-[#00f0ff] text-lg disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ boxShadow: "0 0 20px rgba(0,240,255,0.3)" }}
-              data-testid="btn-predict-long"
             >
               <TrendingUp size={24} className="mb-1" />
               LONG
@@ -327,10 +321,9 @@ export default function Terminal() {
             <motion.button
               whileTap={{ scale: 0.96 }}
               onClick={() => handlePredict("short")}
-              disabled={!user || !price || bet < MIN_BET || bet > (user?.points ?? 0)}
+              disabled={!user || !price || bet < MIN_BET || bet > (user?.tradeCredits ?? 0)}
               className="relative flex flex-col items-center py-5 rounded-xl border-2 border-[#ff2d78] bg-[#ff2d78]/10 font-mono font-black text-[#ff2d78] text-lg disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ boxShadow: "0 0 20px rgba(255,45,120,0.3)" }}
-              data-testid="btn-predict-short"
             >
               <TrendingDown size={24} className="mb-1" />
               SHORT
@@ -338,14 +331,16 @@ export default function Terminal() {
             </motion.button>
           </div>
 
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <AlertCircle size={10} className="text-white/30" />
-            <span className="font-mono text-[9px] text-white/30 tracking-wider">WIN {PAYOUT_MULTIPLIER}x YOUR BET — 6 SECOND ROUND</span>
+          <div className="flex items-center justify-center gap-2 mb-5">
+            <Clock size={10} className="text-white/30" />
+            <span className="font-mono text-[9px] text-white/30 tracking-wider">
+              60 SECOND ROUND · WIN {GC_RATIO * (user?.isVip ? 2 : 1) * 100}% AS 🪙 GOLD COINS
+            </span>
           </div>
         </>
       )}
 
-      {/* Recent Predictions History */}
+      {/* Recent Rounds History */}
       <div className="mb-2">
         <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">Recent Rounds</span>
       </div>
@@ -369,18 +364,18 @@ export default function Terminal() {
               )}
               <span className="font-mono text-xs text-white/60 uppercase">{pred.direction}</span>
             </div>
-            <div className="font-mono text-xs text-white/40">{pred.amount} AP</div>
+            <div className="font-mono text-xs text-white/40">{pred.amount} TC</div>
             <div className={`font-mono text-xs font-bold ${
-              pred.status === "won" ? "text-[#00f0ff]" : pred.status === "lost" ? "text-[#ff2d78]" : "text-white/40"
+              pred.status === "won" ? "text-[#f5c518]" : pred.status === "lost" ? "text-[#ff2d78]" : "text-white/40"
             }`}>
-              {pred.status === "won" ? `+${pred.payout}` : pred.status === "lost" ? `-${pred.amount}` : "LIVE"}
+              {pred.status === "won" ? `+${pred.payout} 🪙` : pred.status === "lost" ? `-${pred.amount} TC` : "LIVE"}
             </div>
           </div>
         ))}
         {!recentPredictions?.length && (
           <div className="flex flex-col items-center py-8 text-white/20">
             <Zap size={24} className="mb-2" />
-            <span className="font-mono text-xs">No predictions yet. Make your first call.</span>
+            <span className="font-mono text-xs">No trades yet. Make your first call.</span>
           </div>
         )}
       </div>

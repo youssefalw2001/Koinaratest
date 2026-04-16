@@ -78,26 +78,20 @@ router.post("/quests/:id/claim", async (req, res): Promise<void> => {
     return;
   }
 
-  const reward = quest.isVipOnly && user.isVip ? Math.floor(quest.reward * 2.5) : quest.reward;
-
+  const tcReward = quest.reward;
   await db.insert(questClaimsTable).values({ telegramId, questId });
 
   const [updatedUser] = await db
     .update(usersTable)
-    .set({
-      points: sql`${usersTable.points} + ${reward}`,
-      totalEarned: sql`${usersTable.totalEarned} + ${reward}`,
-    })
+    .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${tcReward}` })
     .where(eq(usersTable.telegramId, telegramId))
     .returning();
 
-  const response = {
-    pointsAwarded: reward,
-    newBalance: updatedUser.points,
-    message: `You earned ${reward} Alpha Points!`,
-  };
-
-  res.json(ClaimQuestResponse.parse(response));
+  res.json(ClaimQuestResponse.parse({
+    tcAwarded: tcReward,
+    newTcBalance: updatedUser.tradeCredits,
+    message: `You earned ${tcReward} Trade Credits!`,
+  }));
 });
 
 export default router;
