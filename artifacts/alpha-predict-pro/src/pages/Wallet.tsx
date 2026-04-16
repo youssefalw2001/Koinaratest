@@ -65,7 +65,7 @@ export default function WalletPage() {
             <Crown size={20} className="text-[#f5c518]" />
             <div>
               <div className="font-mono text-sm font-black text-[#f5c518]">VIP ACTIVATED!</div>
-              <div className="font-mono text-[10px] text-white/50">2x GC on every win — weekly subscription active</div>
+              <div className="font-mono text-[10px] text-white/50">3,000 GC daily cap · bet up to 5,000 TC — VIP active</div>
             </div>
           </motion.div>
         )}

@@ -22,7 +22,7 @@ const DAILY_GC_CAP_FREE = 800;
 const DAILY_GC_CAP_VIP = 3000;
 const MIN_BET_TC = 50;
 const ROUND_DURATION_SEC = 60;
-const RESOLVE_TOLERANCE_SEC = 5;
+const RESOLVE_TOLERANCE_SEC = 0;
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
