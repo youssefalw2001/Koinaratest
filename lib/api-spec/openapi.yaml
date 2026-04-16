@@ -3,20 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Alpha Predict Pro API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User operations
+  - name: predictions
+    description: Prediction operations
+  - name: quests
+    description: Quest/Earn Center operations
+  - name: rewards
+    description: Daily rewards and bonuses
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +31,290 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /users/register:
+    post:
+      operationId: registerUser
+      tags: [users]
+      summary: Register or login a user via Telegram ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterUserBody"
+      responses:
+        "200":
+          description: User registered or existing user returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{telegramId}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by Telegram ID
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{telegramId}/stats:
+    get:
+      operationId: getUserStats
+      tags: [users]
+      summary: Get user stats (win rate, profit, streak, referrals)
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStats"
+
+  /users/{telegramId}/wallet:
+    patch:
+      operationId: updateWallet
+      tags: [users]
+      summary: Link TON wallet address to user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWalletBody"
+      responses:
+        "200":
+          description: Wallet updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{telegramId}/vip:
+    post:
+      operationId: upgradeToVip
+      tags: [users]
+      summary: Upgrade user to VIP (pay verification fee in points or mark as paid)
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: VIP status granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Not enough points or already VIP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /predictions:
+    post:
+      operationId: createPrediction
+      tags: [predictions]
+      summary: Place a prediction (Long or Short)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePredictionBody"
+      responses:
+        "201":
+          description: Prediction created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prediction"
+        "400":
+          description: Insufficient points or active prediction already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /predictions/{id}/resolve:
+    post:
+      operationId: resolvePrediction
+      tags: [predictions]
+      summary: Resolve a prediction with the final price
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolvePredictionBody"
+      responses:
+        "200":
+          description: Prediction resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prediction"
+
+  /predictions/user/{telegramId}:
+    get:
+      operationId: getUserPredictions
+      tags: [predictions]
+      summary: Get recent predictions for a user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of predictions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Prediction"
+
+  /predictions/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [predictions]
+      summary: Get top players by total points
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  /quests:
+    get:
+      operationId: listQuests
+      tags: [quests]
+      summary: List all available quests/CPA offers
+      responses:
+        "200":
+          description: List of quests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quest"
+
+  /quests/{id}/claim:
+    post:
+      operationId: claimQuest
+      tags: [quests]
+      summary: Claim points reward for completing a quest
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimQuestBody"
+      responses:
+        "200":
+          description: Quest claimed, points awarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimQuestResponse"
+        "400":
+          description: Already claimed or quest not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rewards/daily:
+    post:
+      operationId: claimDailyReward
+      tags: [rewards]
+      summary: Claim daily login reward (streak-based)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyRewardBody"
+      responses:
+        "200":
+          description: Daily reward claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyRewardResponse"
+        "400":
+          description: Already claimed today
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +325,264 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    RegisterUserBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        username:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+        lastName:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        referredBy:
+          type: ["string", "null"]
+      required:
+        - telegramId
+
+    UpdateWalletBody:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+      required:
+        - walletAddress
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        telegramId:
+          type: string
+        username:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+        lastName:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        points:
+          type: integer
+        totalEarned:
+          type: integer
+        isVip:
+          type: boolean
+        walletAddress:
+          type: ["string", "null"]
+        referredBy:
+          type: ["string", "null"]
+        loginStreak:
+          type: integer
+        lastLoginDate:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - telegramId
+        - points
+        - totalEarned
+        - isVip
+        - loginStreak
+        - createdAt
+
+    UserStats:
+      type: object
+      properties:
+        totalPredictions:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        winRate:
+          type: number
+        totalWagered:
+          type: integer
+        netProfit:
+          type: integer
+        referralCount:
+          type: integer
+        rank:
+          type: integer
+      required:
+        - totalPredictions
+        - wins
+        - losses
+        - winRate
+        - totalWagered
+        - netProfit
+        - referralCount
+        - rank
+
+    CreatePredictionBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        direction:
+          type: string
+          enum: [long, short]
+        amount:
+          type: integer
+        entryPrice:
+          type: number
+      required:
+        - telegramId
+        - direction
+        - amount
+        - entryPrice
+
+    ResolvePredictionBody:
+      type: object
+      properties:
+        exitPrice:
+          type: number
+      required:
+        - exitPrice
+
+    Prediction:
+      type: object
+      properties:
+        id:
+          type: integer
+        telegramId:
+          type: string
+        direction:
+          type: string
+        amount:
+          type: integer
+        entryPrice:
+          type: number
+        exitPrice:
+          type: ["number", "null"]
+        status:
+          type: string
+          enum: [pending, won, lost]
+        payout:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+        resolvedAt:
+          type: ["string", "null"]
+      required:
+        - id
+        - telegramId
+        - direction
+        - amount
+        - entryPrice
+        - status
+        - createdAt
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        username:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+        points:
+          type: integer
+        isVip:
+          type: boolean
+        rank:
+          type: integer
+      required:
+        - telegramId
+        - points
+        - isVip
+        - rank
+
+    Quest:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        reward:
+          type: integer
+        externalUrl:
+          type: string
+        category:
+          type: string
+        isVipOnly:
+          type: boolean
+        iconName:
+          type: string
+      required:
+        - id
+        - title
+        - description
+        - reward
+        - externalUrl
+        - category
+        - isVipOnly
+        - iconName
+
+    ClaimQuestBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+      required:
+        - telegramId
+
+    ClaimQuestResponse:
+      type: object
+      properties:
+        pointsAwarded:
+          type: integer
+        newBalance:
+          type: integer
+        message:
+          type: string
+      required:
+        - pointsAwarded
+        - newBalance
+        - message
+
+    DailyRewardBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+      required:
+        - telegramId
+
+    DailyRewardResponse:
+      type: object
+      properties:
+        pointsAwarded:
+          type: integer
+        newBalance:
+          type: integer
+        streak:
+          type: integer
+        message:
+          type: string
+        isVipBonus:
+          type: boolean
+      required:
+        - pointsAwarded
+        - newBalance
+        - streak
+        - message
+        - isVipBonus

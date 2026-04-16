@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Alpha Predict Pro"
+version = "1.0.0"
+id = "artifacts/alpha-predict-pro"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18745
+
+[services.development]
+run = "pnpm --filter @workspace/alpha-predict-pro run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/alpha-predict-pro", "run", "build" ]
+publicDir = "artifacts/alpha-predict-pro/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18745"
+BASE_PATH = "/"
