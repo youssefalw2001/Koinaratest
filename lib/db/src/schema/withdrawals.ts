@@ -6,6 +6,7 @@ export const withdrawalQueueTable = pgTable("withdrawal_queue", {
   id: serial("id").primaryKey(),
   telegramId: text("telegram_id").notNull(),
   amountGc: integer("amount_gc").notNull(),
+  feePct: real("fee_pct").notNull().default(0.05),
   feeGc: integer("fee_gc").notNull(),
   netGc: integer("net_gc").notNull(),
   usdValue: real("usd_value").notNull(),
@@ -13,7 +14,7 @@ export const withdrawalQueueTable = pgTable("withdrawal_queue", {
   walletAddress: text("wallet_address").notNull(),
   txHash: text("tx_hash"),
   isVip: integer("is_vip").notNull().default(0),
-  processAt: timestamp("process_at", { withTimezone: true }),
+  processesAt: timestamp("processes_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

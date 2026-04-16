@@ -205,6 +205,12 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
   const { plan, txHash } = body.data;
   const now = new Date();
 
+  // Idempotency: if user is already VIP and it hasn't expired, return current state
+  if (user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > now) {
+    res.json(UpgradeToVipResponse.parse(serializeRow(user as Record<string, unknown>)));
+    return;
+  }
+
   // Paid plans (weekly/monthly) require a transaction hash for payment verification
   if ((plan === "weekly" || plan === "monthly") && !txHash) {
     res.status(400).json({ error: "Transaction hash required for paid VIP plans" });

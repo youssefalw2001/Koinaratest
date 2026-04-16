@@ -6,7 +6,7 @@ export const gemInventoryTable = pgTable("gem_inventory", {
   id: serial("id").primaryKey(),
   telegramId: text("telegram_id").notNull(),
   gemType: text("gem_type").notNull(),
-  usesRemaining: integer("uses_remaining").notNull().default(1),
+  quantity: integer("quantity").notNull().default(1),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
