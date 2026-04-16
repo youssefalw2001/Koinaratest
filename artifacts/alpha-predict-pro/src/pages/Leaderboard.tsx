@@ -5,7 +5,7 @@ import { useTelegram } from "@/lib/TelegramProvider";
 
 export default function Leaderboard() {
   const { user } = useTelegram();
-  const { data: board, isLoading } = useGetLeaderboard({ query: { limit: 20 } });
+  const { data: board, isLoading } = useGetLeaderboard({ limit: 20 });
 
   const getRankStyle = (rank: number) => {
     if (rank === 1) return { color: "#FFD700", glow: "drop-shadow-[0_0_8px_#FFD700]" };

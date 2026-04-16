@@ -57,7 +57,10 @@ router.post("/quests/:id/claim", async (req, res): Promise<void> => {
     return;
   }
 
-  if (quest.isVipOnly && !user.isVip) {
+  const vipActive = user.isVip && user.vipExpiresAt ? new Date(user.vipExpiresAt) > new Date() : false;
+  const trialActive = user.vipTrialExpiresAt ? new Date(user.vipTrialExpiresAt) > new Date() : false;
+
+  if (quest.isVipOnly && !vipActive && !trialActive) {
     res.status(400).json({ error: "This quest is VIP-only" });
     return;
   }

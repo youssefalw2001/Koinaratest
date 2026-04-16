@@ -5,7 +5,7 @@ import { useListQuests, useClaimQuest, getListQuestsQueryKey, getGetUserQueryKey
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
-const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
   "trending-up": TrendingUp,
   "bar-chart-2": BarChart2,
   "activity": Activity,

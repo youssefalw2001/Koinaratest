@@ -20,6 +20,15 @@ const GC_RATIO = 0.85;
 const DAILY_GC_CAP_FREE = 800;
 const DAILY_GC_CAP_VIP = 3000;
 const MIN_BET_TC = 50;
+const ROUND_DURATION_SEC = 60;
+const RESOLVE_TOLERANCE_SEC = 5;
+
+function isVipActive(user: { isVip: boolean; vipExpiresAt: Date | null; vipTrialExpiresAt: Date | null }): boolean {
+  const now = new Date();
+  if (user.isVip && user.vipExpiresAt && user.vipExpiresAt > now) return true;
+  if (user.vipTrialExpiresAt && user.vipTrialExpiresAt > now) return true;
+  return false;
+}
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
@@ -46,7 +55,8 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  const maxBet = user.isVip ? 5000 : 1000;
+  const vipActive = isVipActive(user);
+  const maxBet = vipActive ? 5000 : 1000;
   if (amount > maxBet) {
     res.status(400).json({ error: `Maximum bet is ${maxBet} Trade Credits` });
     return;
@@ -101,6 +111,15 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
+  // Backend 60s enforcement: must wait at least (ROUND_DURATION_SEC - RESOLVE_TOLERANCE_SEC) seconds
+  const elapsed = (Date.now() - new Date(prediction.createdAt).getTime()) / 1000;
+  if (elapsed < ROUND_DURATION_SEC - RESOLVE_TOLERANCE_SEC) {
+    res.status(400).json({
+      error: `Round not complete. ${Math.ceil(ROUND_DURATION_SEC - elapsed)}s remaining.`,
+    });
+    return;
+  }
+
   const priceWentUp = exitPrice > prediction.entryPrice;
   const isWin =
     (prediction.direction === "long" && priceWentUp) ||
@@ -118,8 +137,9 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     if (user) {
       const today = new Date().toISOString().split("T")[0];
       const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
-      const dailyCap = user.isVip ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
-      const gcMultiplier = user.isVip ? 2 : 1;
+      const vipNow = isVipActive(user);
+      const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
+      const gcMultiplier = vipNow ? 2 : 1;
       const rawPayout = Math.floor(prediction.amount * GC_RATIO * gcMultiplier);
       const remaining = dailyCap - currentDailyGc;
       gcPayout = Math.min(rawPayout, Math.max(0, remaining));

@@ -39,9 +39,23 @@ router.post("/users/register", async (req, res): Promise<void> => {
     .limit(1);
 
   if (existing.length > 0) {
+    const existingUser = existing[0];
+    const updateData: Record<string, unknown> = { username, firstName, lastName, photoUrl };
+
+    // Day-7 survivor bonus: +3000 TC + 24h VIP trial (one-time, only if never set)
+    if (existingUser.registrationDate && !existingUser.vipTrialExpiresAt) {
+      const regDate = new Date(existingUser.registrationDate);
+      const daysSinceReg = (Date.now() - regDate.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceReg >= 7) {
+        const trialExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        updateData.vipTrialExpiresAt = trialExpiry;
+        updateData.tradeCredits = sql`${usersTable.tradeCredits} + 3000`;
+      }
+    }
+
     const [updated] = await db
       .update(usersTable)
-      .set({ username, firstName, lastName, photoUrl })
+      .set(updateData)
       .where(eq(usersTable.telegramId, telegramId))
       .returning();
     res.json(USER_SCHEMA(updated as Record<string, unknown>));
@@ -190,6 +204,12 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
 
   const { plan, txHash } = body.data;
   const now = new Date();
+
+  // Paid plans (weekly/monthly) require a transaction hash for payment verification
+  if ((plan === "weekly" || plan === "monthly") && !txHash) {
+    res.status(400).json({ error: "Transaction hash required for paid VIP plans" });
+    return;
+  }
 
   if (plan === "tc") {
     const TC_FEE = 500;

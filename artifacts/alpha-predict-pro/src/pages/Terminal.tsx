@@ -42,7 +42,8 @@ export default function Terminal() {
   const resolvePrediction = useResolvePrediction();
   const { data: recentPredictions } = useGetUserPredictions(
     user?.telegramId ?? "",
-    { query: { limit: 5, enabled: !!user, queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") } }
+    { limit: 5 },
+    { query: { enabled: !!user, queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") } }
   );
 
   // Binance WS with fallback price simulation
