@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  ActivateVipTrialBody,
   ClaimQuestBody,
   ClaimQuestResponse,
   CreatePredictionBody,
@@ -460,6 +461,93 @@ export const useUpdateWallet = <
   TContext
 > => {
   return useMutation(getUpdateWalletMutationOptions(options));
+};
+
+/**
+ * @summary Activate a 24-hour VIP trial (TC=0, GC milestone, or referral trigger)
+ */
+export const getActivateVipTrialUrl = (telegramId: string) => {
+  return `/api/users/${telegramId}/activate-trial`;
+};
+
+export const activateVipTrial = async (
+  telegramId: string,
+  activateVipTrialBody: ActivateVipTrialBody,
+  options?: RequestInit,
+): Promise<User> => {
+  return customFetch<User>(getActivateVipTrialUrl(telegramId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(activateVipTrialBody),
+  });
+};
+
+export const getActivateVipTrialMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof activateVipTrial>>,
+    TError,
+    { telegramId: string; data: BodyType<ActivateVipTrialBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof activateVipTrial>>,
+  TError,
+  { telegramId: string; data: BodyType<ActivateVipTrialBody> },
+  TContext
+> => {
+  const mutationKey = ["activateVipTrial"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof activateVipTrial>>,
+    { telegramId: string; data: BodyType<ActivateVipTrialBody> }
+  > = (props) => {
+    const { telegramId, data } = props ?? {};
+
+    return activateVipTrial(telegramId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActivateVipTrialMutationResult = NonNullable<
+  Awaited<ReturnType<typeof activateVipTrial>>
+>;
+export type ActivateVipTrialMutationBody = BodyType<ActivateVipTrialBody>;
+export type ActivateVipTrialMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Activate a 24-hour VIP trial (TC=0, GC milestone, or referral trigger)
+ */
+export const useActivateVipTrial = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof activateVipTrial>>,
+    TError,
+    { telegramId: string; data: BodyType<ActivateVipTrialBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof activateVipTrial>>,
+  TError,
+  { telegramId: string; data: BodyType<ActivateVipTrialBody> },
+  TContext
+> => {
+  return useMutation(getActivateVipTrialMutationOptions(options));
 };
 
 /**

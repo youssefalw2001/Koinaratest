@@ -11,9 +11,9 @@ const GC_TO_USD = 0.00025;
 const VIP_FEE_TC = 500;
 const MILESTONE_GC = 10000;
 
-const TON_WEEKLY_AMOUNT = "1000000000";
-const TON_MONTHLY_AMOUNT = "3000000000";
-const KOINARA_TON_WALLET = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFu";
+const TON_WEEKLY_AMOUNT = "500000000";
+const TON_MONTHLY_AMOUNT = "1500000000";
+const KOINARA_TON_WALLET = import.meta.env.VITE_KOINARA_TON_WALLET ?? "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFu";
 
 type VipTab = "tc" | "ton";
 
@@ -387,7 +387,7 @@ export default function WalletPage() {
                         }`}
                       >
                         <div className="font-mono text-xs font-black text-white">7 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">1 TON ≈ $3</div>
+                        <div className="font-mono text-[10px] text-white/40">0.5 TON ≈ $1.5</div>
                       </button>
                       <button
                         onClick={() => setTonPlan("monthly")}
@@ -397,7 +397,7 @@ export default function WalletPage() {
                       >
                         <div className="absolute -top-2 right-2 bg-[#ff2d78] text-white font-mono text-[8px] px-1.5 py-0.5 rounded font-black">BEST VALUE</div>
                         <div className="font-mono text-xs font-black text-white">30 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">3 TON ≈ $9</div>
+                        <div className="font-mono text-[10px] text-white/40">1.5 TON ≈ $4.5</div>
                       </button>
                     </div>
                     {!walletAddress ? (
@@ -413,7 +413,7 @@ export default function WalletPage() {
                         style={{ boxShadow: "0 0 20px rgba(245,197,24,0.3)" }}
                         data-testid="btn-upgrade-ton"
                       >
-                        {tonPending ? "WAITING FOR TX..." : `PAY ${tonPlan === "weekly" ? "1" : "3"} TON — ${tonPlan === "weekly" ? "7" : "30"} DAYS`}
+                        {tonPending ? "WAITING FOR TX..." : `PAY ${tonPlan === "weekly" ? "0.5" : "1.5"} TON — ${tonPlan === "weekly" ? "7" : "30"} DAYS`}
                       </button>
                     )}
                   </div>

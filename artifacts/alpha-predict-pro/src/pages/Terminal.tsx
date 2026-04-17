@@ -147,6 +147,12 @@ export default function Terminal() {
     { query: { enabled: !!user, queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") } },
   );
 
+  const { data: historyPredictions } = useGetUserPredictions(
+    user?.telegramId ?? "",
+    { limit: 100 },
+    { query: { enabled: !!user, queryKey: [...getGetUserPredictionsQueryKey(user?.telegramId ?? ""), "history100"] } },
+  );
+
   const { data: vipActivityRaw } = useGetVipActivity({
     query: { refetchInterval: 30_000, queryKey: getGetVipActivityQueryKey() },
   });
@@ -310,6 +316,21 @@ export default function Terminal() {
   const expectedGc = Math.floor(bet * GC_RATIO);
   const vipGc = expectedGc * 2;
 
+  const yesterdayGc = (() => {
+    if (!historyPredictions) return 0;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split("T")[0];
+    return historyPredictions.reduce((sum, p) => {
+      if (!p.resolvedAt) return sum;
+      const day = new Date(p.resolvedAt).toISOString().split("T")[0];
+      if (day !== yStr) return sum;
+      return sum + (p.status === "won" ? (p.payout ?? 0) : 0);
+    }, 0);
+  })();
+  const yesterdayVipGc = yesterdayGc * 2;
+  const yesterdayMissed = yesterdayVipGc - yesterdayGc;
+
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor =
     ringProgress > 0.5 ? "#00f0ff" : ringProgress > 0.2 ? "#f5c518" : "#ff2d78";
@@ -363,9 +384,29 @@ export default function Terminal() {
       })()}
 
       {!vip && (
-        <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#ff2d78]/25 bg-[#ff2d78]/5">
-          <span className="font-mono text-[10px] text-[#ff2d78]">⚡ VIP users earn 2× on every trade</span>
-          <span className="font-mono text-[9px] text-white/30 ml-auto">→ Wallet</span>
+        <div
+          className="mx-4 mt-2 px-3 py-2 rounded-lg border border-[#ff2d78]/25 bg-[#ff2d78]/5 cursor-pointer"
+          onClick={() => navigate("/wallet")}
+        >
+          {yesterdayGc > 0 ? (
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[10px] text-[#ff2d78]">⚡ Yesterday:</span>
+                <span className="font-mono text-[10px] text-white/60">
+                  you earned <span className="text-[#f5c518] font-bold">{yesterdayGc.toLocaleString()} GC</span>
+                </span>
+              </div>
+              <div className="font-mono text-[9px] text-[#ff2d78]/70">
+                As VIP → <span className="font-bold">{yesterdayVipGc.toLocaleString()} GC</span> · missed{" "}
+                <span className="text-[#ff2d78] font-bold">+{yesterdayMissed.toLocaleString()} GC</span> · Upgrade →
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] text-[#ff2d78]">⚡ VIP users earn 2× on every trade</span>
+              <span className="font-mono text-[9px] text-white/30 ml-auto">→ Wallet</span>
+            </div>
+          )}
         </div>
       )}
 

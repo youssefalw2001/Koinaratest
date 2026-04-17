@@ -14,6 +14,8 @@ import {
   UpgradeToVipBody,
   UpgradeToVipResponse,
   RegisterUserResponse,
+  ActivateVipTrialParams,
+  ActivateVipTrialBody,
 } from "@workspace/api-zod";
 import { serializeRow } from "../lib/serialize";
 
@@ -224,7 +226,7 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
       res.status(400).json({ error: "txHash required for TON plans" });
       return;
     }
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const [updated] = await db
       .update(usersTable)
       .set({
@@ -243,7 +245,7 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
       res.status(400).json({ error: "txHash required for TON plans" });
       return;
     }
-    const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const [updated] = await db
       .update(usersTable)
       .set({
@@ -280,6 +282,55 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
 
   // Fallback — only plan="tc" should reach here after weekly/monthly are blocked above
   res.status(400).json({ error: "Invalid plan type" });
+});
+
+router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void> => {
+  const params = ActivateVipTrialParams.safeParse(req.params);
+  const body = ActivateVipTrialBody.safeParse(req.body);
+
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, params.data.telegramId))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const now = new Date();
+
+  const hasActivePaidVip = user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > now;
+  if (hasActivePaidVip) {
+    res.status(400).json({ error: "Already on a paid VIP plan" });
+    return;
+  }
+
+  const hasActiveTrial = user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > now;
+  if (hasActiveTrial) {
+    res.status(400).json({ error: "VIP trial already active" });
+    return;
+  }
+
+  const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ vipTrialExpiresAt: trialExpiresAt })
+    .where(eq(usersTable.telegramId, params.data.telegramId))
+    .returning();
+
+  res.json(USER_SCHEMA(updated as Record<string, unknown>));
 });
 
 export default router;

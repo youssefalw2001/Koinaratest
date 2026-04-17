@@ -120,6 +120,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
+  /users/{telegramId}/activate-trial:
+    post:
+      operationId: activateVipTrial
+      tags: [users]
+      summary: Activate a 24-hour VIP trial (TC=0, GC milestone, or referral trigger)
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateVipTrialBody"
+      responses:
+        "200":
+          description: Trial activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Trial already used or not eligible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /users/{telegramId}/vip:
     post:
       operationId: upgradeToVip
@@ -402,6 +433,15 @@ components:
           type: string
       required:
         - walletAddress
+
+    ActivateVipTrialBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum: [tc_zero, gc_milestone, referral]
+      required:
+        - reason
 
     UpgradeToVipBody:
       type: object

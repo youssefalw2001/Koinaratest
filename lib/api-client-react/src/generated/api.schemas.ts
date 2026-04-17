@@ -31,6 +31,19 @@ export interface UpdateWalletBody {
   walletAddress: string;
 }
 
+export type ActivateVipTrialBodyReason =
+  (typeof ActivateVipTrialBodyReason)[keyof typeof ActivateVipTrialBodyReason];
+
+export const ActivateVipTrialBodyReason = {
+  tc_zero: "tc_zero",
+  gc_milestone: "gc_milestone",
+  referral: "referral",
+} as const;
+
+export interface ActivateVipTrialBody {
+  reason: ActivateVipTrialBodyReason;
+}
+
 export type UpgradeToVipBodyPlan =
   (typeof UpgradeToVipBodyPlan)[keyof typeof UpgradeToVipBodyPlan];
 

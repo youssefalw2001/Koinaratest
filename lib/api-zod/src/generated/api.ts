@@ -138,6 +138,42 @@ export const UpdateWalletResponse = zod.object({
 });
 
 /**
+ * @summary Activate a 24-hour VIP trial (TC=0, GC milestone, or referral trigger)
+ */
+export const ActivateVipTrialParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const ActivateVipTrialBody = zod.object({
+  reason: zod.enum(["tc_zero", "gc_milestone", "referral"]),
+});
+
+export const ActivateVipTrialResponse = zod.object({
+  id: zod.number(),
+  telegramId: zod.string(),
+  username: zod.string().nullish(),
+  firstName: zod.string().nullish(),
+  lastName: zod.string().nullish(),
+  photoUrl: zod.string().nullish(),
+  tradeCredits: zod.number(),
+  goldCoins: zod.number(),
+  totalGcEarned: zod.number(),
+  isVip: zod.boolean(),
+  vipExpiresAt: zod.string().nullish(),
+  vipTrialExpiresAt: zod.string().nullish(),
+  hasVerified: zod.boolean(),
+  walletAddress: zod.string().nullish(),
+  referredBy: zod.string().nullish(),
+  loginStreak: zod.number(),
+  lastLoginDate: zod.string().nullish(),
+  registrationDate: zod.string().nullish(),
+  dailyGcEarned: zod.number(),
+  dailyGcDate: zod.string().nullish(),
+  weeklyWithdrawnGc: zod.number(),
+  createdAt: zod.string(),
+});
+
+/**
  * @summary Upgrade user to VIP (deduct TC or record TON payment)
  */
 export const UpgradeToVipParams = zod.object({

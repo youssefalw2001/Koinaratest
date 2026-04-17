@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from "react";
-import { useRegisterUser, useGetUser, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useRegisterUser, useGetUser, useActivateVipTrial, getGetUserQueryKey } from "@workspace/api-client-react";
 import type { User } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
@@ -10,6 +10,8 @@ interface TelegramContextType {
   refreshUser: () => void;
   showVipPromo: boolean;
   dismissVipPromo: () => void;
+  showDailyLoginPrompt: boolean;
+  dismissDailyLoginPrompt: () => void;
 }
 
 const TelegramContext = createContext<TelegramContextType>({
@@ -18,6 +20,8 @@ const TelegramContext = createContext<TelegramContextType>({
   refreshUser: () => {},
   showVipPromo: false,
   dismissVipPromo: () => {},
+  showDailyLoginPrompt: false,
+  dismissDailyLoginPrompt: () => {},
 });
 
 export function TelegramProvider({ children }: { children: ReactNode }) {
@@ -25,9 +29,12 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [telegramId, setTelegramId] = useState<string | null>(null);
   const [showVipPromo, setShowVipPromo] = useState(false);
-  const promoShownRef = useRef(false);
+  const [showDailyLoginPrompt, setShowDailyLoginPrompt] = useState(false);
+  const trialTriggeredRef = useRef(false);
+  const dailyPromptShownRef = useRef(false);
   const queryClient = useQueryClient();
   const registerUser = useRegisterUser();
+  const activateVipTrialMutation = useActivateVipTrial();
 
   const { data: freshUser } = useGetUser(telegramId ?? "", {
     query: {
@@ -44,29 +51,46 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   }, [freshUser]);
 
   useEffect(() => {
-    if (!user || promoShownRef.current || isVipActive(user)) return;
+    if (!user || isVipActive(user)) return;
 
     const gc = user.goldCoins ?? 0;
     const tc = user.tradeCredits ?? 0;
     const wasReferred = !!user.referredBy;
 
-    const shouldShow =
-      (tc === 0 && gc > 0) ||
-      gc >= 5000 ||
-      (wasReferred && !isVipActive(user));
+    let reason: "tc_zero" | "gc_milestone" | "referral" | null = null;
+    if (tc === 0 && gc > 0) reason = "tc_zero";
+    else if (gc >= 5000) reason = "gc_milestone";
+    else if (wasReferred) reason = "referral";
 
-    if (!shouldShow) return;
+    if (!reason || trialTriggeredRef.current) return;
 
-    const timer = setTimeout(() => {
-      promoShownRef.current = true;
-      setShowVipPromo(true);
+    const timer = setTimeout(async () => {
+      trialTriggeredRef.current = true;
+      try {
+        const updated = await activateVipTrialMutation.mutateAsync({
+          telegramId: user.telegramId,
+          data: { reason },
+        });
+        setUser(updated);
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      } catch {
+        setShowVipPromo(true);
+      }
     }, 2000);
     return () => clearTimeout(timer);
   }, [user]);
 
-  const dismissVipPromo = useCallback(() => {
-    setShowVipPromo(false);
-  }, []);
+  useEffect(() => {
+    if (!user || dailyPromptShownRef.current) return;
+    const today = new Date().toISOString().split("T")[0];
+    if (user.lastLoginDate === today) return;
+    dailyPromptShownRef.current = true;
+    const timer = setTimeout(() => setShowDailyLoginPrompt(true), 1500);
+    return () => clearTimeout(timer);
+  }, [user]);
+
+  const dismissVipPromo = useCallback(() => setShowVipPromo(false), []);
+  const dismissDailyLoginPrompt = useCallback(() => setShowDailyLoginPrompt(false), []);
 
   const refreshUser = useCallback(() => {
     if (telegramId) {
@@ -116,7 +140,15 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <TelegramContext.Provider value={{ user, isLoading, refreshUser, showVipPromo, dismissVipPromo }}>
+    <TelegramContext.Provider value={{
+      user,
+      isLoading,
+      refreshUser,
+      showVipPromo,
+      dismissVipPromo,
+      showDailyLoginPrompt,
+      dismissDailyLoginPrompt,
+    }}>
       {children}
     </TelegramContext.Provider>
   );
