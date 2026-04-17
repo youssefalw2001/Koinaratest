@@ -470,7 +470,7 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     .limit(1);
 
   if (!user) {
-    res.json([]);
+    res.status(404).json({ error: "User not found" });
     return;
   }
 
