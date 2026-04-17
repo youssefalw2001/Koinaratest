@@ -467,14 +467,42 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
     return;
   }
 
+  const { reason } = body.data;
+
+  // Server-side eligibility enforcement per reason.
+  // The client is untrusted; each trigger condition is re-verified against DB state.
+  if (reason === "tc_zero") {
+    if (user.tradeCredits !== 0) {
+      res.status(403).json({ error: "Eligibility condition not met: tradeCredits must be 0" });
+      return;
+    }
+  } else if (reason === "gc_milestone") {
+    if (user.goldCoins < 5000) {
+      res.status(403).json({ error: "Eligibility condition not met: goldCoins must be >= 5000" });
+      return;
+    }
+    if (user.gcMilestoneTrialClaimed) {
+      res.status(409).json({ error: "GC milestone trial already claimed" });
+      return;
+    }
+  } else if (reason === "referral") {
+    if (!user.referralVipRewardPending) {
+      res.status(403).json({ error: "Eligibility condition not met: no pending referral reward" });
+      return;
+    }
+  }
+
   const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-  // When triggered by "referral", also clear the pending flag so it doesn't re-trigger.
-  const extraSet = body.data.reason === "referral" ? { referralVipRewardPending: false } : {};
+  // Atomically apply the trial + clear/set any trigger flags in a single UPDATE.
+  const flagUpdates = {
+    ...(reason === "referral" ? { referralVipRewardPending: false } : {}),
+    ...(reason === "gc_milestone" ? { gcMilestoneTrialClaimed: true } : {}),
+  };
 
   const [updated] = await db
     .update(usersTable)
-    .set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...extraSet })
+    .set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...flagUpdates })
     .where(eq(usersTable.telegramId, params.data.telegramId))
     .returning();
 

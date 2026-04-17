@@ -167,4 +167,106 @@ describe("POST /users/:telegramId/vip/subscribe — TON payment plans", () => {
 
     process.env.KOINARA_TON_WALLET = saved;
   });
+
+  it("returns 400 when senderAddress does not match bound wallet address", async () => {
+    vi.stubGlobal("fetch", await buildFetchMock("weekly"));
+
+    const res = await request(app)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
+      .send({ plan: "weekly", senderAddress: "EQBdifferent_wallet_address" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/does not match/i);
+  });
+});
+
+const TRIAL_TELEGRAM_ID = "__activate_trial_test__";
+
+describe("POST /users/:telegramId/activate-trial — eligibility enforcement", () => {
+  beforeAll(async () => {
+    await db.delete(usersTable).where(eq(usersTable.telegramId, TRIAL_TELEGRAM_ID));
+  });
+
+  afterAll(async () => {
+    await db.delete(usersTable).where(eq(usersTable.telegramId, TRIAL_TELEGRAM_ID));
+  });
+
+  async function createTrialUser(overrides: Partial<{ tradeCredits: number; goldCoins: number; gcMilestoneTrialClaimed: boolean; referralVipRewardPending: boolean; hadVipTrial: boolean }> = {}) {
+    await db.delete(usersTable).where(eq(usersTable.telegramId, TRIAL_TELEGRAM_ID));
+    await db.insert(usersTable).values({
+      telegramId: TRIAL_TELEGRAM_ID,
+      username: "trial_test",
+      tradeCredits: overrides.tradeCredits ?? 500,
+      goldCoins: overrides.goldCoins ?? 0,
+      totalGcEarned: 0,
+      hadVipTrial: overrides.hadVipTrial ?? false,
+      gcMilestoneTrialClaimed: overrides.gcMilestoneTrialClaimed ?? false,
+      referralVipRewardPending: overrides.referralVipRewardPending ?? false,
+    });
+  }
+
+  it("activates trial with reason=tc_zero when tradeCredits is 0", async () => {
+    await createTrialUser({ tradeCredits: 0 });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "tc_zero" });
+    expect(res.status).toBe(200);
+    expect(res.body.vipTrialExpiresAt).toBeTruthy();
+  });
+
+  it("rejects tc_zero trial when tradeCredits > 0", async () => {
+    await createTrialUser({ tradeCredits: 100 });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "tc_zero" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/tradeCredits must be 0/i);
+  });
+
+  it("activates trial with reason=gc_milestone when goldCoins >= 5000", async () => {
+    await createTrialUser({ goldCoins: 6000 });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "gc_milestone" });
+    expect(res.status).toBe(200);
+    expect(res.body.gcMilestoneTrialClaimed).toBe(true); // gcMilestoneTrialClaimed IS in User schema
+    expect(res.body.vipTrialExpiresAt).toBeTruthy();
+  });
+
+  it("rejects gc_milestone trial when goldCoins < 5000", async () => {
+    await createTrialUser({ goldCoins: 100 });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "gc_milestone" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/goldCoins must be/i);
+  });
+
+  it("rejects gc_milestone trial when already claimed", async () => {
+    await createTrialUser({ goldCoins: 6000, gcMilestoneTrialClaimed: true });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "gc_milestone" });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already claimed/i);
+  });
+
+  it("activates trial with reason=referral when referralVipRewardPending is true", async () => {
+    await createTrialUser({ referralVipRewardPending: true });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "referral" });
+    expect(res.status).toBe(200);
+    expect(res.body.referralVipRewardPending).toBe(false); // flag cleared atomically
+    expect(res.body.vipTrialExpiresAt).toBeTruthy();
+  });
+
+  it("rejects referral trial when referralVipRewardPending is false", async () => {
+    await createTrialUser({ referralVipRewardPending: false });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "referral" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/no pending referral reward/i);
+  });
 });

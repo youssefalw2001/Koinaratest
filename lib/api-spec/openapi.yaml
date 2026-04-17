@@ -481,6 +481,9 @@ components:
         day7BonusClaimed:
           type: boolean
           description: "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial"
+        gcMilestoneTrialClaimed:
+          type: boolean
+          description: "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming"
         referralVipRewardPending:
           type: boolean
           description: "Set to true when a user this person referred purchases VIP; cleared after trial is activated"

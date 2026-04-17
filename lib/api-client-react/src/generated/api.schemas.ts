@@ -79,6 +79,8 @@ export interface User {
   isVip: boolean;
   /** True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial */
   day7BonusClaimed?: boolean;
+  /** True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming */
+  gcMilestoneTrialClaimed?: boolean;
   /** Set to true when a user this person referred purchases VIP; cleared after trial is activated */
   referralVipRewardPending?: boolean;
   /**

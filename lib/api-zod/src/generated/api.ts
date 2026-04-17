@@ -43,6 +43,12 @@ export const RegisterUserResponse = zod.object({
     .describe(
       "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
     ),
+  gcMilestoneTrialClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -92,6 +98,12 @@ export const GetUserResponse = zod.object({
     .optional()
     .describe(
       "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
+  gcMilestoneTrialClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
     ),
   referralVipRewardPending: zod
     .boolean()
@@ -165,6 +177,12 @@ export const UpdateWalletResponse = zod.object({
     .describe(
       "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
     ),
+  gcMilestoneTrialClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -218,6 +236,12 @@ export const ActivateVipTrialResponse = zod.object({
     .optional()
     .describe(
       "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
+  gcMilestoneTrialClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
     ),
   referralVipRewardPending: zod
     .boolean()
@@ -278,6 +302,12 @@ export const UpgradeToVipResponse = zod.object({
     .optional()
     .describe(
       "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
+  gcMilestoneTrialClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
     ),
   referralVipRewardPending: zod
     .boolean()
