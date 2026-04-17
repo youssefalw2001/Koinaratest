@@ -4,3 +4,4 @@ export * from "./quests";
 export * from "./withdrawals";
 export * from "./adwatches";
 export * from "./gems";
+export * from "./vipTxHashes";

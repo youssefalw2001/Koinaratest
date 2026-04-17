@@ -127,6 +127,16 @@ export default function Terminal() {
   const [winStreak, setWinStreak] = useState(0);
   const [lossStreak, setLossStreak] = useState(0);
   const [showCloseCall, setShowCloseCall] = useState(false);
+  const [fomoShownToday, setFomoShownToday] = useState(() => {
+    try {
+      return localStorage.getItem("fomoShownDate") === new Date().toISOString().split("T")[0];
+    } catch { return false; }
+  });
+  const [tradedToday, setTradedToday] = useState(() => {
+    try {
+      return localStorage.getItem("tradedDate") === new Date().toISOString().split("T")[0];
+    } catch { return false; }
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -304,6 +314,14 @@ export default function Terminal() {
       const pred = await createPrediction.mutateAsync({
         data: { telegramId: user.telegramId, direction, amount: bet, entryPrice: price },
       });
+      // Mark FOMO as shown once user places first trade of the day
+      const today = new Date().toISOString().split("T")[0];
+      try {
+        localStorage.setItem("tradedDate", today);
+        localStorage.setItem("fomoShownDate", today);
+      } catch {}
+      setTradedToday(true);
+      setFomoShownToday(true);
       startCountdown(pred.id, direction, bet, price);
     } catch {}
   };
@@ -330,6 +348,10 @@ export default function Terminal() {
   })();
   const yesterdayVipGc = yesterdayGc * 2;
   const yesterdayMissed = yesterdayVipGc - yesterdayGc;
+  const GC_TO_USD = 0.00025;
+  const yesterdayMissedUsd = (yesterdayMissed * GC_TO_USD).toFixed(2);
+
+  const showFomoBanner = !vip && !fomoShownToday && !tradedToday;
 
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor =
@@ -383,10 +405,15 @@ export default function Terminal() {
         );
       })()}
 
-      {!vip && (
+      {showFomoBanner && (
         <div
           className="mx-4 mt-2 px-3 py-2 rounded-lg border border-[#ff2d78]/25 bg-[#ff2d78]/5 cursor-pointer"
-          onClick={() => navigate("/wallet")}
+          onClick={() => {
+            const today = new Date().toISOString().split("T")[0];
+            try { localStorage.setItem("fomoShownDate", today); } catch {}
+            setFomoShownToday(true);
+            navigate("/wallet");
+          }}
         >
           {yesterdayGc > 0 ? (
             <div className="flex flex-col gap-0.5">
@@ -398,13 +425,13 @@ export default function Terminal() {
               </div>
               <div className="font-mono text-[9px] text-[#ff2d78]/70">
                 As VIP → <span className="font-bold">{yesterdayVipGc.toLocaleString()} GC</span> · missed{" "}
-                <span className="text-[#ff2d78] font-bold">+{yesterdayMissed.toLocaleString()} GC</span> · Upgrade →
+                <span className="text-[#ff2d78] font-bold">${yesterdayMissedUsd} USD</span> · Upgrade →
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               <span className="font-mono text-[10px] text-[#ff2d78]">⚡ VIP users earn 2× on every trade</span>
-              <span className="font-mono text-[9px] text-white/30 ml-auto">→ Wallet</span>
+              <span className="font-mono text-[9px] text-white/30 ml-auto">Upgrade →</span>
             </div>
           )}
         </div>

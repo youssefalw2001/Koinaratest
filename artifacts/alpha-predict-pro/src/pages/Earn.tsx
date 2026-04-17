@@ -43,11 +43,15 @@ export default function Earn() {
   const [adState, setAdState] = useState<"idle" | "watching" | "done">("idle");
   const [adCountdown, setAdCountdown] = useState(AD_DURATION);
   const [adResult, setAdResult] = useState<{ tc: number; adsLeft: number } | null>(null);
+  const [adsWatchedToday, setAdsWatchedToday] = useState<number | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const vip = isVipActive(user);
   const adTcReward = vip ? 100 : 80;
   const adDailyCap = vip ? 25 : 5;
+  const adsRemaining = adsWatchedToday !== null ? Math.max(0, adDailyCap - adsWatchedToday) : null;
+  const adProgress = adsWatchedToday !== null ? (adsWatchedToday / adDailyCap) * 100 : 0;
+  const adsCapped = adsRemaining === 0;
 
   const handleStartAd = () => {
     if (adState !== "idle") return;
@@ -70,13 +74,19 @@ export default function Earn() {
     setAdState("done");
     try {
       const result = await watchAdMutation.mutateAsync({ data: { telegramId: user.telegramId } });
-      setAdResult({ tc: result.tcAwarded, adsLeft: result.dailyCap - result.adsWatchedToday });
+      const adsLeft = result.dailyCap - result.adsWatchedToday;
+      setAdResult({ tc: result.tcAwarded, adsLeft });
+      setAdsWatchedToday(result.adsWatchedToday);
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       setTimeout(() => {
         setAdResult(null);
         setAdState("idle");
       }, 3500);
-    } catch {
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "";
+      if (msg.includes("cap")) {
+        setAdsWatchedToday(adDailyCap);
+      }
       setAdState("idle");
     }
   };
@@ -169,15 +179,46 @@ export default function Earn() {
             </div>
           </div>
 
-          <div className="font-mono text-[10px] text-white/40 mb-3">
-            Up to {adDailyCap} ads/day · 15s each · Instant TC credit
+          {/* Daily ad count progress */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="font-mono text-[10px] text-white/40">
+                {adsRemaining !== null
+                  ? adsCapped
+                    ? "Daily cap reached — come back tomorrow"
+                    : `${adsRemaining} of ${adDailyCap} ads remaining today`
+                  : `Up to ${adDailyCap} ads/day · 15s each · Instant TC credit`
+                }
+              </div>
+              {adsWatchedToday !== null && (
+                <span className="font-mono text-[9px] text-white/30 tabular-nums">
+                  {adsWatchedToday}/{adDailyCap}
+                </span>
+              )}
+            </div>
+            {adsWatchedToday !== null && (
+              <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(adProgress, 100)}%`,
+                    background: adsCapped
+                      ? "linear-gradient(90deg, #ff2d78, #ff6060)"
+                      : vip
+                        ? "linear-gradient(90deg, #f5c518, #ff9900)"
+                        : "linear-gradient(90deg, #ff2d78, #ff6060)",
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {adState === "idle" && (
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={handleStartAd}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-black border-2 transition-all"
+              disabled={adsCapped}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-black border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 borderColor: vip ? "#f5c518" : "#ff2d78",
                 color: vip ? "#f5c518" : "#ff2d78",
@@ -187,7 +228,7 @@ export default function Earn() {
               data-testid="btn-watch-ad"
             >
               <Play size={14} />
-              WATCH AD — EARN {adTcReward} TC
+              {adsCapped ? "CAP REACHED — COME BACK TOMORROW" : `WATCH AD — EARN ${adTcReward} TC`}
             </motion.button>
           )}
 

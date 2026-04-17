@@ -16,6 +16,7 @@ export const usersTable = pgTable("users", {
   vipExpiresAt: timestamp("vip_expires_at", { withTimezone: true }),
   vipPlan: text("vip_plan"),
   vipTrialExpiresAt: timestamp("vip_trial_expires_at", { withTimezone: true }),
+  hadVipTrial: boolean("had_vip_trial").notNull().default(false),
   hasVerified: boolean("has_verified").notNull().default(false),
   walletAddress: text("wallet_address"),
   referredBy: text("referred_by"),

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, count, sql, desc } from "drizzle-orm";
-import { db, usersTable, predictionsTable } from "@workspace/db";
+import { db, usersTable, predictionsTable, vipTxHashesTable } from "@workspace/db";
 import {
   RegisterUserBody,
   GetUserParams,
@@ -221,36 +221,38 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  if (plan === "weekly") {
+  if (plan === "weekly" || plan === "monthly") {
     if (!txHash) {
       res.status(400).json({ error: "txHash required for TON plans" });
       return;
     }
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const [updated] = await db
-      .update(usersTable)
-      .set({
-        isVip: true,
-        vipPlan: "ton_weekly",
-        vipExpiresAt: expiresAt,
-      })
-      .where(eq(usersTable.telegramId, params.data.telegramId))
-      .returning();
-    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
-    return;
-  }
 
-  if (plan === "monthly") {
-    if (!txHash) {
-      res.status(400).json({ error: "txHash required for TON plans" });
+    // Deduplication: reject already-used txHashes to prevent double-spend
+    const [existingTx] = await db
+      .select()
+      .from(vipTxHashesTable)
+      .where(eq(vipTxHashesTable.txHash, txHash))
+      .limit(1);
+    if (existingTx) {
+      res.status(409).json({ error: "Transaction hash already used. Please contact support if this is an error." });
       return;
     }
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const durationDays = plan === "weekly" ? 7 : 30;
+    const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    const vipPlan = plan === "weekly" ? "ton_weekly" : "ton_monthly";
+
+    await db.insert(vipTxHashesTable).values({
+      txHash,
+      telegramId: params.data.telegramId,
+      plan: vipPlan,
+    });
+
     const [updated] = await db
       .update(usersTable)
       .set({
         isVip: true,
-        vipPlan: "ton_monthly",
+        vipPlan,
         vipExpiresAt: expiresAt,
       })
       .where(eq(usersTable.telegramId, params.data.telegramId))
@@ -316,9 +318,9 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
     return;
   }
 
-  const hasActiveTrial = user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > now;
-  if (hasActiveTrial) {
-    res.status(400).json({ error: "VIP trial already active" });
+  // One-time lifetime check — hadVipTrial is set to true permanently on first activation
+  if (user.hadVipTrial) {
+    res.status(400).json({ error: "VIP trial already used" });
     return;
   }
 
@@ -326,7 +328,7 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
 
   const [updated] = await db
     .update(usersTable)
-    .set({ vipTrialExpiresAt: trialExpiresAt })
+    .set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true })
     .where(eq(usersTable.telegramId, params.data.telegramId))
     .returning();
 
