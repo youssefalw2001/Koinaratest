@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -106,20 +106,29 @@ function DailyLoginPrompt() {
   const { user, showDailyLoginPrompt, dismissDailyLoginPrompt, refreshUser } = useTelegram();
   const qc = useQueryClient();
   const claimDaily = useClaimDailyReward();
+  const claimedRef = useRef(false);
+  const [claimedReward, setClaimedReward] = useState<{ tc: number; streak: number; isVip: boolean } | null>(null);
 
-  const handleClaim = async () => {
-    if (!user) return;
-    try {
-      await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
-      qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      refreshUser();
-    } catch {}
-    dismissDailyLoginPrompt();
-  };
+  // Auto-claim on first open: credit TC immediately without requiring a user button press.
+  // The modal shows a confirmation notification and auto-dismisses after 3.5s.
+  useEffect(() => {
+    if (!showDailyLoginPrompt || !user || claimedRef.current) return;
+    claimedRef.current = true;
+    (async () => {
+      try {
+        const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
+        const vip = user.isVip ?? false;
+        setClaimedReward({ tc: result.tcAwarded, streak: result.streak, isVip: vip });
+        qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+        refreshUser();
+      } catch {
+        // Already claimed or error — just dismiss silently
+      }
+      setTimeout(() => dismissDailyLoginPrompt(), 3500);
+    })();
+  }, [showDailyLoginPrompt]);
 
-  const streak = user?.loginStreak ?? 0;
-  const isVip = user?.isVip;
-  const reward = isVip ? 150 + streak * 15 : 100 + streak * 10;
+  const accentColor = claimedReward?.isVip ? "#f5c518" : "#00f0ff";
 
   return (
     <AnimatePresence>
@@ -138,9 +147,9 @@ function DailyLoginPrompt() {
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2"
             style={{
-              borderColor: isVip ? "#f5c518" : "#00f0ff",
+              borderColor: accentColor,
               background: "linear-gradient(180deg, #050508 0%, #000000 100%)",
-              boxShadow: isVip ? "0 -20px 60px rgba(245,197,24,0.3)" : "0 -20px 60px rgba(0,240,255,0.2)",
+              boxShadow: `0 -20px 60px ${claimedReward?.isVip ? "rgba(245,197,24,0.3)" : "rgba(0,240,255,0.2)"}`,
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -148,43 +157,31 @@ function DailyLoginPrompt() {
               <Flame
                 size={36}
                 className="mb-3"
-                style={{
-                  color: isVip ? "#f5c518" : "#00f0ff",
-                  filter: `drop-shadow(0 0 15px ${isVip ? "#f5c518" : "#00f0ff"})`,
-                }}
+                style={{ color: accentColor, filter: `drop-shadow(0 0 15px ${accentColor})` }}
               />
-              <div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">Daily Reward</div>
-              <div
-                className="font-mono text-4xl font-black mb-1"
-                style={{ color: isVip ? "#f5c518" : "#00f0ff" }}
-              >
-                +{reward} TC
+              <div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">
+                Daily Reward Credited
               </div>
-              <div className="font-mono text-sm text-white/50 mb-1">
-                {isVip ? "VIP Bonus — " : ""}Day {streak + 1} streak
-              </div>
+              {claimedReward ? (
+                <>
+                  <div className="font-mono text-4xl font-black mb-1" style={{ color: accentColor }}>
+                    +{claimedReward.tc} TC
+                  </div>
+                  <div className="font-mono text-sm text-white/50 mb-1">
+                    {claimedReward.isVip ? "VIP Bonus — " : ""}Day {claimedReward.streak} streak
+                  </div>
+                </>
+              ) : (
+                <div className="font-mono text-white/40 text-sm mb-1">Crediting...</div>
+              )}
               <div className="font-mono text-[10px] text-white/30 mb-6">
                 Come back tomorrow for more!
               </div>
               <button
-                onClick={handleClaim}
-                disabled={claimDaily.isPending}
-                className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3"
-                style={{
-                  background: isVip
-                    ? "linear-gradient(90deg, #f5c518, #ff9900)"
-                    : "linear-gradient(90deg, #00f0ff, #0080ff)",
-                  color: isVip ? "#000" : "#000",
-                  boxShadow: isVip ? "0 0 25px rgba(245,197,24,0.5)" : "0 0 25px rgba(0,240,255,0.4)",
-                }}
-              >
-                {claimDaily.isPending ? "CLAIMING..." : `CLAIM ${reward} TC`}
-              </button>
-              <button
                 onClick={dismissDailyLoginPrompt}
                 className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors"
               >
-                Later
+                Close
               </button>
             </div>
           </motion.div>

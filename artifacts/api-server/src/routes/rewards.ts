@@ -89,68 +89,86 @@ router.post("/rewards/ad", async (req, res): Promise<void> => {
 
   const { telegramId } = parsed.data;
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
-    .limit(1);
+  // Wrap in a transaction with SELECT FOR UPDATE to serialize concurrent requests
+  // for the same user. This prevents the race condition where multiple parallel calls
+  // all see the same adsWatchedToday count and all pass the cap check.
+  let result: { tcAwarded: number; newTcBalance: number; adsWatchedToday: number; dailyCap: number; message: string } | null = null;
+  let capError: string | null = null;
+  let notFound = false;
 
-  if (!user) {
+  try {
+    await db.transaction(async (tx) => {
+      // SELECT FOR UPDATE: acquires a row-level lock on this user row,
+      // blocking any other concurrent transaction for the same telegramId
+      // until this transaction commits or rolls back.
+      const [lockedUser] = await tx
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId))
+        .limit(1)
+        .for("update");
+
+      if (!lockedUser) {
+        notFound = true;
+        return;
+      }
+
+      const vip = isVipActive(lockedUser);
+      const dailyCap = vip ? AD_CAP_VIP : AD_CAP_FREE;
+      const tcReward = vip ? AD_TC_VIP : AD_TC_FREE;
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const todayWatches = await tx
+        .select()
+        .from(adWatchesTable)
+        .where(and(eq(adWatchesTable.telegramId, telegramId), gte(adWatchesTable.watchedAt, todayStart)));
+
+      const adsWatchedToday = todayWatches.length;
+
+      if (adsWatchedToday >= dailyCap) {
+        capError = `Daily ad cap reached (${dailyCap} ads/day${vip ? " VIP" : ""}). Come back tomorrow!`;
+        return;
+      }
+
+      await tx.insert(adWatchesTable).values({
+        telegramId,
+        tcAwarded: tcReward,
+        dailyCount: adsWatchedToday + 1,
+      });
+
+      const [updatedUser] = await tx
+        .update(usersTable)
+        .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${tcReward}` })
+        .where(eq(usersTable.telegramId, telegramId))
+        .returning();
+
+      result = {
+        tcAwarded: tcReward,
+        newTcBalance: updatedUser.tradeCredits,
+        adsWatchedToday: adsWatchedToday + 1,
+        dailyCap,
+        message: vip
+          ? `VIP Ad Reward! +${tcReward} TC (${adsWatchedToday + 1}/${dailyCap} today)`
+          : `Ad reward! +${tcReward} TC (${adsWatchedToday + 1}/${dailyCap} today)`,
+      };
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+    return;
+  }
+
+  if (notFound) {
     res.status(404).json({ error: "User not found" });
     return;
   }
-
-  const vip = isVipActive(user);
-  const dailyCap = vip ? AD_CAP_VIP : AD_CAP_FREE;
-  const tcReward = vip ? AD_TC_VIP : AD_TC_FREE;
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-
-  const todayWatches = await db
-    .select()
-    .from(adWatchesTable)
-    .where(
-      and(
-        eq(adWatchesTable.telegramId, telegramId),
-        gte(adWatchesTable.watchedAt, todayStart)
-      )
-    );
-
-  const adsWatchedToday = todayWatches.length;
-
-  if (adsWatchedToday >= dailyCap) {
-    res.status(400).json({
-      error: `Daily ad cap reached (${dailyCap} ads/day${vip ? " VIP" : ""}). Come back tomorrow!`,
-    });
+  if (capError) {
+    res.status(400).json({ error: capError });
     return;
   }
 
-  await db.insert(adWatchesTable).values({
-    telegramId,
-    tcAwarded: tcReward,
-    dailyCount: adsWatchedToday + 1,
-  });
-
-  const [updatedUser] = await db
-    .update(usersTable)
-    .set({
-      tradeCredits: sql`${usersTable.tradeCredits} + ${tcReward}`,
-    })
-    .where(eq(usersTable.telegramId, telegramId))
-    .returning();
-
-  const response = {
-    tcAwarded: tcReward,
-    newTcBalance: updatedUser.tradeCredits,
-    adsWatchedToday: adsWatchedToday + 1,
-    dailyCap,
-    message: vip
-      ? `VIP Ad Reward! +${tcReward} TC (${adsWatchedToday + 1}/${dailyCap} today)`
-      : `Ad reward! +${tcReward} TC (${adsWatchedToday + 1}/${dailyCap} today)`,
-  };
-
-  res.json(WatchAdResponse.parse(response));
+  res.json(WatchAdResponse.parse(result!));
 });
 
 router.get("/rewards/ad-status/:telegramId", async (req, res): Promise<void> => {
