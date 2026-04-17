@@ -201,6 +201,7 @@ router.get("/predictions/vip-activity", async (req, res): Promise<void> => {
     .where(
       and(
         eq(predictionsTable.status, "won"),
+        gt(predictionsTable.payout, 0),
         or(
           and(
             eq(usersTable.isVip, true),
