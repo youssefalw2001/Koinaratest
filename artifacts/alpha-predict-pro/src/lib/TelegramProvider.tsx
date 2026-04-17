@@ -107,7 +107,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initTelegram = async () => {
       try {
-        const tg = (window as any).Telegram?.WebApp;
+        const tg = window.Telegram?.WebApp;
         if (tg) {
           tg.ready();
           tg.expand();

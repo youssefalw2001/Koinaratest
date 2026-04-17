@@ -39,8 +39,7 @@ export default function Profile() {
     const text = encodeURIComponent("Join me on Koinara — trade BTC predictions, earn real USDT! 🚀");
     const url = encodeURIComponent(referralLink);
     const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tg = (window as any).Telegram?.WebApp;
+    const tg = window.Telegram?.WebApp;
     if (typeof window !== "undefined" && tg) {
       tg.openTelegramLink(shareUrl);
     } else {

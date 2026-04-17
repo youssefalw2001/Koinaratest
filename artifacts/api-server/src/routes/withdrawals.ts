@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
-import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable } from "@workspace/db";
+import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable, vipTxHashesTable } from "@workspace/db";
 import { z } from "zod";
 import { serializeRow } from "../lib/serialize";
 
@@ -19,10 +19,6 @@ const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 const FEE_PCT = 0.025;  // 2.5% fee
 
 const DAILY_PAYOUT_RATIO = 0.5;
-
-// Minimum daily cap when no revenue is tracked yet — prevents unlimited payouts
-// before the deposit system is live.
-const DEFAULT_DAILY_PAYOUT_CAP_GC = 250000; // 100 USD equivalent at free tier rate
 
 // ─── TON verification (verify-fee endpoint) ─────────────────────────────────
 const TONAPI_BASE = "https://tonapi.io/v2";
@@ -187,10 +183,31 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     return;
   }
 
-  await db
-    .update(usersTable)
-    .set({ hasVerified: true })
-    .where(eq(usersTable.telegramId, telegramId));
+  // Anti-replay: ensure this tx hash has never been used to verify any user.
+  const verifiedTxHash = verification.txHash!;
+  const [existingTx] = await db
+    .select()
+    .from(vipTxHashesTable)
+    .where(eq(vipTxHashesTable.txHash, verifiedTxHash))
+    .limit(1);
+
+  if (existingTx) {
+    res.status(409).json({ error: "This transaction has already been used for verification. Each payment can only be used once." });
+    return;
+  }
+
+  // Persist tx hash to prevent replay, then mark user as verified.
+  await db.transaction(async (tx) => {
+    await tx.insert(vipTxHashesTable).values({
+      txHash: verifiedTxHash,
+      telegramId,
+      plan: "verify_fee",
+    });
+    await tx
+      .update(usersTable)
+      .set({ hasVerified: true })
+      .where(eq(usersTable.telegramId, telegramId));
+  });
 
   res.json({ success: true, alreadyVerified: false });
 });
@@ -258,10 +275,11 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .where(eq(platformDailyStatsTable.date, yesterdayStr))
     .limit(1);
 
+  // Strict operator safeguard: max daily payouts = 50% of previous day's tracked revenue.
+  // When no prior revenue is recorded (e.g. app launch day), the cap is 0 and all
+  // withdrawals are blocked until VIP subscriptions / deposits generate revenue.
   const prevRevenueGc = prevDayStats?.totalRevenueGc ?? 0;
-  const maxDailyPayoutGc = prevRevenueGc > 0
-    ? Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO)
-    : DEFAULT_DAILY_PAYOUT_CAP_GC;
+  const maxDailyPayoutGc = Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO);
 
   const feeGc   = Math.floor(gcAmount * FEE_PCT);
   const netGc   = gcAmount - feeGc;
