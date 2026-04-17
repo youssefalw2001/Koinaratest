@@ -241,20 +241,8 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  const durationDays = plan === "monthly" ? 30 : 7;
-  const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-
-  const [updated] = await db
-    .update(usersTable)
-    .set({
-      isVip: true,
-      vipPlan: plan,
-      vipExpiresAt: expiresAt,
-    })
-    .where(eq(usersTable.telegramId, params.data.telegramId))
-    .returning();
-
-  res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
+  // Fallback — only plan="tc" should reach here after weekly/monthly are blocked above
+  res.status(400).json({ error: "Invalid plan type" });
 });
 
 export default router;
