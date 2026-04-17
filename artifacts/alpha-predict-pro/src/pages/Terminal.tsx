@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, ReferenceDot, ResponsiveContainer } from "recharts";
 import {
   useCreatePrediction,
   useResolvePrediction,
@@ -121,6 +121,7 @@ export default function Terminal() {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const winStreakRef = useRef(0);
   const lossStreakRef = useRef(0);
+  const priceRef = useRef<number>(0);
   const synthRef = useRef<TickerItem[]>([]);
   if (synthRef.current.length === 0) {
     synthRef.current = Array.from({ length: 8 }, (_, i) => makeSynth(2 + i * 4));
@@ -147,6 +148,7 @@ export default function Terminal() {
 
   useEffect(() => {
     if (price > 0) {
+      priceRef.current = price;
       setPriceHistory((prev) => {
         const next = [...prev, { p: price }];
         return next.slice(-CHART_TICKS);
@@ -227,7 +229,7 @@ export default function Terminal() {
       countdownRef.current = interval;
 
       setTimeout(async () => {
-        const exitP = price || entryPrice;
+        const exitP = priceRef.current || entryPrice;
         try {
           const resolved = await resolvePrediction.mutateAsync({
             id: predId,
@@ -272,7 +274,7 @@ export default function Terminal() {
         }
       }, ROUND_DURATION * 1000);
     },
-    [price, resolvePrediction, queryClient, user],
+    [resolvePrediction, queryClient, user],
   );
 
   const handlePredict = async (direction: "long" | "short") => {
@@ -291,6 +293,7 @@ export default function Terminal() {
   const maxBet = vip ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
   const expectedGc = Math.floor(bet * GC_RATIO);
+  const vipGc = expectedGc * 2;
 
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor =
@@ -320,40 +323,34 @@ export default function Terminal() {
 
       <div className="px-4 pt-3 flex flex-col gap-3">
         {/* Live Price Chart */}
-        {priceHistory.length > 3 && (
+        {priceHistory.length > 1 && (
           <div
-            className="relative rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
-            style={{ height: 88, boxShadow: "0 0 30px rgba(0,240,255,0.04) inset" }}
+            className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
+            style={{ height: 88 }}
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={priceHistory} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area
+            <ResponsiveContainer width="100%" height={88}>
+              <LineChart data={priceHistory} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
+                <XAxis hide />
+                <YAxis domain={["dataMin", "dataMax"]} hide />
+                <Line
                   type="monotone"
                   dataKey="p"
                   stroke="#00f0ff"
                   strokeWidth={1.5}
-                  fill="url(#chartGrad)"
                   dot={false}
                   isAnimationActive={false}
                 />
-              </AreaChart>
+                <ReferenceDot
+                  x={priceHistory.length - 1}
+                  y={priceHistory[priceHistory.length - 1]?.p ?? 0}
+                  r={4}
+                  fill="#00f0ff"
+                  stroke="rgba(0,240,255,0.5)"
+                  strokeWidth={5}
+                  isFront
+                />
+              </LineChart>
             </ResponsiveContainer>
-            {/* Glowing dot at trailing edge */}
-            <div
-              className="absolute right-1 top-0 bottom-0 flex items-center pointer-events-none"
-              style={{ width: 10 }}
-            >
-              <div
-                className="w-2 h-2 rounded-full bg-[#00f0ff]"
-                style={{ boxShadow: "0 0 6px #00f0ff, 0 0 14px #00f0ff" }}
-              />
-            </div>
           </div>
         )}
 
@@ -569,9 +566,16 @@ export default function Terminal() {
 
             <div className="flex items-center justify-between px-3 py-2 rounded border border-[#f5c518]/15 bg-[#f5c518]/5">
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
-              <span className="font-mono text-sm font-bold text-[#f5c518]">
-                +{expectedGc} 🪙 GC
-              </span>
+              {vip ? (
+                <span className="font-mono text-sm font-bold text-[#f5c518]">
+                  +{expectedGc} 🪙 GC
+                </span>
+              ) : (
+                <span className="font-mono text-xs font-bold text-white/60">
+                  <span className="text-[#f5c518]">+{expectedGc} GC</span>
+                  <span className="text-[#f5c518]/50 ml-1.5">(VIP: {vipGc} GC 👑)</span>
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -722,7 +726,7 @@ export default function Terminal() {
                 </div>
               </div>
 
-              {/* FOMO section for free users */}
+              {/* FOMO section for free users — per-trade 2x comparison */}
               {!vip && (
                 <div
                   className="border-t border-[#f5c518]/20 px-5 py-4"
@@ -732,10 +736,27 @@ export default function Terminal() {
                     VIP ADVANTAGE
                   </div>
                   <div className="font-mono text-xs text-white/65 leading-relaxed mb-3">
-                    VIP members earn up to{" "}
-                    <span className="text-[#f5c518] font-bold">3,000 GC/day</span> — you're
-                    capped at 800/day. That's{" "}
-                    <span className="text-[#f5c518] font-bold">3.75× more earning power</span>.
+                    {showResult.won ? (
+                      <>
+                        As a VIP you would have earned{" "}
+                        <span className="text-[#f5c518] font-bold">
+                          {(showResult.payout * 2).toLocaleString()} GC
+                        </span>{" "}
+                        on this trade — double your {showResult.payout} GC!
+                      </>
+                    ) : (
+                      <>
+                        If you had won as a VIP, that trade pays{" "}
+                        <span className="text-[#f5c518] font-bold">
+                          {Math.floor(showResult.amount * GC_RATIO * 2).toLocaleString()} GC
+                        </span>{" "}
+                        vs{" "}
+                        <span className="text-white/50">
+                          {Math.floor(showResult.amount * GC_RATIO)} GC
+                        </span>{" "}
+                        for free users — upgrade and double your rewards!
+                      </>
+                    )}
                   </div>
                   <motion.button
                     whileTap={{ scale: 0.97 }}
@@ -747,7 +768,7 @@ export default function Terminal() {
                     }}
                   >
                     <Crown size={11} className="inline mr-1.5 mb-0.5" />
-                    UPGRADE TO VIP — UNLOCK 3,000 GC/DAY
+                    UPGRADE TO VIP — DOUBLE YOUR REWARDS
                   </motion.button>
                 </div>
               )}
