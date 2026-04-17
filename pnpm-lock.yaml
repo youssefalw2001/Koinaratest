@@ -166,6 +166,9 @@ importers:
 
   artifacts/alpha-predict-pro:
     dependencies:
+      '@ton/core':
+        specifier: ^0.63.1
+        version: 0.63.1
       '@tonconnect/ui-react':
         specifier: ^2.4.4
         version: 2.4.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -1634,6 +1637,11 @@ packages:
     resolution: {integrity: sha512-0Lu6y5t+tvlTJMTO7oh5NSpJfpg/5D41LlThfepTixPYkJ0sE2Jj0m0f6yYqujBwIXlId87e234+MxG3D3g7kg==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@ton/core@0.63.1':
+    resolution: {integrity: sha512-hDWMjlKzc18W2E4OeV3hUP8ohRJNHPD4Wd1+AQJj8zshZyCRT0usrvnExgbNUTo/vntDqCGMzgYWbXxyaA+L4g==}
+    peerDependencies:
+      '@ton/crypto': '>=3.2.0'
 
   '@tonconnect/isomorphic-eventsource@0.0.2':
     resolution: {integrity: sha512-B4UoIjPi0QkvIzZH5fV3BQLWrqSYABdrzZQSI9sJA9aA+iC0ohOzFwVVGXanlxeDAy1bcvPbb29f6sVUk0UnnQ==}
@@ -4569,6 +4577,8 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.90.20
       react: 19.1.0
+
+  '@ton/core@0.63.1': {}
 
   '@tonconnect/isomorphic-eventsource@0.0.2':
     dependencies:

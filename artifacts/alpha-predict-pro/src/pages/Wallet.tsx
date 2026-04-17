@@ -6,6 +6,7 @@ import {
   XCircle, RefreshCw, Zap, Copy, Check
 } from "lucide-react";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
+import { beginCell } from "@ton/core";
 import {
   useUpgradeToVip, useUpdateWallet,
   useRequestWithdrawal, useGetWithdrawals, useVerifyWithdrawalFee,
@@ -170,9 +171,19 @@ export default function WalletPage() {
     if (!walletAddress || !KOINARA_TON_WALLET || !user) return;
     setVerifyPending(true);
     try {
+      // Per-user comment (text_comment cell) — cryptographically binds the
+      // on-chain tx to this Telegram user so it cannot be reused by an attacker.
+      const comment = `KNR-VERIFY-${user.telegramId}`;
+      const commentPayload = beginCell()
+        .storeUint(0, 32)
+        .storeStringTail(comment)
+        .endCell()
+        .toBoc()
+        .toString("base64");
+
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 300,
-        messages: [{ address: KOINARA_TON_WALLET, amount: TON_VERIFY_AMOUNT }],
+        messages: [{ address: KOINARA_TON_WALLET, amount: TON_VERIFY_AMOUNT, payload: commentPayload }],
       });
       // Confirm the payment on the backend — sets hasVerified=true in the DB
       await verifyFee.mutateAsync({

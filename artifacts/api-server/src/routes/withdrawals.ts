@@ -22,7 +22,11 @@ function resolveAuthenticatedTelegramId(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
   if (!botToken) {
-    console.warn("[Auth] TELEGRAM_BOT_TOKEN not set — trusting caller telegramId (dev mode only)");
+    if (process.env.NODE_ENV === "production") {
+      res.status(503).json({ error: "Authentication service unavailable." });
+      return null;
+    }
+    console.warn("[Auth] TELEGRAM_BOT_TOKEN not set — trusting caller telegramId (dev/test only)");
     return requestedId;
   }
 
@@ -68,7 +72,12 @@ type TonApiAccount = { address: string };
 type TonApiTx = {
   hash: string;
   utime?: number;
-  out_msgs: { destination?: { address: string }; value?: number }[];
+  out_msgs: {
+    destination?: { address: string };
+    value?: number;
+    decoded_body?: { text?: string };
+    decoded_op_name?: string;
+  }[];
 };
 type TonApiTxList = { transactions: TonApiTx[] };
 
@@ -87,6 +96,7 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
 
 async function verifyTonVerificationFee(
   senderAddress: string,
+  expectedComment: string,
 ): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
   const walletEnv = process.env.KOINARA_TON_WALLET;
   if (!walletEnv) {
@@ -123,15 +133,20 @@ async function verifyTonVerificationFee(
       const destRaw = msg.destination?.address ?? "";
       if (destRaw !== operatorRaw) continue;
       const valueNano = BigInt(Math.floor(msg.value ?? 0));
-      if (valueNano >= minNano) {
-        return { ok: true, txHash: tx.hash };
-      }
+      if (valueNano < minNano) continue;
+      // Cryptographic user binding: the tx comment must contain the expected
+      // per-user memo. Because the TON tx is signed by the sender, only the
+      // sender can include this comment — preventing attackers from hijacking
+      // a legitimate payer's on-chain tx to verify their own account.
+      const comment = msg.decoded_body?.text ?? "";
+      if (comment !== expectedComment) continue;
+      return { ok: true, txHash: tx.hash };
     }
   }
 
   return {
     ok: false,
-    err: "No matching verification payment found within the last 15 minutes. Please ensure the transaction is confirmed and try again.",
+    err: `No matching verification payment with comment "${expectedComment}" found within the last 15 minutes. Please include the exact comment shown and retry after the transaction confirms.`,
   };
 }
 
@@ -216,7 +231,11 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     return;
   }
 
-  const verification = await verifyTonVerificationFee(senderAddress);
+  // Per-user comment binds the on-chain tx to the authenticated Telegram user.
+  // Any caller must include this exact text in their TON tx memo.
+  const expectedComment = `KNR-VERIFY-${authedId}`;
+
+  const verification = await verifyTonVerificationFee(senderAddress, expectedComment);
   if (verification.configErr) {
     res.status(503).json({ error: verification.err });
     return;
