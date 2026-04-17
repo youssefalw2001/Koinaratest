@@ -1,11 +1,14 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, predictionsTable } from "@workspace/db";
 import { resolvePredictionLogic } from "./resolveLogic";
 import { getBtcPrice } from "./btcPriceCache";
 import { logger } from "./logger";
 
 const SWEEP_INTERVAL_MS = 30_000;
-const STALE_AFTER_SEC = 75;
+// Grace window after the prediction's own duration elapses before we consider
+// it abandoned and auto-resolve it. Must be >= the frontend's grace window so
+// the client has a chance to resolve it first.
+const STALE_GRACE_SEC = 15;
 
 let started = false;
 
@@ -15,14 +18,21 @@ export function startAutoResolveSweeper(): void {
 
   const tick = async (): Promise<void> => {
     try {
-      const cutoff = new Date(Date.now() - STALE_AFTER_SEC * 1000);
-      const stale = await db
+      // Duration-aware: fetch all pending rows, then filter client-side against
+      // each row's own `duration` + grace window. Cheaper than a per-duration
+      // query and keeps the logic in one place.
+      const pending = await db
         .select()
         .from(predictionsTable)
-        .where(
-          and(eq(predictionsTable.status, "pending"), lt(predictionsTable.createdAt, cutoff)),
-        )
-        .limit(50);
+        .where(eq(predictionsTable.status, "pending"))
+        .limit(200);
+
+      const now = Date.now();
+      const stale = pending.filter((p) => {
+        const dur = p.duration ?? 60;
+        const ageSec = (now - new Date(p.createdAt).getTime()) / 1000;
+        return ageSec >= dur + STALE_GRACE_SEC;
+      });
 
       if (stale.length === 0) return;
 

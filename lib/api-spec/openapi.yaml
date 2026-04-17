@@ -852,6 +852,15 @@ components:
           type: integer
         entryPrice:
           type: number
+        duration:
+          type: integer
+          description: "Round duration in seconds. Allowed: 6, 15, 30, 60, 300."
+          enum: [6, 15, 30, 60, 300]
+          default: 60
+        multiplier:
+          type: number
+          description: "GC payout multiplier for the selected tier (+ optional VIP bonus). Validated server-side against the duration."
+          default: 1.7
       required:
         - telegramId
         - direction
@@ -886,6 +895,12 @@ components:
           enum: [pending, won, lost]
         payout:
           type: ["integer", "null"]
+        duration:
+          type: integer
+          description: "Round duration in seconds used for this prediction."
+        multiplier:
+          type: number
+          description: "GC payout multiplier applied to the winning bet for this prediction."
         autoResolved:
           type: boolean
         createdAt:

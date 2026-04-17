@@ -338,11 +338,30 @@ export const UpgradeToVipResponse = zod.object({
 /**
  * @summary Place a trade prediction (Long or Short) — deducts Trade Credits
  */
+export const createPredictionBodyDurationDefault = 60;
+export const createPredictionBodyMultiplierDefault = 1.7;
+
 export const CreatePredictionBody = zod.object({
   telegramId: zod.string(),
   direction: zod.enum(["long", "short"]),
   amount: zod.number(),
   entryPrice: zod.number(),
+  duration: zod
+    .union([
+      zod.literal(6),
+      zod.literal(15),
+      zod.literal(30),
+      zod.literal(60),
+      zod.literal(300),
+    ])
+    .default(createPredictionBodyDurationDefault)
+    .describe("Round duration in seconds. Allowed: 6, 15, 30, 60, 300."),
+  multiplier: zod
+    .number()
+    .default(createPredictionBodyMultiplierDefault)
+    .describe(
+      "GC payout multiplier for the selected tier (+ optional VIP bonus). Validated server-side against the duration.",
+    ),
 });
 
 /**
@@ -365,6 +384,16 @@ export const ResolvePredictionResponse = zod.object({
   exitPrice: zod.number().nullish(),
   status: zod.enum(["pending", "won", "lost"]),
   payout: zod.number().nullish(),
+  duration: zod
+    .number()
+    .optional()
+    .describe("Round duration in seconds used for this prediction."),
+  multiplier: zod
+    .number()
+    .optional()
+    .describe(
+      "GC payout multiplier applied to the winning bet for this prediction.",
+    ),
   autoResolved: zod.boolean(),
   createdAt: zod.string(),
   resolvedAt: zod.string().nullish(),
@@ -392,6 +421,16 @@ export const GetUserPredictionsResponseItem = zod.object({
   exitPrice: zod.number().nullish(),
   status: zod.enum(["pending", "won", "lost"]),
   payout: zod.number().nullish(),
+  duration: zod
+    .number()
+    .optional()
+    .describe("Round duration in seconds used for this prediction."),
+  multiplier: zod
+    .number()
+    .optional()
+    .describe(
+      "GC payout multiplier applied to the winning bet for this prediction.",
+    ),
   autoResolved: zod.boolean(),
   createdAt: zod.string(),
   resolvedAt: zod.string().nullish(),

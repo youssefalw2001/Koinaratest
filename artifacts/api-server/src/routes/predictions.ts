@@ -20,8 +20,20 @@ import { resolvePredictionLogic } from "../lib/resolveLogic";
 const router: IRouter = Router();
 
 const MIN_BET_TC = 50;
-const ROUND_DURATION_SEC = 60;
 const RESOLVE_TOLERANCE_SEC = 0;
+
+// Allowed round durations and their base GC payout multipliers.
+// VIP users receive a +0.1 bonus on top of the base multiplier.
+const DURATION_TIERS: Record<number, number> = {
+  6: 1.7,
+  15: 2.0,
+  30: 2.3,
+  60: 2.8,
+  300: 3.5,
+};
+const VIP_MULTIPLIER_BONUS = 0.1;
+const MULTIPLIER_TOLERANCE = 0.001;
+const DEFAULT_DURATION_SEC = 60;
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
@@ -31,6 +43,20 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const { telegramId, direction, amount, entryPrice } = parsed.data;
+  const requestedDuration =
+    typeof (parsed.data as { duration?: number }).duration === "number"
+      ? (parsed.data as { duration: number }).duration
+      : DEFAULT_DURATION_SEC;
+  // Multiplier is optional on the wire: when omitted we derive it server-side
+  // from the duration + VIP state. When provided it must match the expected
+  // value so UI/server can never disagree on the advertised payout.
+  const rawMultiplier = (parsed.data as { multiplier?: number }).multiplier;
+  const multiplierProvided = typeof rawMultiplier === "number";
+
+  if (!(requestedDuration in DURATION_TIERS)) {
+    res.status(400).json({ error: "Invalid duration. Allowed: 6, 15, 30, 60, 300." });
+    return;
+  }
 
   if (amount < MIN_BET_TC) {
     res.status(400).json({ error: `Minimum bet is ${MIN_BET_TC} Trade Credits` });
@@ -60,6 +86,21 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
+  // Server-derived payout multiplier: duration tier + VIP bonus. If the client
+  // sent a multiplier we validate it agrees (within tolerance) so the UI and
+  // the server can never disagree on the advertised payout.
+  const expectedMultiplier =
+    DURATION_TIERS[requestedDuration] + (vipActive ? VIP_MULTIPLIER_BONUS : 0);
+  if (
+    multiplierProvided &&
+    Math.abs((rawMultiplier as number) - expectedMultiplier) > MULTIPLIER_TOLERANCE
+  ) {
+    res.status(400).json({
+      error: `Invalid multiplier for ${requestedDuration}s tier (expected ${expectedMultiplier}).`,
+    });
+    return;
+  }
+
   await db
     .update(usersTable)
     .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${amount}` })
@@ -67,7 +108,15 @@ router.post("/predictions", async (req, res): Promise<void> => {
 
   const [prediction] = await db
     .insert(predictionsTable)
-    .values({ telegramId, direction, amount, entryPrice, status: "pending" })
+    .values({
+      telegramId,
+      direction,
+      amount,
+      entryPrice,
+      status: "pending",
+      duration: requestedDuration,
+      multiplier: expectedMultiplier,
+    })
     .returning();
 
   res.status(201).json(serializeRow(prediction as Record<string, unknown>));
@@ -104,11 +153,13 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  // Backend 60s enforcement: must wait at least (ROUND_DURATION_SEC - RESOLVE_TOLERANCE_SEC) seconds
+  // Backend per-prediction duration enforcement: must wait at least
+  // (prediction.duration - RESOLVE_TOLERANCE_SEC) seconds.
+  const roundDuration = prediction.duration ?? DEFAULT_DURATION_SEC;
   const elapsed = (Date.now() - new Date(prediction.createdAt).getTime()) / 1000;
-  if (elapsed < ROUND_DURATION_SEC - RESOLVE_TOLERANCE_SEC) {
+  if (elapsed < roundDuration - RESOLVE_TOLERANCE_SEC) {
     res.status(400).json({
-      error: `Round not complete. ${Math.ceil(ROUND_DURATION_SEC - elapsed)}s remaining.`,
+      error: `Round not complete. ${Math.ceil(roundDuration - elapsed)}s remaining.`,
     });
     return;
   }

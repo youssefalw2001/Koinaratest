@@ -28,15 +28,35 @@ import { useTelegram } from "@/lib/TelegramProvider";
 import { formatGcUsd } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 
-const ROUND_DURATION = 60;
-const GC_RATIO = 1.7;
 const MIN_BET = 50;
 const DEFAULT_BET = 100;
-const CLOSE_CALL_THRESHOLD = 15;
+const CLOSE_CALL_THRESHOLD = 5;
+
+// Round duration tiers: (seconds, base multiplier, label). VIP users get +0.1
+// on top of the base multiplier. The server validates the multiplier against
+// the selected duration, so these values must stay in sync with
+// DURATION_TIERS in api-server/src/routes/predictions.ts.
+interface DurationTier {
+  seconds: number;
+  baseMultiplier: number;
+  label: string;
+}
+const DURATION_TIERS = [
+  { seconds: 6   as const, baseMultiplier: 1.7, label: "6s"  },
+  { seconds: 15  as const, baseMultiplier: 2.0, label: "15s" },
+  { seconds: 30  as const, baseMultiplier: 2.3, label: "30s" },
+  { seconds: 60  as const, baseMultiplier: 2.8, label: "1m"  },
+  { seconds: 300 as const, baseMultiplier: 3.5, label: "5m"  },
+] satisfies readonly DurationTier[];
+const VIP_MULTIPLIER_BONUS = 0.1;
+const DEFAULT_TIER_INDEX = 3; // 60s — matches the old behaviour
 const CANDLE_COUNT = 60;
 const CANDLE_BUCKET_MS = 1000;
-const STALE_LIVE_SEC = 75;
-const RECONCILE_AFTER_SEC = 65;
+// Grace windows added on top of each prediction's own `duration` before the
+// UI considers it stale or auto-resolves it. Kept < the backend sweeper's
+// grace so the client usually resolves first.
+const RECONCILE_GRACE_SEC = 5;
+const STALE_LIVE_GRACE_SEC = 15;
 
 const SYNTH_NAMES = [
   "KoinVIP", "TradePro", "MenaWhale", "GoldSeeker", "CryptoSultan",
@@ -184,6 +204,8 @@ export default function Terminal() {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
+  const [tierIndex, setTierIndex] = useState<number>(DEFAULT_TIER_INDEX);
+  const [tickDir, setTickDir] = useState<"up" | "down" | null>(null);
   const candlesRef = useRef<Candle[]>([]);
   const [candleData, setCandleData] = useState<Candle[]>([]);
   const reconcileRunRef = useRef(false);
@@ -193,6 +215,8 @@ export default function Terminal() {
     direction: string;
     amount: number;
     entryPrice: number;
+    duration: number;
+    multiplier: number;
   } | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [showResult, setShowResult] = useState<PriceResult | null>(null);
@@ -314,7 +338,9 @@ export default function Terminal() {
         base = Math.max(95000, base + delta);
         setPrice((prev) => {
           setPrevPrice(prev);
-          return parseFloat(base.toFixed(2));
+          const next = parseFloat(base.toFixed(2));
+          if (next !== prev) setTickDir(next > prev ? "up" : "down");
+          return next;
         });
       }, 800);
     };
@@ -333,7 +359,9 @@ export default function Terminal() {
         const data = JSON.parse(e.data);
         setPrice((prev) => {
           setPrevPrice(prev);
-          return parseFloat(data.p);
+          const next = parseFloat(data.p);
+          if (next !== prev) setTickDir(next > prev ? "up" : "down");
+          return next;
         });
       };
       ws.onerror = () => ws.close();
@@ -360,9 +388,16 @@ export default function Terminal() {
   }, []);
 
   const startCountdown = useCallback(
-    (predId: number, direction: string, amount: number, entryPrice: number) => {
-      setCountdown(ROUND_DURATION);
-      setActivePrediction({ id: predId, direction, amount, entryPrice });
+    (
+      predId: number,
+      direction: string,
+      amount: number,
+      entryPrice: number,
+      duration: number,
+      multiplier: number,
+    ) => {
+      setCountdown(duration);
+      setActivePrediction({ id: predId, direction, amount, entryPrice, duration, multiplier });
       const interval = setInterval(() => {
         setCountdown((prev) => {
           if (prev <= 1) {
@@ -422,7 +457,7 @@ export default function Terminal() {
         } catch {
           setActivePrediction(null);
         }
-      }, ROUND_DURATION * 1000);
+      }, duration * 1000);
     },
     [resolvePrediction, queryClient, user],
   );
@@ -432,11 +467,13 @@ export default function Terminal() {
   // immediately fire a /resolve so we never show a stale LIVE row.
   useEffect(() => {
     if (!user || !recentPredictions || reconcileRunRef.current) return;
-    const stale = recentPredictions.filter(
-      (p) =>
-        p.status === "pending" &&
-        Date.now() - new Date(p.createdAt).getTime() > RECONCILE_AFTER_SEC * 1000,
-    );
+    const now = Date.now();
+    const stale = recentPredictions.filter((p) => {
+      if (p.status !== "pending") return false;
+      const dur = (p as { duration?: number }).duration ?? 60;
+      const ageMs = now - new Date(p.createdAt).getTime();
+      return ageMs > (dur + RECONCILE_GRACE_SEC) * 1000;
+    });
     if (stale.length === 0) return;
     // Only reconcile when we actually have a live price. If we don't, leave
     // the rows for the backend sweeper — never resolve at entryPrice (that
@@ -465,11 +502,22 @@ export default function Terminal() {
     // `price` is in deps so we retry as soon as the first WS tick arrives.
   }, [user, recentPredictions, resolvePrediction, queryClient, price]);
 
+  const selectedTier = DURATION_TIERS[tierIndex] ?? DURATION_TIERS[DEFAULT_TIER_INDEX];
+  const vipBonus = user?.isVip ? VIP_MULTIPLIER_BONUS : 0;
+  const activeMultiplier = +(selectedTier.baseMultiplier + vipBonus).toFixed(2);
+
   const handlePredict = async (direction: "long" | "short") => {
     if (!user || activePrediction || bet < MIN_BET || bet > (user.tradeCredits ?? 0)) return;
     try {
       const pred = await createPrediction.mutateAsync({
-        data: { telegramId: user.telegramId, direction, amount: bet, entryPrice: price },
+        data: {
+          telegramId: user.telegramId,
+          direction,
+          amount: bet,
+          entryPrice: price,
+          duration: selectedTier.seconds,
+          multiplier: activeMultiplier,
+        },
       });
       // Mark FOMO as shown once user places first trade of the day
       const today = new Date().toISOString().split("T")[0];
@@ -479,7 +527,7 @@ export default function Terminal() {
       } catch {}
       setTradedToday(true);
       setFomoShownToday(true);
-      startCountdown(pred.id, direction, bet, price);
+      startCountdown(pred.id, direction, bet, price, selectedTier.seconds, activeMultiplier);
     } catch {}
   };
 
@@ -488,7 +536,7 @@ export default function Terminal() {
   const priceColor = priceUp ? "#00f0ff" : "#ff2d78";
   const maxBet = vip ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
-  const expectedGc = Math.floor(bet * GC_RATIO);
+  const expectedGc = Math.floor(bet * activeMultiplier);
   const vipGc = expectedGc * 2;
 
   const yesterdayGc = (() => {
@@ -533,6 +581,14 @@ export default function Terminal() {
     return () => cancelAnimationFrame(raf);
   }, [showResult]);
 
+  // Reset the micro tick-direction indicator shortly after each price update
+  // so it flashes on every WS tick rather than sticking.
+  useEffect(() => {
+    if (!tickDir) return;
+    const t = setTimeout(() => setTickDir(null), 350);
+    return () => clearTimeout(t);
+  }, [tickDir, price]);
+
   // Time-driven recompute: tick once per second so a row that's `pending`
   // but older than STALE_LIVE_SEC ages into the "auto" state without needing
   // a query refresh.
@@ -549,14 +605,16 @@ export default function Terminal() {
   const decoratedRecent = useMemo(() => {
     return (recentPredictions ?? []).slice(0, 5).map((p) => {
       const ageSec = (nowTick - new Date(p.createdAt).getTime()) / 1000;
-      const stalePending = p.status === "pending" && ageSec > STALE_LIVE_SEC;
+      const dur = (p as { duration?: number }).duration ?? 60;
+      const stalePending = p.status === "pending" && ageSec > dur + STALE_LIVE_GRACE_SEC;
       const autoBadge =
         (p as { autoResolved?: boolean }).autoResolved === true || stalePending;
       return { p, stalePending, autoBadge };
     });
   }, [recentPredictions, nowTick]);
 
-  const ringProgress = countdown / ROUND_DURATION;
+  const ringDuration = activePrediction?.duration ?? selectedTier.seconds;
+  const ringProgress = ringDuration > 0 ? countdown / ringDuration : 0;
   const ringColor =
     ringProgress > 0.5 ? "#00f0ff" : ringProgress > 0.2 ? "#f5c518" : "#ff2d78";
 
@@ -720,6 +778,24 @@ export default function Terminal() {
               ? `$${price.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
               : "CONNECTING..."}
           </motion.div>
+          <AnimatePresence mode="wait">
+            {tickDir && (
+              <motion.div
+                key={`tick-${price}`}
+                initial={{ opacity: 0, y: tickDir === "up" ? 6 : -6, scale: 0.6 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: tickDir === "up" ? -8 : 8, scale: 0.6 }}
+                transition={{ duration: 0.25 }}
+                className="absolute -right-1 top-1/2 -translate-y-1/2"
+                style={{
+                  color: tickDir === "up" ? "#00f0ff" : "#ff2d78",
+                  filter: `drop-shadow(0 0 8px ${tickDir === "up" ? "#00f0ff" : "#ff2d78"})`,
+                }}
+              >
+                {tickDir === "up" ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="flex items-center gap-2 mt-1">
             {priceUp ? (
               <TrendingUp size={12} className="text-[#00f0ff]" />
@@ -802,7 +878,7 @@ export default function Terminal() {
                   }`}
                 >
                   {isWinningNow
-                    ? `+${Math.floor(activePrediction.amount * GC_RATIO)} GC`
+                    ? `+${Math.floor(activePrediction.amount * activePrediction.multiplier)} GC`
                     : `-${activePrediction.amount} TC`}
                 </span>
               </div>
@@ -883,6 +959,51 @@ export default function Terminal() {
                 <span className="font-mono text-[9px] text-[#ff2d78] font-bold">STREAK SAVER</span>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Time-Limit (Round Duration) Selector */}
+        {!activePrediction && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">
+                Round Length
+              </span>
+              <span className="font-mono text-[10px] text-[#f5c518]">
+                {activeMultiplier.toFixed(1)}× payout
+                {vip && <span className="text-[#f5c518]/70 ml-1">(+VIP)</span>}
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              {DURATION_TIERS.map((tier, i) => {
+                const mult = +(tier.baseMultiplier + (vip ? VIP_MULTIPLIER_BONUS : 0)).toFixed(2);
+                const selected = i === tierIndex;
+                return (
+                  <button
+                    key={tier.seconds}
+                    onClick={() => setTierIndex(i)}
+                    className={`relative flex-1 py-2 rounded font-mono font-bold border transition-all duration-150 ${
+                      selected
+                        ? "border-[#f5c518] text-[#f5c518] bg-[#f5c518]/10"
+                        : "border-white/10 text-white/40 hover:border-white/30"
+                    }`}
+                    style={
+                      selected
+                        ? {
+                            boxShadow:
+                              "0 0 14px rgba(245,197,24,0.45), inset 0 0 10px rgba(245,197,24,0.08)",
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="text-[11px] leading-tight">{tier.label}</div>
+                    <div className={`text-[9px] leading-tight ${selected ? "text-[#f5c518]/90" : "text-white/30"}`}>
+                      {mult.toFixed(1)}×
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -986,7 +1107,8 @@ export default function Terminal() {
             <div className="flex items-center justify-center gap-2">
               <Clock size={10} className="text-white/30" />
               <span className="font-mono text-[9px] text-white/30 tracking-wider">
-                60 SECOND ROUND · WIN {Math.round(GC_RATIO * 100)}% AS 🪙 GOLD COINS
+                {selectedTier.label.toUpperCase()} ROUND · WIN {Math.round(activeMultiplier * 100)}% AS 🪙 GOLD COINS
+                {vip && <span className="text-[#f5c518]/70 ml-1">· 👑 VIP +{VIP_MULTIPLIER_BONUS.toFixed(1)}×</span>}
               </span>
             </div>
           </>
@@ -1141,10 +1263,19 @@ export default function Terminal() {
                                 direction: showResult.direction as "long" | "short",
                                 amount: showResult.amount * 2,
                                 entryPrice: price,
+                                duration: selectedTier.seconds,
+                                multiplier: activeMultiplier,
                               },
                             });
                             queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-                            startCountdown(pred.id, showResult.direction, showResult.amount * 2, price);
+                            startCountdown(
+                              pred.id,
+                              showResult.direction,
+                              showResult.amount * 2,
+                              price,
+                              selectedTier.seconds,
+                              activeMultiplier,
+                            );
                           } catch {
                             setDonPredictionId(null);
                           }
@@ -1194,11 +1325,11 @@ export default function Terminal() {
                       <>
                         As a VIP, a winning trade here pays{" "}
                         <span className="text-[#f5c518] font-bold">
-                          {Math.floor(showResult.amount * GC_RATIO * 2).toLocaleString()} GC
+                          {Math.floor(showResult.amount * activeMultiplier * 2).toLocaleString()} GC
                         </span>{" "}
                         vs{" "}
                         <span className="text-white/40">
-                          {Math.floor(showResult.amount * GC_RATIO).toLocaleString()} GC
+                          {Math.floor(showResult.amount * activeMultiplier).toLocaleString()} GC
                         </span>{" "}
                         free — upgrade to unlock 2× rewards!
                       </>

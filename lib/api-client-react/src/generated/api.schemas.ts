@@ -128,11 +128,29 @@ export const CreatePredictionBodyDirection = {
   short: "short",
 } as const;
 
+/**
+ * Round duration in seconds. Allowed: 6, 15, 30, 60, 300.
+ */
+export type CreatePredictionBodyDuration =
+  (typeof CreatePredictionBodyDuration)[keyof typeof CreatePredictionBodyDuration];
+
+export const CreatePredictionBodyDuration = {
+  NUMBER_6: 6,
+  NUMBER_15: 15,
+  NUMBER_30: 30,
+  NUMBER_60: 60,
+  NUMBER_300: 300,
+} as const;
+
 export interface CreatePredictionBody {
   telegramId: string;
   direction: CreatePredictionBodyDirection;
   amount: number;
   entryPrice: number;
+  /** Round duration in seconds. Allowed: 6, 15, 30, 60, 300. */
+  duration?: CreatePredictionBodyDuration;
+  /** GC payout multiplier for the selected tier (+ optional VIP bonus). Validated server-side against the duration. */
+  multiplier?: number;
 }
 
 export interface ResolvePredictionBody {
@@ -159,6 +177,10 @@ export interface Prediction {
   status: PredictionStatus;
   /** @nullable */
   payout?: number | null;
+  /** Round duration in seconds used for this prediction. */
+  duration?: number;
+  /** GC payout multiplier applied to the winning bet for this prediction. */
+  multiplier?: number;
   autoResolved: boolean;
   createdAt: string;
   /** @nullable */

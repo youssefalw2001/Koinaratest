@@ -3,6 +3,7 @@ import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/
 import { isVipActive } from "./vip";
 
 export const GC_RATIO = 1.7;
+const DEFAULT_MULTIPLIER = 1.7;
 export const DAILY_GC_CAP_FREE = 800;
 export const DAILY_GC_CAP_VIP = 6000;
 
@@ -148,7 +149,14 @@ export async function resolvePredictionLogic(
     }
 
     const baseMultiplier = vipNow ? 2 : 1;
-    const rawPayout = Math.floor(prediction.amount * GC_RATIO) * baseMultiplier * gemMultiplier;
+    // Use the per-prediction multiplier that was validated & stored on bet
+    // placement (duration tier + VIP bonus). Fall back to legacy GC_RATIO for
+    // any older rows written before this column existed.
+    const tierMultiplier =
+      typeof prediction.multiplier === "number" && prediction.multiplier > 0
+        ? prediction.multiplier
+        : DEFAULT_MULTIPLIER;
+    const rawPayout = Math.floor(prediction.amount * tierMultiplier) * baseMultiplier * gemMultiplier;
     const remaining = dailyCap - currentDailyGc;
     const gcPayout = Math.min(rawPayout, Math.max(0, remaining));
 

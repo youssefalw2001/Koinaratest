@@ -11,6 +11,8 @@ export const predictionsTable = pgTable("predictions", {
   exitPrice: real("exit_price"),
   status: text("status").notNull().default("pending"),
   payout: integer("payout"),
+  duration: integer("duration").notNull().default(60),
+  multiplier: real("multiplier").notNull().default(1.7),
   autoResolved: boolean("auto_resolved").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
