@@ -246,6 +246,7 @@ export const GetLeaderboardResponseItem = zod.object({
   username: zod.string().nullish(),
   firstName: zod.string().nullish(),
   goldCoins: zod.number(),
+  totalGcEarned: zod.number(),
   isVip: zod.boolean(),
   rank: zod.number(),
 });

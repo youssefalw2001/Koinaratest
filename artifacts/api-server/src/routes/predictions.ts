@@ -174,6 +174,7 @@ router.get("/predictions/leaderboard", async (req, res): Promise<void> => {
       username: usersTable.username,
       firstName: usersTable.firstName,
       goldCoins: usersTable.goldCoins,
+      totalGcEarned: usersTable.totalGcEarned,
       isVip: usersTable.isVip,
     })
     .from(usersTable)

@@ -132,6 +132,7 @@ export interface LeaderboardEntry {
   /** @nullable */
   firstName?: string | null;
   goldCoins: number;
+  totalGcEarned: number;
   isVip: boolean;
   rank: number;
 }

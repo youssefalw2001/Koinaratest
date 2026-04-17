@@ -85,10 +85,13 @@ export default function Leaderboard() {
                 )}
               </div>
 
-              {/* Gold Coins */}
-              <div className="flex items-center gap-1 shrink-0">
-                <span className="text-xs">🪙</span>
-                <span className="font-mono text-sm font-black text-[#f5c518]">{(entry.goldCoins ?? 0).toLocaleString()}</span>
+              {/* Total GC Earned (lifetime) */}
+              <div className="flex flex-col items-end shrink-0">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs">🪙</span>
+                  <span className="font-mono text-sm font-black text-[#f5c518]">{(entry.totalGcEarned ?? 0).toLocaleString()}</span>
+                </div>
+                <span className="font-mono text-[9px] text-white/30">lifetime</span>
               </div>
             </motion.div>
           );
