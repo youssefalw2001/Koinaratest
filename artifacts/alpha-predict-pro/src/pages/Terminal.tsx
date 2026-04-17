@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame } from "lucide-react";
 import {
@@ -108,6 +109,7 @@ function VipTicker({ items }: { items: TickerItem[] }) {
 
 export default function Terminal() {
   const { user } = useTelegram();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
@@ -803,7 +805,10 @@ export default function Terminal() {
                   </div>
                   <motion.button
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => setShowResult(null)}
+                    onClick={() => {
+                      setShowResult(null);
+                      navigate("/profile");
+                    }}
                     className="w-full py-2.5 rounded-lg font-mono text-xs font-bold text-black"
                     style={{
                       background: "linear-gradient(135deg, #f5c518, #e0a800)",
