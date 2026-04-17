@@ -306,7 +306,6 @@ export default function Terminal() {
   const maxBet = vip ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
   const expectedGc = Math.floor(bet * GC_RATIO);
-  const vipGc = expectedGc * 2;
 
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor =
@@ -612,13 +611,13 @@ export default function Terminal() {
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
                 <span className="font-mono text-xs font-bold">
-                  <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
-                  <span className="text-[#f5c518]/60 ml-1.5">👑 2× VIP rate</span>
+                  <span className="text-[#f5c518]">+{expectedGc} 🪙 GC</span>
+                  <span className="text-[#f5c518]/60 ml-1.5">👑 3K/day cap</span>
                 </span>
               ) : (
                 <span className="font-mono text-xs font-bold text-white/60">
                   <span className="text-[#f5c518]">+{expectedGc} GC</span>
-                  <span className="text-[#f5c518]/50 ml-1.5">(VIP: {vipGc} GC 👑)</span>
+                  <span className="text-[#f5c518]/50 ml-1.5">(VIP: 3K/day 👑)</span>
                 </span>
               )}
             </div>
@@ -781,27 +780,13 @@ export default function Terminal() {
                     VIP ADVANTAGE
                   </div>
                   <div className="font-mono text-xs text-white/65 leading-relaxed mb-3">
-                    {showResult.won ? (
-                      <>
-                        As a VIP you would have earned{" "}
-                        <span className="text-[#f5c518] font-bold">
-                          {(showResult.payout * 2).toLocaleString()} GC
-                        </span>{" "}
-                        on this trade — double your {showResult.payout} GC!
-                      </>
-                    ) : (
-                      <>
-                        If you had won as a VIP, that trade pays{" "}
-                        <span className="text-[#f5c518] font-bold">
-                          {Math.floor(showResult.amount * GC_RATIO * 2).toLocaleString()} GC
-                        </span>{" "}
-                        vs{" "}
-                        <span className="text-white/50">
-                          {Math.floor(showResult.amount * GC_RATIO)} GC
-                        </span>{" "}
-                        for free users — upgrade and double your rewards!
-                      </>
-                    )}
+                    VIP members earn up to{" "}
+                    <span className="text-[#f5c518] font-bold">3,000 GC/day</span>
+                    {" "}and can bet up to{" "}
+                    <span className="text-[#f5c518] font-bold">5,000 TC</span>.
+                    {" "}You're capped at{" "}
+                    <span className="text-white/45">800 GC/day</span>{" "}
+                    and 1,000 TC max bet — upgrade to unlock your full potential!
                   </div>
                   <motion.button
                     whileTap={{ scale: 0.97 }}
