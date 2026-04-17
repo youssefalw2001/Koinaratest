@@ -321,12 +321,12 @@ export default function WalletPage() {
                 <Crown size={36} className="text-[#f5c518] mb-2 drop-shadow-[0_0_15px_#f5c518]" />
                 <div className="font-mono text-xl font-black text-white mb-1">ACTIVATE VIP</div>
                 <div className="font-mono text-xs text-white/40 mb-4">
-                  2× payouts · 6,000 GC daily cap · max 5,000 TC bet
+                  $4.99/wk · $14.99/mo · cancel anytime
                 </div>
 
                 {/* Perks */}
                 <div className="w-full grid grid-cols-2 gap-2 mb-4">
-                  {["2× payout multiplier", "6,000 GC daily cap", "Max 5,000 TC bet", "VIP-only quests", "25 ads/day", "USDT withdrawals"].map(perk => (
+                  {["2× payout multiplier", "1,500 TC daily bonus", "6,000 GC daily cap", "Max 5,000 TC bet", "Instant withdrawal queue", "$1 minimum withdrawal", "20% referral commission", "Content rewards unlocked", "25 ads/day"].map(perk => (
                     <div key={perk} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/5">
                       <CheckCircle size={10} className="text-[#f5c518] shrink-0" />
                       <span className="font-mono text-[10px] text-white text-left">{perk}</span>
@@ -390,7 +390,7 @@ export default function WalletPage() {
                         }`}
                       >
                         <div className="font-mono text-xs font-black text-white">7 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">0.5 TON ≈ $1.5</div>
+                        <div className="font-mono text-[10px] text-white/40">0.5 TON · $4.99/week</div>
                       </button>
                       <button
                         onClick={() => setTonPlan("monthly")}
@@ -400,7 +400,7 @@ export default function WalletPage() {
                       >
                         <div className="absolute -top-2 right-2 bg-[#ff2d78] text-white font-mono text-[8px] px-1.5 py-0.5 rounded font-black">BEST VALUE</div>
                         <div className="font-mono text-xs font-black text-white">30 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">1.5 TON ≈ $4.5</div>
+                        <div className="font-mono text-[10px] text-white/40">1.5 TON · $14.99/month</div>
                       </button>
                     </div>
                     {!walletAddress ? (

@@ -59,7 +59,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     let reason: "tc_zero" | "gc_milestone" | "referral" | null = null;
     if (tc === 0) reason = "tc_zero";
     else if (gc >= 5000) reason = "gc_milestone";
-    else if (user.referredBy) reason = "referral";
+    // Fire only when a user this person referred actually purchased VIP (server sets this flag)
+    else if (user.referralVipRewardPending) reason = "referral";
 
     if (!reason || trialTriggeredRef.current) return;
 

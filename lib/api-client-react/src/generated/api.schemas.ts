@@ -77,6 +77,8 @@ export interface User {
   goldCoins: number;
   totalGcEarned: number;
   isVip: boolean;
+  /** Set to true when a user this person referred purchases VIP; cleared after trial is activated */
+  referralVipRewardPending?: boolean;
   /**
    * Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null
    * @nullable

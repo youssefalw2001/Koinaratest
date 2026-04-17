@@ -44,7 +44,9 @@ export default function Earn() {
   const [adCountdown, setAdCountdown] = useState(AD_DURATION);
   const [adResult, setAdResult] = useState<{ tc: number; adsLeft: number } | null>(null);
   const [adsWatchedToday, setAdsWatchedToday] = useState<number | null>(null);
+  const [showAdToast, setShowAdToast] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const vip = isVipActive(user);
   const adTcReward = vip ? 100 : 80;
@@ -93,7 +95,11 @@ export default function Earn() {
       setAdResult({ tc: result.tcAwarded, adsLeft });
       setAdsWatchedToday(result.adsWatchedToday);
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      setTimeout(() => {
+      // Show floating toast
+      setShowAdToast(true);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setShowAdToast(false);
         setAdResult(null);
         setAdState("idle");
       }, 3500);
@@ -109,6 +115,7 @@ export default function Earn() {
   useEffect(() => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -130,6 +137,25 @@ export default function Earn() {
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
+      {/* Floating ad reward toast — fixed-position, slides in from top */}
+      <AnimatePresence>
+        {showAdToast && adResult && (
+          <motion.div
+            initial={{ opacity: 0, y: -60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -60 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl border border-[#00f0ff]/40 bg-black/90 backdrop-blur shadow-[0_0_30px_rgba(0,240,255,0.3)]"
+          >
+            <CheckCircle2 size={20} className="text-[#00f0ff] drop-shadow-[0_0_8px_#00f0ff] shrink-0" />
+            <div>
+              <div className="font-mono text-sm font-black text-[#00f0ff]">+{adResult.tc} TC Earned!</div>
+              <div className="font-mono text-[10px] text-white/40">{adResult.adsLeft} ads remaining today</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex items-center gap-2 mb-2">
         <Gift size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
         <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Earn Center</span>
@@ -276,20 +302,9 @@ export default function Earn() {
           )}
 
           {adState === "done" && (
-            <AnimatePresence>
-              {adResult && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col items-center py-2"
-                >
-                  <CheckCircle2 size={28} className="text-[#00f0ff] mb-1 drop-shadow-[0_0_8px_#00f0ff]" />
-                  <div className="font-mono text-lg font-black text-[#00f0ff]">+{adResult.tc} TC Earned!</div>
-                  <div className="font-mono text-[10px] text-white/40">{adResult.adsLeft} ads remaining today</div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div className="flex flex-col items-center py-3">
+              <CheckCircle2 size={24} className="text-[#00f0ff] opacity-50" />
+            </div>
           )}
         </div>
       </div>

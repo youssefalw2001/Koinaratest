@@ -151,11 +151,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /users/{telegramId}/vip:
+  /users/{telegramId}/vip/subscribe:
     post:
       operationId: upgradeToVip
       tags: [users]
-      summary: Upgrade user to VIP (deduct TC or record TON payment)
+      summary: Subscribe to VIP (deduct TC or verify on-chain TON payment)
       parameters:
         - in: path
           name: telegramId
@@ -478,6 +478,9 @@ components:
           type: integer
         isVip:
           type: boolean
+        referralVipRewardPending:
+          type: boolean
+          description: "Set to true when a user this person referred purchases VIP; cleared after trial is activated"
         vipPlan:
           type: ["string", "null"]
           description: "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null"

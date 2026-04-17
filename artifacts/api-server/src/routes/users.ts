@@ -284,7 +284,7 @@ router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
   res.json(UpdateWalletResponse.parse(serializeRow(updated as Record<string, unknown>)));
 });
 
-router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
+router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> => {
   const params = UpgradeToVipParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -323,6 +323,14 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
       return;
     }
 
+    // Cryptographic binding: the senderAddress must match the wallet this user previously
+    // connected via TON Connect. This prevents any user from claiming a payment made by
+    // a different wallet they don't control.
+    if (user.walletAddress && user.walletAddress.toLowerCase() !== senderAddress.toLowerCase()) {
+      res.status(403).json({ error: "Sender address does not match your connected wallet. Please reconnect your wallet and try again." });
+      return;
+    }
+
     const durationDays = plan === "weekly" ? 7 : 30;
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const vipPlan = plan === "weekly" ? "ton_weekly" : "ton_monthly";
@@ -358,13 +366,20 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
 
     const [updated] = await db
       .update(usersTable)
-      .set({
-        isVip: true,
-        vipPlan,
-        vipExpiresAt: expiresAt,
-      })
+      .set({ isVip: true, vipPlan, vipExpiresAt: expiresAt })
       .where(eq(usersTable.telegramId, params.data.telegramId))
       .returning();
+
+    // Referral reward: when a referred user purchases a paid VIP plan, notify the referrer
+    // by setting referralVipRewardPending=true. The referrer's client polls user state and
+    // triggers a free 24h VIP trial for the referrer as a thank-you.
+    if (user.referredBy) {
+      await db
+        .update(usersTable)
+        .set({ referralVipRewardPending: true })
+        .where(eq(usersTable.telegramId, user.referredBy));
+    }
+
     res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;
   }
@@ -386,6 +401,15 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
       })
       .where(eq(usersTable.telegramId, params.data.telegramId))
       .returning();
+
+    // TC plan also triggers referral reward for the referrer
+    if (user.referredBy) {
+      await db
+        .update(usersTable)
+        .set({ referralVipRewardPending: true })
+        .where(eq(usersTable.telegramId, user.referredBy));
+    }
+
     res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;
   }
@@ -434,9 +458,12 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
 
   const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+  // When triggered by "referral", also clear the pending flag so it doesn't re-trigger.
+  const extraSet = body.data.reason === "referral" ? { referralVipRewardPending: false } : {};
+
   const [updated] = await db
     .update(usersTable)
-    .set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true })
+    .set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...extraSet })
     .where(eq(usersTable.telegramId, params.data.telegramId))
     .returning();
 

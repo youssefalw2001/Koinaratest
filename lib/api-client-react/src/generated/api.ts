@@ -551,10 +551,10 @@ export const useActivateVipTrial = <
 };
 
 /**
- * @summary Upgrade user to VIP (deduct TC or record TON payment)
+ * @summary Subscribe to VIP (deduct TC or verify on-chain TON payment)
  */
 export const getUpgradeToVipUrl = (telegramId: string) => {
-  return `/api/users/${telegramId}/vip`;
+  return `/api/users/${telegramId}/vip/subscribe`;
 };
 
 export const upgradeToVip = async (
@@ -615,7 +615,7 @@ export type UpgradeToVipMutationBody = BodyType<UpgradeToVipBody>;
 export type UpgradeToVipMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Upgrade user to VIP (deduct TC or record TON payment)
+ * @summary Subscribe to VIP (deduct TC or verify on-chain TON payment)
  */
 export const useUpgradeToVip = <
   TError = ErrorType<ErrorResponse>,

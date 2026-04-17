@@ -75,12 +75,12 @@ beforeEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("POST /users/:telegramId/vip — TON payment plans", () => {
+describe("POST /users/:telegramId/vip/subscribe — TON payment plans", () => {
   it("activates weekly VIP when a valid TON payment is found on-chain", async () => {
     vi.stubGlobal("fetch", await buildFetchMock("weekly"));
 
     const res = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly", senderAddress: MOCK_SENDER });
 
     expect(res.status).toBe(200);
@@ -96,7 +96,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
     vi.stubGlobal("fetch", await buildFetchMock("monthly"));
 
     const res = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "monthly", senderAddress: MOCK_SENDER });
 
     expect(res.status).toBe(200);
@@ -117,7 +117,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
     }));
 
     const res = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly", senderAddress: MOCK_SENDER });
 
     expect(res.status).toBe(422);
@@ -128,7 +128,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
     vi.stubGlobal("fetch", await buildFetchMock("weekly"));
 
     const first = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly", senderAddress: MOCK_SENDER });
     expect(first.status).toBe(200);
 
@@ -139,7 +139,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
 
     vi.stubGlobal("fetch", await buildFetchMock("weekly"));
     const second = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly", senderAddress: MOCK_SENDER });
     expect(second.status).toBe(409);
     expect(second.body.error).toMatch(/already been used/);
@@ -147,7 +147,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
 
   it("returns 400 when senderAddress is missing for a TON plan", async () => {
     const res = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly" });
 
     expect(res.status).toBe(400);
@@ -158,7 +158,7 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
     delete process.env.KOINARA_TON_WALLET;
 
     const res = await request(app)
-      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
       .send({ plan: "weekly", senderAddress: MOCK_SENDER });
 
     expect(res.status).toBe(503);

@@ -37,6 +37,12 @@ export const RegisterUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  referralVipRewardPending: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
+    ),
   vipPlan: zod
     .string()
     .nullish()
@@ -75,6 +81,12 @@ export const GetUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  referralVipRewardPending: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
+    ),
   vipPlan: zod
     .string()
     .nullish()
@@ -135,6 +147,12 @@ export const UpdateWalletResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  referralVipRewardPending: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
+    ),
   vipPlan: zod
     .string()
     .nullish()
@@ -177,6 +195,12 @@ export const ActivateVipTrialResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  referralVipRewardPending: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
+    ),
   vipPlan: zod
     .string()
     .nullish()
@@ -198,7 +222,7 @@ export const ActivateVipTrialResponse = zod.object({
 });
 
 /**
- * @summary Upgrade user to VIP (deduct TC or record TON payment)
+ * @summary Subscribe to VIP (deduct TC or verify on-chain TON payment)
  */
 export const UpgradeToVipParams = zod.object({
   telegramId: zod.coerce.string(),
@@ -225,6 +249,12 @@ export const UpgradeToVipResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  referralVipRewardPending: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
+    ),
   vipPlan: zod
     .string()
     .nullish()
