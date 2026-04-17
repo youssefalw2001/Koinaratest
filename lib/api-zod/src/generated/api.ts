@@ -240,6 +240,7 @@ export const ResolvePredictionResponse = zod.object({
   exitPrice: zod.number().nullish(),
   status: zod.enum(["pending", "won", "lost"]),
   payout: zod.number().nullish(),
+  autoResolved: zod.boolean(),
   createdAt: zod.string(),
   resolvedAt: zod.string().nullish(),
 });
@@ -266,6 +267,7 @@ export const GetUserPredictionsResponseItem = zod.object({
   exitPrice: zod.number().nullish(),
   status: zod.enum(["pending", "won", "lost"]),
   payout: zod.number().nullish(),
+  autoResolved: zod.boolean(),
   createdAt: zod.string(),
   resolvedAt: zod.string().nullish(),
 });
@@ -274,7 +276,7 @@ export const GetUserPredictionsResponse = zod.array(
 );
 
 /**
- * @summary Get recent winning trades by VIP users for social proof ticker
+ * @summary Recent Gold Coin wins by VIP users (anonymized) for the FOMO ticker
  */
 export const GetVipActivityResponseItem = zod.object({
   displayName: zod.string(),

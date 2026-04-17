@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame } from "lucide-react";
 import {
-  ComposedChart,
-  Area,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
+  ReferenceLine,
   ReferenceDot,
   ResponsiveContainer,
 } from "recharts";
@@ -22,14 +22,18 @@ import {
 } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { formatGcUsd } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 
 const ROUND_DURATION = 60;
-const GC_RATIO = 0.85;
+const GC_RATIO = 1.7;
 const MIN_BET = 50;
 const DEFAULT_BET = 100;
 const CLOSE_CALL_THRESHOLD = 15;
-const CHART_TICKS = 60;
+const CANDLE_COUNT = 60;
+const CANDLE_BUCKET_MS = 1000;
+const STALE_LIVE_SEC = 75;
+const RECONCILE_AFTER_SEC = 65;
 
 const SYNTH_NAMES = [
   "KoinVIP", "TradePro", "MenaWhale", "GoldSeeker", "CryptoSultan",
@@ -61,8 +65,69 @@ interface PriceResult {
   id: number;
 }
 
-interface PriceTick {
-  p: number;
+interface Candle {
+  t: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  range: [number, number];
+  body: [number, number];
+}
+
+interface WickShapeProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  payload?: Candle;
+}
+
+function WickShape(props: WickShapeProps) {
+  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+  if (!payload) return null;
+  const isUp = payload.close >= payload.open;
+  const color = isUp ? "#00f0ff" : "#ff2d78";
+  const cx = x + width / 2;
+  return (
+    <line
+      x1={cx}
+      x2={cx}
+      y1={y}
+      y2={y + Math.max(1, height)}
+      stroke={color}
+      strokeWidth={1}
+      opacity={0.6}
+    />
+  );
+}
+
+interface BodyShapeProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  payload?: Candle;
+}
+
+function BodyShape(props: BodyShapeProps) {
+  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+  if (!payload) return null;
+  const isUp = payload.close >= payload.open;
+  const color = isUp ? "#00f0ff" : "#ff2d78";
+  const cx = x + width / 2;
+  const bodyW = Math.max(2, Math.min(width * 0.7, 8));
+  return (
+    <rect
+      x={cx - bodyW / 2}
+      y={y}
+      width={bodyW}
+      height={Math.max(1, height)}
+      fill={color}
+      opacity={0.95}
+      style={{ filter: `drop-shadow(0 0 3px ${color})` }}
+    />
+  );
 }
 
 interface TickerItem {
@@ -96,6 +161,9 @@ function VipTicker({ items }: { items: TickerItem[] }) {
             <span className="font-mono text-[10px] text-[#f5c518]">
               won {item.payout} GC
             </span>
+            <span className="font-mono text-[9px] text-white/40">
+              ≈ {formatGcUsd(item.payout)}
+            </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
             </span>
@@ -113,8 +181,9 @@ export default function Terminal() {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const priceHistoryRef = useRef<PriceTick[]>([]);
-  const [chartData, setChartData] = useState<PriceTick[]>([]);
+  const candlesRef = useRef<Candle[]>([]);
+  const [candleData, setCandleData] = useState<Candle[]>([]);
+  const reconcileRunRef = useRef(false);
   const [bet, setBet] = useState(DEFAULT_BET);
   const [activePrediction, setActivePrediction] = useState<{
     id: number;
@@ -175,11 +244,42 @@ export default function Terminal() {
   })();
 
   useEffect(() => {
-    if (price > 0) {
-      priceRef.current = price;
-      priceHistoryRef.current = [...priceHistoryRef.current, { p: price }].slice(-CHART_TICKS);
-      setChartData([...priceHistoryRef.current]);
+    if (price <= 0) return;
+    priceRef.current = price;
+
+    const now = Date.now();
+    const bucketStart = Math.floor(now / CANDLE_BUCKET_MS) * CANDLE_BUCKET_MS;
+    const list = candlesRef.current;
+    const last = list[list.length - 1];
+
+    if (!last || last.t !== bucketStart) {
+      const open = last ? last.close : price;
+      const o = open;
+      const c = price;
+      const h = Math.max(o, c);
+      const l = Math.min(o, c);
+      const next: Candle = {
+        t: bucketStart,
+        open: o,
+        high: h,
+        low: l,
+        close: c,
+        range: [l, h],
+        body: [Math.min(o, c), Math.max(o, c)],
+      };
+      candlesRef.current = [...list, next].slice(-CANDLE_COUNT);
+    } else {
+      const updated: Candle = {
+        ...last,
+        close: price,
+        high: Math.max(last.high, price),
+        low: Math.min(last.low, price),
+      };
+      updated.range = [updated.low, updated.high];
+      updated.body = [Math.min(updated.open, updated.close), Math.max(updated.open, updated.close)];
+      candlesRef.current = [...list.slice(0, -1), updated];
     }
+    setCandleData([...candlesRef.current]);
   }, [price]);
 
   useEffect(() => {
@@ -308,6 +408,44 @@ export default function Terminal() {
     [resolvePrediction, queryClient, user],
   );
 
+  // Frontend reconciliation: on mount (and whenever recentPredictions arrives),
+  // if any of the user's predictions is still pending and older than RECONCILE_AFTER_SEC,
+  // immediately fire a /resolve so we never show a stale LIVE row.
+  useEffect(() => {
+    if (!user || !recentPredictions || reconcileRunRef.current) return;
+    const stale = recentPredictions.filter(
+      (p) =>
+        p.status === "pending" &&
+        Date.now() - new Date(p.createdAt).getTime() > RECONCILE_AFTER_SEC * 1000,
+    );
+    if (stale.length === 0) return;
+    // Only reconcile when we actually have a live price. If we don't, leave
+    // the rows for the backend sweeper — never resolve at entryPrice (that
+    // would force a deterministic short-wins / long-loses outcome).
+    if (!priceRef.current) return;
+    reconcileRunRef.current = true;
+    const livePrice = priceRef.current;
+    (async () => {
+      for (const p of stale) {
+        try {
+          await resolvePrediction.mutateAsync({
+            id: p.id,
+            data: { exitPrice: livePrice },
+          });
+        } catch {
+          // ignore — backend sweeper will catch it
+        }
+      }
+      queryClient.invalidateQueries({
+        queryKey: getGetUserPredictionsQueryKey(user.telegramId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetUserQueryKey(user.telegramId),
+      });
+    })();
+    // `price` is in deps so we retry as soon as the first WS tick arrives.
+  }, [user, recentPredictions, resolvePrediction, queryClient, price]);
+
   const handlePredict = async (direction: "long" | "short") => {
     if (!user || activePrediction || bet < MIN_BET || bet > (user.tradeCredits ?? 0)) return;
     try {
@@ -352,6 +490,52 @@ export default function Terminal() {
   const yesterdayMissedUsd = (yesterdayMissed * GC_TO_USD).toFixed(2);
 
   const showFomoBanner = !vip && !fomoShownToday && !tradedToday;
+
+  // Animated payout counter for the WIN overlay (0 → final over ~600ms).
+  const [animatedPayout, setAnimatedPayout] = useState(0);
+  useEffect(() => {
+    if (!showResult || !showResult.won) {
+      setAnimatedPayout(0);
+      return;
+    }
+    const target = showResult.payout;
+    const start = performance.now();
+    const duration = 600;
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimatedPayout(Math.floor(target * eased));
+      if (t < 1) raf = requestAnimationFrame(step);
+      else setAnimatedPayout(target);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [showResult]);
+
+  // Time-driven recompute: tick once per second so a row that's `pending`
+  // but older than STALE_LIVE_SEC ages into the "auto" state without needing
+  // a query refresh.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const hasPending = (recentPredictions ?? []).some(
+      (p) => p.status === "pending",
+    );
+    if (!hasPending) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [recentPredictions]);
+
+  const decoratedRecent = useMemo(() => {
+    return (recentPredictions ?? []).slice(0, 5).map((p) => {
+      const ageSec = (nowTick - new Date(p.createdAt).getTime()) / 1000;
+      const stalePending = p.status === "pending" && ageSec > STALE_LIVE_SEC;
+      const autoBadge =
+        (p as { autoResolved?: boolean }).autoResolved === true || stalePending;
+      return { p, stalePending, autoBadge };
+    });
+  }, [recentPredictions, nowTick]);
 
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor =
@@ -438,48 +622,59 @@ export default function Terminal() {
       )}
 
       <div className="px-4 pt-3 flex flex-col gap-3">
-        {/* Live Price Chart */}
-        {chartData.length > 1 && (
+        {/* Live Candlestick Chart */}
+        {candleData.length > 1 && (
           <div
             className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
-            style={{ height: 88 }}
+            style={{ height: 110 }}
           >
-            <ResponsiveContainer width="100%" height={88}>
-              <ComposedChart data={chartData} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
-                <defs>
-                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis hide />
-                <YAxis domain={["dataMin", "dataMax"]} hide />
-                <Area
-                  type="monotone"
-                  dataKey="p"
-                  stroke="none"
-                  fill="url(#chartGrad)"
+            <ResponsiveContainer width="100%" height={110}>
+              <BarChart
+                data={candleData}
+                margin={{ top: 8, right: 28, left: 8, bottom: 6 }}
+                barCategoryGap={1}
+              >
+                <XAxis dataKey="t" hide />
+                <YAxis
+                  domain={["dataMin", "dataMax"]}
+                  hide
+                  allowDecimals
+                />
+                <Bar
+                  dataKey="range"
+                  shape={WickShape as never}
                   isAnimationActive={false}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="p"
-                  stroke="#00f0ff"
-                  strokeWidth={1.5}
-                  dot={false}
+                <Bar
+                  dataKey="body"
+                  shape={BodyShape as never}
                   isAnimationActive={false}
-                  style={{ filter: "drop-shadow(0 0 3px #00f0ff)" }}
                 />
+                {activePrediction && (
+                  <ReferenceLine
+                    y={activePrediction.entryPrice}
+                    stroke="#f5c518"
+                    strokeWidth={1.2}
+                    strokeDasharray="4 3"
+                    label={{
+                      value: "ENTRY",
+                      position: "right",
+                      fill: "#f5c518",
+                      fontSize: 9,
+                      fontFamily: "monospace",
+                    }}
+                  />
+                )}
                 <ReferenceDot
-                  x={chartData.length - 1}
-                  y={chartData[chartData.length - 1]?.p ?? 0}
-                  r={4}
+                  x={candleData[candleData.length - 1]?.t ?? 0}
+                  y={candleData[candleData.length - 1]?.close ?? 0}
+                  r={3}
                   fill="#00f0ff"
                   stroke="rgba(0,240,255,0.45)"
-                  strokeWidth={6}
+                  strokeWidth={5}
                   isFront
                 />
-              </ComposedChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         )}
@@ -704,16 +899,18 @@ export default function Terminal() {
             <div className="flex items-center justify-between px-3 py-2 rounded border border-[#f5c518]/15 bg-[#f5c518]/5">
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
-                <span className="font-mono text-xs font-bold">
+                <span className="font-mono text-xs font-bold flex items-baseline gap-1">
                   <span className="text-white/40">+{expectedGc}</span>
-                  <span className="text-[#f5c518]/60 mx-1">→</span>
+                  <span className="text-[#f5c518]/60">→</span>
                   <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
-                  <span className="text-[#f5c518]/60 ml-1">👑 VIP</span>
+                  <span className="text-white/35 text-[10px]">≈ {formatGcUsd(vipGc)}</span>
+                  <span className="text-[#f5c518]/60 ml-0.5">👑 VIP</span>
                 </span>
               ) : (
-                <span className="font-mono text-xs font-bold text-white/60">
+                <span className="font-mono text-xs font-bold text-white/60 flex items-baseline gap-1">
                   <span className="text-[#f5c518]">+{expectedGc} GC</span>
-                  <span className="text-[#f5c518]/50 ml-1.5">(VIP: {vipGc} GC 👑)</span>
+                  <span className="text-white/35 text-[10px]">≈ {formatGcUsd(expectedGc)}</span>
+                  <span className="text-[#f5c518]/50">(VIP: {vipGc} GC 👑)</span>
                 </span>
               )}
             </div>
@@ -746,7 +943,7 @@ export default function Terminal() {
             <div className="flex items-center justify-center gap-2">
               <Clock size={10} className="text-white/30" />
               <span className="font-mono text-[9px] text-white/30 tracking-wider">
-                60 SECOND ROUND · WIN {GC_RATIO * 100}% AS 🪙 GOLD COINS
+                60 SECOND ROUND · WIN {Math.round(GC_RATIO * 100)}% AS 🪙 GOLD COINS
               </span>
             </div>
           </>
@@ -759,7 +956,7 @@ export default function Terminal() {
           </span>
         </div>
         <div className="space-y-2 pb-4">
-          {(recentPredictions ?? []).slice(0, 5).map((pred) => (
+          {decoratedRecent.map(({ p: pred, stalePending, autoBadge }) => (
             <div
               key={pred.id}
               className={`flex items-center justify-between px-3 py-2 rounded border ${
@@ -779,22 +976,43 @@ export default function Terminal() {
                 <span className="font-mono text-xs text-white/60 uppercase">
                   {pred.direction}
                 </span>
+                {autoBadge && pred.status !== "pending" && (
+                  <span
+                    title="Auto-resolved by server"
+                    className="inline-flex items-center gap-0.5 font-mono text-[8px] text-white/35 px-1 py-0.5 rounded border border-white/10 bg-white/5"
+                  >
+                    <Clock size={8} /> auto
+                  </span>
+                )}
               </div>
-              <div className="font-mono text-xs text-white/40">{pred.amount} TC</div>
+              <div className="font-mono text-xs text-white/40 flex items-center gap-1">
+                {pred.amount} TC
+              </div>
               <div
-                className={`font-mono text-xs font-bold ${
+                className={`font-mono text-xs font-bold flex items-center gap-1 ${
                   pred.status === "won"
                     ? "text-[#f5c518]"
                     : pred.status === "lost"
                       ? "text-[#ff2d78]"
-                      : "text-white/40"
+                      : stalePending
+                        ? "text-white/30"
+                        : "text-white/40"
                 }`}
               >
-                {pred.status === "won"
-                  ? `+${pred.payout} 🪙`
-                  : pred.status === "lost"
-                    ? `-${pred.amount} TC`
-                    : "LIVE"}
+                {pred.status === "won" ? (
+                  <>
+                    <span>+{pred.payout} 🪙</span>
+                    <span className="text-white/30 text-[9px] font-normal">
+                      ≈ {formatGcUsd(pred.payout ?? 0)}
+                    </span>
+                  </>
+                ) : pred.status === "lost" ? (
+                  `-${pred.amount} TC`
+                ) : stalePending ? (
+                  <span title="Server is finalizing this round">· auto</span>
+                ) : (
+                  "LIVE"
+                )}
               </div>
             </div>
           ))}
@@ -848,11 +1066,16 @@ export default function Terminal() {
                 </div>
                 {showResult.won ? (
                   <>
-                    <div className="font-mono text-2xl font-bold text-[#f5c518]">
-                      +{showResult.payout.toLocaleString()} 🪙 GC
-                    </div>
+                    <motion.div
+                      key={showResult.id}
+                      animate={{ filter: ["blur(0px)", "blur(0.6px)", "blur(0px)"] }}
+                      transition={{ duration: 0.35, times: [0, 0.5, 1] }}
+                      className="font-mono text-2xl font-bold text-[#f5c518]"
+                    >
+                      +{animatedPayout.toLocaleString()} 🪙 GC
+                    </motion.div>
                     <div className="font-mono text-[10px] text-white/40 mt-1">
-                      Gold Coins added to balance
+                      ≈ {formatGcUsd(showResult.payout)} · Gold Coins added to balance
                     </div>
                   </>
                 ) : (
@@ -928,7 +1151,7 @@ export default function Terminal() {
                 >
                   <Crown size={13} className="text-[#f5c518]" />
                   <span className="font-mono text-[10px] text-[#f5c518]">
-                    Congratulations! VIP 2× payout active — up to 3,000 GC/day
+                    Congratulations! VIP 2× payout active — up to 6,000 GC/day
                   </span>
                 </div>
               )}

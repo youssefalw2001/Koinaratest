@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Zap, Gift, Wallet, Trophy, User, Crown, Clock } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
+import { formatGcUsd } from "@/lib/format";
 
 const CYAN = "#00f0ff";
 const GOLD = "#f5c518";
@@ -68,6 +69,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {(user.goldCoins ?? 0).toLocaleString()}
               </span>
               <span className="font-mono text-[9px]" style={{ color: GOLD + "70" }}>GC</span>
+              <span className="font-mono text-[8px] text-white/40 ml-0.5">
+                ≈ {formatGcUsd(user.goldCoins ?? 0)}
+              </span>
             </div>
             {vip && (
               <div className="px-1.5 py-0.5 rounded border border-[#f5c518]/50 bg-[#f5c518]/10">

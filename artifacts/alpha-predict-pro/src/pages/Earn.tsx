@@ -145,7 +145,7 @@ export default function Earn() {
         >
           <Crown size={20} className="text-[#f5c518] shrink-0 drop-shadow-[0_0_6px_#f5c518]" />
           <div>
-            <div className="font-mono text-xs font-bold text-[#f5c518]">VIP unlocks 3,000 GC daily cap</div>
+            <div className="font-mono text-xs font-bold text-[#f5c518]">VIP unlocks 6,000 GC daily cap</div>
             <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value quests + 25 ads/day</div>
           </div>
         </div>

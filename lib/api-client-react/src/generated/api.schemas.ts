@@ -145,6 +145,7 @@ export interface Prediction {
   status: PredictionStatus;
   /** @nullable */
   payout?: number | null;
+  autoResolved: boolean;
   createdAt: string;
   /** @nullable */
   resolvedAt?: string | null;

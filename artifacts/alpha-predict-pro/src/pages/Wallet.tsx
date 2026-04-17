@@ -120,7 +120,7 @@ export default function WalletPage() {
             <Crown size={20} className="text-[#f5c518]" />
             <div>
               <div className="font-mono text-sm font-black text-[#f5c518]">VIP ACTIVATED!</div>
-              <div className="font-mono text-[10px] text-white/50">3,000 GC daily cap · bet up to 5,000 TC</div>
+              <div className="font-mono text-[10px] text-white/50">6,000 GC daily cap · bet up to 5,000 TC — VIP active</div>
             </div>
           </motion.div>
         )}
@@ -318,12 +318,12 @@ export default function WalletPage() {
                 <Crown size={36} className="text-[#f5c518] mb-2 drop-shadow-[0_0_15px_#f5c518]" />
                 <div className="font-mono text-xl font-black text-white mb-1">ACTIVATE VIP</div>
                 <div className="font-mono text-xs text-white/40 mb-4">
-                  2× payouts · 3,000 GC daily cap · max 5,000 TC bet
+                  2× payouts · 6,000 GC daily cap · max 5,000 TC bet
                 </div>
 
                 {/* Perks */}
                 <div className="w-full grid grid-cols-2 gap-2 mb-4">
-                  {["2× payout multiplier", "3,000 GC daily cap", "Max 5,000 TC bet", "VIP-only quests", "25 ads/day", "USDT withdrawals"].map(perk => (
+                  {["2× payout multiplier", "6,000 GC daily cap", "Max 5,000 TC bet", "VIP-only quests", "25 ads/day", "USDT withdrawals"].map(perk => (
                     <div key={perk} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/5">
                       <CheckCircle size={10} className="text-[#f5c518] shrink-0" />
                       <span className="font-mono text-[10px] text-white text-left">{perk}</span>

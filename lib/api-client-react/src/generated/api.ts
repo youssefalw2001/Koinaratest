@@ -931,7 +931,7 @@ export function useGetUserPredictions<
 }
 
 /**
- * @summary Get recent winning trades by VIP users for social proof ticker
+ * @summary Recent Gold Coin wins by VIP users (anonymized) for the FOMO ticker
  */
 export const getGetVipActivityUrl = () => {
   return `/api/predictions/vip-activity`;
@@ -982,7 +982,7 @@ export type GetVipActivityQueryResult = NonNullable<
 export type GetVipActivityQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get recent winning trades by VIP users for social proof ticker
+ * @summary Recent Gold Coin wins by VIP users (anonymized) for the FOMO ticker
  */
 
 export function useGetVipActivity<

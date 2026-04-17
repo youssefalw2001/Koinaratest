@@ -15,12 +15,10 @@ import {
 } from "@workspace/api-zod";
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { isVipActive } from "../lib/vip";
+import { resolvePredictionLogic } from "../lib/resolveLogic";
 
 const router: IRouter = Router();
 
-const GC_RATIO = 0.85;
-const DAILY_GC_CAP_FREE = 800;
-const DAILY_GC_CAP_VIP = 3000;
 const MIN_BET_TC = 50;
 const ROUND_DURATION_SEC = 60;
 const RESOLVE_TOLERANCE_SEC = 0;
@@ -115,54 +113,19 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  const priceWentUp = exitPrice > prediction.entryPrice;
-  const isWin =
-    (prediction.direction === "long" && priceWentUp) ||
-    (prediction.direction === "short" && !priceWentUp);
-
-  let gcPayout = 0;
-
-  if (isWin) {
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.telegramId, prediction.telegramId))
-      .limit(1);
-
-    if (user) {
-      const today = new Date().toISOString().split("T")[0];
-      const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
-      const vipNow = isVipActive(user);
-      const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
-      // VIP users earn 2× per-trade payout (bet_TC × 0.85 × 2) on top of a higher daily cap
-      const rawPayout = Math.floor(prediction.amount * GC_RATIO) * (vipNow ? 2 : 1);
-      const remaining = dailyCap - currentDailyGc;
-      gcPayout = Math.min(rawPayout, Math.max(0, remaining));
-
-      if (gcPayout > 0) {
-        const newDailyGc = currentDailyGc + gcPayout;
-        await db
-          .update(usersTable)
-          .set({
-            goldCoins: sql`${usersTable.goldCoins} + ${gcPayout}`,
-            totalGcEarned: sql`${usersTable.totalGcEarned} + ${gcPayout}`,
-            dailyGcEarned: newDailyGc,
-            dailyGcDate: today,
-          })
-          .where(eq(usersTable.telegramId, prediction.telegramId));
-      }
-    }
+  const result = await resolvePredictionLogic(params.data.id, exitPrice, {
+    autoResolved: false,
+  });
+  if (!result.ok || !result.prediction) {
+    res.status(400).json({ error: result.reason ?? "Failed to resolve" });
+    return;
   }
 
-  const status = isWin ? "won" : "lost";
-
-  const [resolved] = await db
-    .update(predictionsTable)
-    .set({ exitPrice, status, payout: gcPayout, resolvedAt: new Date() })
-    .where(eq(predictionsTable.id, params.data.id))
-    .returning();
-
-  res.json(ResolvePredictionResponse.parse(serializeRow(resolved as Record<string, unknown>)));
+  res.json(
+    ResolvePredictionResponse.parse(
+      serializeRow(result.prediction as unknown as Record<string, unknown>),
+    ),
+  );
 });
 
 router.get("/predictions/leaderboard", async (req, res): Promise<void> => {

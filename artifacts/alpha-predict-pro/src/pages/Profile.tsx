@@ -326,7 +326,7 @@ export default function Profile() {
           <Crown size={24} className="text-[#f5c518] mx-auto mb-2 drop-shadow-[0_0_10px_#f5c518]" />
           <div className="font-mono text-sm font-black text-[#f5c518] mb-1">UNLOCK VIP BENEFITS</div>
           <div className="font-mono text-[10px] text-white/40 mb-2">
-            3,000 GC daily cap · Bet up to 5,000 TC · Withdrawals
+            6,000 GC daily cap · Bet up to 5,000 TC · Withdrawals
           </div>
           <div className="font-mono text-xs text-white/40">
             Only 500 TC — activate in Wallet

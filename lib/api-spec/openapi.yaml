@@ -263,7 +263,7 @@ paths:
     get:
       operationId: getVipActivity
       tags: [predictions]
-      summary: Get recent winning trades by VIP users for social proof ticker
+      summary: Recent Gold Coin wins by VIP users (anonymized) for the FOMO ticker
       responses:
         "200":
           description: VIP activity feed
@@ -589,6 +589,8 @@ components:
           enum: [pending, won, lost]
         payout:
           type: ["integer", "null"]
+        autoResolved:
+          type: boolean
         createdAt:
           type: string
         resolvedAt:
@@ -600,6 +602,7 @@ components:
         - amount
         - entryPrice
         - status
+        - autoResolved
         - createdAt
 
     LeaderboardEntry:
