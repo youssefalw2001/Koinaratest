@@ -335,7 +335,7 @@ export default function Terminal() {
           <div className="flex items-center justify-center gap-2 mb-5">
             <Clock size={10} className="text-white/30" />
             <span className="font-mono text-[9px] text-white/30 tracking-wider">
-              60 SECOND ROUND · WIN {GC_RATIO * (user?.isVip ? 2 : 1) * 100}% AS 🪙 GOLD COINS
+              60 SECOND ROUND · WIN {GC_RATIO * 100}% AS 🪙 GOLD COINS
             </span>
           </div>
         </>

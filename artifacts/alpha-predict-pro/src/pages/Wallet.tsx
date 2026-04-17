@@ -220,7 +220,7 @@ export default function WalletPage() {
         <div className="font-mono text-[10px] text-white/30 tracking-widest mb-2">CONVERSION RATE</div>
         <div className="flex items-center gap-2">
           <span className="text-xs">🪙</span>
-          <span className="font-mono text-xs text-white/60">1,000 Gold Coins = $1.00 USDT</span>
+          <span className="font-mono text-xs text-white/60">4,000 Gold Coins = $1.00 USDT</span>
         </div>
       </div>
 
