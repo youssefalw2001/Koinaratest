@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { db, predictionsTable, usersTable } from "@workspace/db";
 import {
   CreatePredictionBody,
@@ -11,6 +11,7 @@ import {
   GetUserPredictionsResponse,
   GetLeaderboardQueryParams,
   GetLeaderboardResponse,
+  GetVipActivityResponse,
 } from "@workspace/api-zod";
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { isVipActive } from "../lib/vip";
@@ -183,6 +184,42 @@ router.get("/predictions/leaderboard", async (req, res): Promise<void> => {
 
   const leaderboard = users.map((u, idx) => ({ ...u, rank: idx + 1 }));
   res.json(GetLeaderboardResponse.parse(leaderboard));
+});
+
+router.get("/predictions/vip-activity", async (req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      id: predictionsTable.id,
+      payout: predictionsTable.payout,
+      resolvedAt: predictionsTable.resolvedAt,
+      username: usersTable.username,
+      firstName: usersTable.firstName,
+      telegramId: usersTable.telegramId,
+    })
+    .from(predictionsTable)
+    .innerJoin(usersTable, eq(predictionsTable.telegramId, usersTable.telegramId))
+    .where(
+      and(
+        eq(predictionsTable.status, "won"),
+        eq(usersTable.isVip, true),
+      ),
+    )
+    .orderBy(desc(predictionsTable.resolvedAt))
+    .limit(10);
+
+  const activity = rows.map((r) => {
+    const raw = r.username ?? r.firstName ?? `VIP_${r.telegramId.slice(-4)}`;
+    const truncated = raw.length > 10 ? `${raw.slice(0, 8)}..` : raw;
+    return {
+      displayName: `${truncated}_${Math.floor(1000 + Math.random() * 8999)}`,
+      payout: r.payout ?? 0,
+      resolvedAt: r.resolvedAt
+        ? new Date(r.resolvedAt).toISOString()
+        : new Date().toISOString(),
+    };
+  });
+
+  res.json(GetVipActivityResponse.parse(activity));
 });
 
 router.get("/predictions/user/:telegramId", async (req, res): Promise<void> => {

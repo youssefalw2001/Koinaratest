@@ -285,6 +285,17 @@ export const ClaimQuestResponse = zod.object({
 });
 
 /**
+ * @summary List recent Gold Coin wins by VIP users (anonymized), for the FOMO ticker
+ */
+export const VipActivityItem = zod.object({
+  displayName: zod.string(),
+  payout: zod.number(),
+  resolvedAt: zod.string(),
+});
+
+export const GetVipActivityResponse = zod.array(VipActivityItem);
+
+/**
  * @summary Claim daily login reward in Trade Credits
  */
 export const ClaimDailyRewardBody = zod.object({

@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Alpha Predict Pro"
+title = "Koinara"
 version = "1.0.0"
 id = "artifacts/alpha-predict-pro"
 router = "path"
@@ -15,10 +15,10 @@ paths = [ "/" ]
 localPort = 18745
 
 [services.development]
-run = "pnpm --filter @workspace/alpha-predict-pro run dev"
+run = "pnpm --filter @workspace/koinara run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/alpha-predict-pro", "run", "build" ]
+build = [ "pnpm", "--filter", "@workspace/koinara", "run", "build" ]
 publicDir = "artifacts/alpha-predict-pro/dist/public"
 serve = "static"
 

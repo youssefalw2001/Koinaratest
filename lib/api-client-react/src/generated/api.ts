@@ -25,6 +25,7 @@ import type {
   ErrorResponse,
   GetLeaderboardParams,
   GetUserPredictionsParams,
+  GetVipActivityResponse,
   HealthStatus,
   LeaderboardEntry,
   Prediction,
@@ -1177,4 +1178,65 @@ export const useClaimDailyReward = <
   TContext
 > => {
   return useMutation(getClaimDailyRewardMutationOptions(options));
+};
+
+/**
+ * @summary Fetch recent VIP Gold Coin wins for the FOMO activity ticker
+ */
+export const getGetVipActivityUrl = () => `/api/predictions/vip-activity`;
+
+export const getVipActivity = async (
+  options?: RequestInit,
+): Promise<GetVipActivityResponse> => {
+  return customFetch<GetVipActivityResponse>(getGetVipActivityUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetVipActivityQueryKey = () =>
+  [`/api/predictions/vip-activity`] as const;
+
+export const getGetVipActivityQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVipActivity>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVipActivity>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetVipActivityQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getVipActivity>>> = ({
+    signal,
+  }) => getVipActivity({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getVipActivity>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetVipActivityQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVipActivity>>
+>;
+export type GetVipActivityQueryError = ErrorType<unknown>;
+
+export const useGetVipActivity = <
+  TData = Awaited<ReturnType<typeof getVipActivity>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVipActivity>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } => {
+  const queryOptions = getGetVipActivityQueryOptions(options);
+  const query = useQuery(queryOptions);
+  return { ...query, queryKey: queryOptions.queryKey };
 };

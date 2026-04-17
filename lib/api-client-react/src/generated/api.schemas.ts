@@ -177,3 +177,11 @@ export type GetUserPredictionsParams = {
 export type GetLeaderboardParams = {
   limit?: number;
 };
+
+export interface VipActivityItem {
+  displayName: string;
+  payout: number;
+  resolvedAt: string;
+}
+
+export type GetVipActivityResponse = VipActivityItem[];
