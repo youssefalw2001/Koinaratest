@@ -93,7 +93,7 @@ function VipTicker({ items }: { items: TickerItem[] }) {
               {item.displayName}
             </span>
             <span className="font-mono text-[10px] text-[#f5c518]">
-              earned {item.payout} GC
+              withdrew {item.payout} GC
             </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
@@ -133,7 +133,7 @@ export default function Terminal() {
   const priceRef = useRef<number>(0);
   const synthRef = useRef<TickerItem[]>([]);
   if (synthRef.current.length === 0) {
-    synthRef.current = Array.from({ length: 8 }, (_, i) => makeSynth(2 + i * 4));
+    synthRef.current = Array.from({ length: 10 }, (_, i) => makeSynth(2 + i * 4));
   }
 
   const createPrediction = useCreatePrediction();
@@ -150,9 +150,9 @@ export default function Terminal() {
 
   const vipActivity: TickerItem[] = (() => {
     const real = vipActivityRaw ?? [];
-    if (real.length >= 6) return real;
-    const needed = 6 - real.length;
-    return [...real, ...synthRef.current.slice(0, needed)];
+    if (real.length >= 10) return real;
+    const needed = 10 - real.length;
+    return [...real, ...synthRef.current.slice(0, Math.max(0, needed))];
   })();
 
   useEffect(() => {
@@ -326,6 +326,16 @@ export default function Terminal() {
         @keyframes pulse-gold {
           0%, 100% { box-shadow: 0 0 20px rgba(245,197,24,0.4); }
           50% { box-shadow: 0 0 36px rgba(245,197,24,0.7); }
+        }
+        @keyframes flame-flicker {
+          0%, 100% { transform: scaleY(1) rotate(-3deg); opacity: 1; }
+          25% { transform: scaleY(1.15) rotate(2deg); opacity: 0.85; }
+          50% { transform: scaleY(0.9) rotate(-2deg); opacity: 1; }
+          75% { transform: scaleY(1.1) rotate(3deg); opacity: 0.9; }
+        }
+        .flame-icon {
+          animation: flame-flicker 0.6s ease-in-out infinite;
+          transform-origin: bottom center;
         }
       `}</style>
 
@@ -501,11 +511,11 @@ export default function Terminal() {
               exit={{ scale: 0.85, opacity: 0 }}
               className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl border border-[#f5c518]/40 bg-[#f5c518]/10"
             >
-              <Flame size={13} className="text-[#f5c518]" />
+              <Flame size={14} className="text-[#f5c518] flame-icon" />
               <span className="font-mono text-xs font-bold text-[#f5c518]">
-                {winStreak} WIN STREAK — Keep Going!
+                {winStreak}× STREAK 🔥 Keep Going!
               </span>
-              <Flame size={13} className="text-[#f5c518]" />
+              <Flame size={14} className="text-[#f5c518] flame-icon" style={{ animationDelay: "0.3s" }} />
             </motion.div>
           )}
           {lossStreak >= 3 && !showResult && (
