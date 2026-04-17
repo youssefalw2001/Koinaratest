@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, AlertCircle } from "lucide-react";
-import { useCreatePrediction, useResolvePrediction, useGetUserPredictions, getGetUserPredictionsQueryKey } from "@workspace/api-client-react";
+import { useCreatePrediction, useResolvePrediction, useGetUserPredictions, getGetUserPredictionsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -119,7 +119,7 @@ export default function Terminal() {
         setActivePrediction(null);
         setTimeout(() => setShowResult(null), 4000);
         queryClient.invalidateQueries({ queryKey: getGetUserPredictionsQueryKey(user?.telegramId ?? "") });
-        queryClient.invalidateQueries({ queryKey: ["getUser", user?.telegramId] });
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user?.telegramId ?? "") });
       } catch { setActivePrediction(null); }
     }, ROUND_DURATION * 1000);
   }, [price, resolvePrediction, queryClient, user]);

@@ -78,6 +78,14 @@ router.post("/users/register", async (req, res): Promise<void> => {
     })
     .returning();
 
+  // Referral reward: credit referrer with 200 TC when a new user joins via their link
+  if (referredBy) {
+    await db
+      .update(usersTable)
+      .set({ tradeCredits: sql`${usersTable.tradeCredits} + 200` })
+      .where(eq(usersTable.telegramId, referredBy));
+  }
+
   res.status(200).json(USER_SCHEMA(newUser as Record<string, unknown>));
 });
 

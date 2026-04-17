@@ -15,7 +15,7 @@ Dark cyber-fintech Telegram Mini App targeting MENA market.
 ### Core Features
 - 60-second BTC/USDT predictions (Long/Short), 0.85x GC payout
 - VIP subscription ($4.99/wk or $14.99/mo via TON, or 500 TC/week)
-- VIP perks: 2x GC multiplier, higher daily cap (3,000 GC), max bet 5,000 TC, withdrawal access
+- VIP perks: higher daily GC cap (3,000 vs 800), max bet 5,000 TC (vs 1,000), withdrawal access, VIP-only quests, +50% streak TC bonus
 - Free daily GC cap: 800 GC
 - Min bet: 50 TC | Max bet: 1,000 TC free / 5,000 TC VIP
 - Daily login reward: 100-150+ TC (streak-based)
