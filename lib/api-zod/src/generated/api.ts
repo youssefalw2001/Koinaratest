@@ -490,6 +490,19 @@ export const WatchAdResponse = zod.object({
 });
 
 /**
+ * @summary Confirm one-time identity verification TON payment (sets hasVerified=true)
+ */
+export const VerifyWithdrawalFeeBody = zod.object({
+  telegramId: zod.string(),
+  senderAddress: zod.string().describe("TON wallet address of the sender"),
+});
+
+export const VerifyWithdrawalFeeResponse = zod.object({
+  success: zod.boolean(),
+  alreadyVerified: zod.boolean(),
+});
+
+/**
  * @summary Request a GC withdrawal (deducts GC, queues payout)
  */
 export const RequestWithdrawalBody = zod.object({
@@ -505,34 +518,42 @@ export const RequestWithdrawalResponse = zod.object({
   feeUsd: zod.number(),
   estimatedTime: zod.string(),
   weeklyRemainingUsd: zod.string(),
+  weeklyRemainingGc: zod.number(),
   newGcBalance: zod.number(),
 });
 
 /**
- * @summary Get withdrawal history for a user
+ * @summary Get withdrawal history and weekly cap status for a user
  */
 export const GetWithdrawalsParams = zod.object({
   telegramId: zod.coerce.string(),
 });
 
-export const GetWithdrawalsResponseItem = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  amountGc: zod.number(),
-  feePct: zod.number(),
-  feeGc: zod.number(),
-  netGc: zod.number(),
-  usdValue: zod.number(),
-  netUsd: zod.number(),
-  status: zod.enum(["pending", "processing", "complete", "failed"]),
-  walletAddress: zod.string(),
-  txHash: zod.string().nullish(),
-  isVip: zod.number(),
-  tier: zod.string(),
-  processesAt: zod.string().nullish(),
-  createdAt: zod.string(),
+export const GetWithdrawalsResponse = zod.object({
+  withdrawals: zod.array(
+    zod.object({
+      id: zod.number(),
+      telegramId: zod.string(),
+      amountGc: zod.number(),
+      feePct: zod.number(),
+      feeGc: zod.number(),
+      netGc: zod.number(),
+      usdValue: zod.number(),
+      netUsd: zod.number(),
+      status: zod.enum(["pending", "processing", "complete", "failed"]),
+      walletAddress: zod.string(),
+      txHash: zod.string().nullish(),
+      isVip: zod.number(),
+      tier: zod.string(),
+      processesAt: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+  weeklyRemainingGc: zod.number(),
+  weeklyMaxGc: zod.number(),
+  weeklyUsedGc: zod.number(),
+  hasVerified: zod.boolean(),
 });
-export const GetWithdrawalsResponse = zod.array(GetWithdrawalsResponseItem);
 
 /**
  * @summary Update withdrawal status (admin)

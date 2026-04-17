@@ -8,7 +8,7 @@ import {
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import {
   useUpgradeToVip, useUpdateWallet,
-  useRequestWithdrawal, useGetWithdrawals,
+  useRequestWithdrawal, useGetWithdrawals, useVerifyWithdrawalFee,
   getGetUserQueryKey, getGetWithdrawalsQueryKey,
 } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
@@ -74,6 +74,7 @@ export default function WalletPage() {
   const upgradeToVip   = useUpgradeToVip();
   const updateWallet   = useUpdateWallet();
   const requestWithdrawal = useRequestWithdrawal();
+  const verifyFee      = useVerifyWithdrawalFee();
 
   const [showVipModal, setShowVipModal] = useState(false);
   const [vipSuccess, setVipSuccess]     = useState(false);
@@ -165,14 +166,19 @@ export default function WalletPage() {
 
   // ── Free tier verification fee (0.02 TON)
   const handleVerifyIdentity = async () => {
-    if (!walletAddress || !KOINARA_TON_WALLET) return;
+    if (!walletAddress || !KOINARA_TON_WALLET || !user) return;
     setVerifyPending(true);
     try {
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 300,
         messages: [{ address: KOINARA_TON_WALLET, amount: TON_VERIFY_AMOUNT }],
       });
-      // Mark verified locally (backend will set hasVerified on next withdrawal)
+      // Confirm the payment on the backend — sets hasVerified=true in the DB
+      await verifyFee.mutateAsync({
+        data: { telegramId: user.telegramId, senderAddress: walletAddress },
+      });
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      queryClient.invalidateQueries({ queryKey: getGetWithdrawalsQueryKey(user.telegramId) });
       setVerifyDone(true);
     } catch {
     } finally {
@@ -479,7 +485,11 @@ export default function WalletPage() {
               </div>
               <div className="flex justify-between">
                 <span className="font-mono text-[10px] text-white/30">Weekly cap remaining</span>
-                <span className="font-mono text-[10px] text-[#f5c518]">${weeklyMaxUsd}/wk</span>
+                <span className="font-mono text-[10px] text-[#f5c518]">
+                  {withdrawHistory
+                    ? `$${(withdrawHistory.weeklyRemainingGc / gcPerUsd).toFixed(2)} of $${weeklyMaxUsd}`
+                    : `$${weeklyMaxUsd}/wk`}
+                </span>
               </div>
             </motion.div>
           )}
@@ -560,7 +570,7 @@ export default function WalletPage() {
             </button>
           </div>
 
-          {!withdrawHistory || withdrawHistory.length === 0 ? (
+          {!withdrawHistory || withdrawHistory.withdrawals.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-center">
               <History size={32} className="text-white/10 mb-3" />
               <div className="font-mono text-sm text-white/20">No withdrawals yet</div>
@@ -568,7 +578,7 @@ export default function WalletPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {withdrawHistory.map((entry) => {
+              {withdrawHistory.withdrawals.map((entry) => {
                 const badge = statusBadge(entry.status);
                 return (
                   <div

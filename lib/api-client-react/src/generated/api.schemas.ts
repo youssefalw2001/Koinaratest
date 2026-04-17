@@ -243,14 +243,15 @@ export interface RequestWithdrawalBody {
   usdtWallet: string;
 }
 
-export interface RequestWithdrawalResponse {
+export interface VerifyFeeBody {
+  telegramId: string;
+  /** TON wallet address of the sender */
+  senderAddress: string;
+}
+
+export interface VerifyFeeResponse {
   success: boolean;
-  gcDeducted: number;
-  netUsd: number;
-  feeUsd: number;
-  estimatedTime: string;
-  weeklyRemainingUsd: string;
-  newGcBalance: number;
+  alreadyVerified: boolean;
 }
 
 export type WithdrawalEntryStatus =
@@ -281,6 +282,25 @@ export interface WithdrawalEntry {
   /** @nullable */
   processesAt?: string | null;
   createdAt: string;
+}
+
+export interface WithdrawalsHistoryResponse {
+  withdrawals: WithdrawalEntry[];
+  weeklyRemainingGc: number;
+  weeklyMaxGc: number;
+  weeklyUsedGc: number;
+  hasVerified: boolean;
+}
+
+export interface RequestWithdrawalResponse {
+  success: boolean;
+  gcDeducted: number;
+  netUsd: number;
+  feeUsd: number;
+  estimatedTime: string;
+  weeklyRemainingUsd: string;
+  weeklyRemainingGc: number;
+  newGcBalance: number;
 }
 
 export type UpdateWithdrawalStatusBodyStatus =

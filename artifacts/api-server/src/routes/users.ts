@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, count, sql, desc } from "drizzle-orm";
-import { db, usersTable, predictionsTable, vipTxHashesTable } from "@workspace/db";
+import { db, usersTable, predictionsTable, vipTxHashesTable, platformDailyStatsTable } from "@workspace/db";
 import {
   RegisterUserBody,
   GetUserParams,
@@ -387,6 +387,18 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       .set({ isVip: true, vipPlan, vipExpiresAt: expiresAt })
       .where(eq(usersTable.telegramId, params.data.telegramId))
       .returning();
+
+    // Track VIP subscription revenue for the daily payout cap.
+    // Approximate GC equivalent: weekly=$2→5000 GC, monthly=$6→15000 GC (at 2500 GC/$1 VIP rate).
+    const vipRevenueGc = vipPlan === "ton_monthly" ? 15000 : 5000;
+    const todayDate = new Date().toISOString().split("T")[0];
+    await db
+      .insert(platformDailyStatsTable)
+      .values({ date: todayDate, totalRevenueGc: vipRevenueGc })
+      .onConflictDoUpdate({
+        target: platformDailyStatsTable.date,
+        set: { totalRevenueGc: sql`platform_daily_stats.total_revenue_gc + ${vipRevenueGc}` },
+      });
 
     // Referral reward: when a referred user purchases a paid VIP plan, notify the referrer
     // by setting referralVipRewardPending=true. The referrer's client polls user state and

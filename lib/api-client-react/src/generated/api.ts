@@ -47,9 +47,12 @@ import type {
   UpgradeToVipBody,
   User,
   UserStats,
+  VerifyFeeBody,
+  VerifyFeeResponse,
   WatchAdBody,
   WatchAdResponse,
   WithdrawalEntry,
+  WithdrawalsHistoryResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -1444,6 +1447,92 @@ export const useWatchAd = <
 };
 
 /**
+ * @summary Confirm one-time identity verification TON payment (sets hasVerified=true)
+ */
+export const getVerifyWithdrawalFeeUrl = () => {
+  return `/api/withdrawals/verify-fee`;
+};
+
+export const verifyWithdrawalFee = async (
+  verifyFeeBody: VerifyFeeBody,
+  options?: RequestInit,
+): Promise<VerifyFeeResponse> => {
+  return customFetch<VerifyFeeResponse>(getVerifyWithdrawalFeeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(verifyFeeBody),
+  });
+};
+
+export const getVerifyWithdrawalFeeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyWithdrawalFee>>,
+    TError,
+    { data: BodyType<VerifyFeeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyWithdrawalFee>>,
+  TError,
+  { data: BodyType<VerifyFeeBody> },
+  TContext
+> => {
+  const mutationKey = ["verifyWithdrawalFee"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyWithdrawalFee>>,
+    { data: BodyType<VerifyFeeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return verifyWithdrawalFee(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyWithdrawalFeeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyWithdrawalFee>>
+>;
+export type VerifyWithdrawalFeeMutationBody = BodyType<VerifyFeeBody>;
+export type VerifyWithdrawalFeeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Confirm one-time identity verification TON payment (sets hasVerified=true)
+ */
+export const useVerifyWithdrawalFee = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyWithdrawalFee>>,
+    TError,
+    { data: BodyType<VerifyFeeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyWithdrawalFee>>,
+  TError,
+  { data: BodyType<VerifyFeeBody> },
+  TContext
+> => {
+  return useMutation(getVerifyWithdrawalFeeMutationOptions(options));
+};
+
+/**
  * @summary Request a GC withdrawal (deducts GC, queues payout)
  */
 export const getRequestWithdrawalUrl = () => {
@@ -1530,7 +1619,7 @@ export const useRequestWithdrawal = <
 };
 
 /**
- * @summary Get withdrawal history for a user
+ * @summary Get withdrawal history and weekly cap status for a user
  */
 export const getGetWithdrawalsUrl = (telegramId: string) => {
   return `/api/withdrawals/${telegramId}`;
@@ -1539,11 +1628,14 @@ export const getGetWithdrawalsUrl = (telegramId: string) => {
 export const getWithdrawals = async (
   telegramId: string,
   options?: RequestInit,
-): Promise<WithdrawalEntry[]> => {
-  return customFetch<WithdrawalEntry[]>(getGetWithdrawalsUrl(telegramId), {
-    ...options,
-    method: "GET",
-  });
+): Promise<WithdrawalsHistoryResponse> => {
+  return customFetch<WithdrawalsHistoryResponse>(
+    getGetWithdrawalsUrl(telegramId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
 };
 
 export const getGetWithdrawalsQueryKey = (telegramId: string) => {
@@ -1591,7 +1683,7 @@ export type GetWithdrawalsQueryResult = NonNullable<
 export type GetWithdrawalsQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get withdrawal history for a user
+ * @summary Get withdrawal history and weekly cap status for a user
  */
 
 export function useGetWithdrawals<

@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
 import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable } from "@workspace/db";
 import { z } from "zod";
@@ -7,25 +7,117 @@ import { serializeRow } from "../lib/serialize";
 const router: IRouter = Router();
 
 // ─── Rates & caps ───────────────────────────────────────────────────────────
-// Free tier: 4,000 GC = $1 | VIP tier: 2,500 GC = $1
 const FREE_GC_PER_USD = 4000;
 const VIP_GC_PER_USD  = 2500;
 
 const FREE_MIN_GC      = 10000;  // $2.50
 const VIP_MIN_GC       = 2500;   // $1.00
 
-const FREE_WEEKLY_MAX_USD = 25;   // $25/week → 100,000 GC
-const VIP_WEEKLY_MAX_USD  = 100;  // $100/week → 250,000 GC
+const FREE_WEEKLY_MAX_USD = 25;   // $25/week
+const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 
-const FEE_PCT = 0.025;  // 2.5% on every withdrawal
+const FEE_PCT = 0.025;  // 2.5% fee
 
-// Operator daily payout cap: total paid-out GC must not exceed 50% of previous day's revenue GC
 const DAILY_PAYOUT_RATIO = 0.5;
+
+// Minimum daily cap when no revenue is tracked yet — prevents unlimited payouts
+// before the deposit system is live.
+const DEFAULT_DAILY_PAYOUT_CAP_GC = 250000; // 100 USD equivalent at free tier rate
+
+// ─── TON verification (verify-fee endpoint) ─────────────────────────────────
+const TONAPI_BASE = "https://tonapi.io/v2";
+const TON_VERIFY_NANO = BigInt("20000000"); // 0.02 TON ≈ $1.99 verification fee
+
+type TonApiAccount = { address: string };
+type TonApiTx = {
+  hash: string;
+  utime?: number;
+  out_msgs: { destination?: { address: string }; value?: number }[];
+};
+type TonApiTxList = { transactions: TonApiTx[] };
+
+async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: string }> {
+  try {
+    const resp = await fetch(`${TONAPI_BASE}${path}`, {
+      headers: { "Accept": "application/json" },
+    });
+    if (!resp.ok) return { data: null, err: `TON API ${resp.status}` };
+    const data = (await resp.json()) as T;
+    return { data };
+  } catch (e) {
+    return { data: null, err: String(e) };
+  }
+}
+
+async function verifyTonVerificationFee(
+  senderAddress: string,
+): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
+  const walletEnv = process.env.KOINARA_TON_WALLET;
+  if (!walletEnv) {
+    return {
+      ok: false,
+      err: "TON payment processing is not currently configured. Please contact support.",
+      configErr: true,
+    };
+  }
+
+  const { data: operatorAccount, err: resolveErr } = await tonapiGet<TonApiAccount>(
+    `/accounts/${encodeURIComponent(walletEnv)}`,
+  );
+  if (!operatorAccount || resolveErr) {
+    return { ok: false, err: "TON API unreachable — please retry in a moment" };
+  }
+  const operatorRaw = operatorAccount.address;
+
+  const { data: txList, err: txErr } = await tonapiGet<TonApiTxList>(
+    `/accounts/${encodeURIComponent(senderAddress)}/transactions?limit=50`,
+  );
+  if (!txList || txErr) {
+    return { ok: false, err: "TON API unreachable — please retry in a moment" };
+  }
+
+  const minNano = (TON_VERIFY_NANO * 95n) / 100n;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const RECENCY_WINDOW_SEC = 15 * 60;
+
+  for (const tx of txList.transactions) {
+    const ageSec = nowSec - (tx.utime ?? 0);
+    if (ageSec > RECENCY_WINDOW_SEC) continue;
+    for (const msg of tx.out_msgs) {
+      const destRaw = msg.destination?.address ?? "";
+      if (destRaw !== operatorRaw) continue;
+      const valueNano = BigInt(Math.floor(msg.value ?? 0));
+      if (valueNano >= minNano) {
+        return { ok: true, txHash: tx.hash };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    err: "No matching verification payment found within the last 15 minutes. Please ensure the transaction is confirmed and try again.",
+  };
+}
+
+// ─── Admin auth helper ───────────────────────────────────────────────────────
+function requireAdmin(req: Request, res: Response): boolean {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret) {
+    res.status(503).json({ error: "Admin endpoints are not configured on this server." });
+    return false;
+  }
+  const authHeader = req.headers.authorization ?? "";
+  if (authHeader !== `Bearer ${adminSecret}`) {
+    res.status(401).json({ error: "Unauthorized — invalid admin credentials." });
+    return false;
+  }
+  return true;
+}
 
 function getWeekStart(): string {
   const d = new Date();
-  const day = d.getUTCDay(); // 0=Sun, 1=Mon
-  const diff = d.getUTCDate() - (day === 0 ? 6 : day - 1); // roll back to Monday
+  const day = d.getUTCDay();
+  const diff = d.getUTCDate() - (day === 0 ? 6 : day - 1);
   const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
   return monday.toISOString().split("T")[0];
 }
@@ -44,6 +136,57 @@ const RequestWithdrawalBody = z.object({
 const UpdateWithdrawalStatusBody = z.object({
   status: z.enum(["pending", "processing", "complete", "failed"]),
   txHash: z.string().optional(),
+});
+
+const VerifyFeeBody = z.object({
+  telegramId: z.string(),
+  senderAddress: z.string().min(5, "Enter a valid TON wallet address"),
+});
+
+// ─── POST /withdrawals/verify-fee ────────────────────────────────────────────
+// Verifies the one-time $1.99 identity verification payment on-chain.
+// Sets hasVerified=true on the user upon successful TON transaction confirmation.
+router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
+  const body = VerifyFeeBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
+    return;
+  }
+
+  const { telegramId, senderAddress } = body.data;
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, telegramId))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.hasVerified) {
+    res.json({ success: true, alreadyVerified: true });
+    return;
+  }
+
+  const verification = await verifyTonVerificationFee(senderAddress);
+  if (verification.configErr) {
+    res.status(503).json({ error: verification.err });
+    return;
+  }
+  if (!verification.ok) {
+    res.status(400).json({ error: verification.err });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ hasVerified: true })
+    .where(eq(usersTable.telegramId, telegramId));
+
+  res.json({ success: true, alreadyVerified: false });
 });
 
 // ─── POST /withdrawals/request ───────────────────────────────────────────────
@@ -70,11 +213,21 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
     !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
 
-  const gcPerUsd   = isVipUser ? VIP_GC_PER_USD  : FREE_GC_PER_USD;
-  const minGc      = isVipUser ? VIP_MIN_GC       : FREE_MIN_GC;
-  const weeklyMaxUsd = isVipUser ? VIP_WEEKLY_MAX_USD : FREE_WEEKLY_MAX_USD;
+  // Free users must complete one-time identity verification before withdrawing.
+  // VIP users are exempt — their TON VIP payment serves as identity verification.
+  if (!isVipUser && !user.hasVerified) {
+    res.status(403).json({
+      error: "Identity verification required. Pay the one-time $1.99 (0.02 TON) verification fee to unlock withdrawals.",
+      code: "VERIFICATION_REQUIRED",
+    });
+    return;
+  }
 
-  // ── Minimum check
+  const gcPerUsd     = isVipUser ? VIP_GC_PER_USD  : FREE_GC_PER_USD;
+  const minGc        = isVipUser ? VIP_MIN_GC       : FREE_MIN_GC;
+  const weeklyMaxUsd = isVipUser ? VIP_WEEKLY_MAX_USD : FREE_WEEKLY_MAX_USD;
+  const weeklyMaxGc  = weeklyMaxUsd * gcPerUsd;
+
   if (gcAmount < minGc) {
     const shortfall = minGc - gcAmount;
     res.status(400).json({
@@ -83,27 +236,8 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     return;
   }
 
-  // ── Balance check
   if (user.goldCoins < gcAmount) {
     res.status(400).json({ error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.` });
-    return;
-  }
-
-  // ── Weekly cap: reset if week changed
-  const weekStart = getWeekStart();
-  let weeklyUsedGc = user.weeklyWithdrawnGc ?? 0;
-  if (!user.weeklyWithdrawnResetAt || user.weeklyWithdrawnResetAt < weekStart) {
-    weeklyUsedGc = 0;
-  }
-
-  const weeklyMaxGc = weeklyMaxUsd * gcPerUsd;
-  if (weeklyUsedGc + gcAmount > weeklyMaxGc) {
-    const remaining = Math.max(0, weeklyMaxGc - weeklyUsedGc);
-    const remainingUsd = (remaining / gcPerUsd).toFixed(2);
-    res.status(400).json({
-      error: `Weekly withdrawal limit reached. You can withdraw up to $${remainingUsd} more this week (resets Monday).`,
-      weeklyRemainingGc: remaining,
-    });
     return;
   }
 
@@ -118,86 +252,135 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .where(eq(platformDailyStatsTable.date, yesterdayStr))
     .limit(1);
 
-  if (prevDayStats && prevDayStats.totalRevenueGc > 0) {
-    const maxDailyPayoutGc = Math.floor(prevDayStats.totalRevenueGc * DAILY_PAYOUT_RATIO);
-    const [todayStats] = await db
-      .select()
-      .from(platformDailyStatsTable)
-      .where(eq(platformDailyStatsTable.date, todayStr()))
-      .limit(1);
+  // Use a default minimum daily cap when no revenue is tracked yet.
+  const prevRevenueGc = prevDayStats?.totalRevenueGc ?? 0;
+  const maxDailyPayoutGc = prevRevenueGc > 0
+    ? Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO)
+    : DEFAULT_DAILY_PAYOUT_CAP_GC;
 
-    const paidOutToday = todayStats?.totalPaidOutGc ?? 0;
-    if (paidOutToday + gcAmount > maxDailyPayoutGc) {
-      res.status(503).json({
-        error: "Daily payout limit reached. Please try again tomorrow.",
+  const [todayStats] = await db
+    .select()
+    .from(platformDailyStatsTable)
+    .where(eq(platformDailyStatsTable.date, todayStr()))
+    .limit(1);
+
+  const paidOutToday = todayStats?.totalPaidOutGc ?? 0;
+  if (paidOutToday + gcAmount > maxDailyPayoutGc) {
+    res.status(503).json({ error: "Daily payout limit reached. Please try again tomorrow." });
+    return;
+  }
+
+  const feeGc   = Math.floor(gcAmount * FEE_PCT);
+  const netGc   = gcAmount - feeGc;
+  const usdValue = gcAmount / gcPerUsd;
+  const netUsd   = netGc / gcPerUsd;
+  const tier     = isVipUser ? "vip" : "free";
+  const weekStart = getWeekStart();
+
+  // ── Atomic transaction with built-in weekly cap enforcement ─────────────────
+  // The WHERE clause on the UPDATE includes a cap predicate so concurrent
+  // requests cannot both succeed even under READ COMMITTED isolation.
+  let weeklyRemainingGc = 0;
+
+  try {
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(usersTable)
+        .set({
+          goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
+          weeklyWithdrawnGc: sql`
+            CASE
+              WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
+                OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
+              THEN ${gcAmount}
+              ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
+            END`,
+          weeklyWithdrawnResetAt: weekStart,
+        })
+        .where(and(
+          eq(usersTable.telegramId, telegramId),
+          // Balance must still cover the request
+          gte(usersTable.goldCoins, gcAmount),
+          // Atomic weekly cap: new weekly total must not exceed the limit
+          sql`(
+            CASE
+              WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
+                OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
+              THEN ${gcAmount}
+              ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
+            END
+          ) <= ${weeklyMaxGc}`,
+        ))
+        .returning();
+
+      if (updated.length === 0) {
+        // Either balance too low or weekly cap exceeded — determine which
+        const [fresh] = await tx
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.telegramId, telegramId))
+          .limit(1);
+
+        if (!fresh || fresh.goldCoins < gcAmount) {
+          throw new Error("INSUFFICIENT_BALANCE");
+        }
+        // Cap must have been exceeded
+        const freshWeekly = (!fresh.weeklyWithdrawnResetAt || fresh.weeklyWithdrawnResetAt < weekStart)
+          ? 0
+          : (fresh.weeklyWithdrawnGc ?? 0);
+        const remaining = Math.max(0, weeklyMaxGc - freshWeekly);
+        const remainingUsd = (remaining / gcPerUsd).toFixed(2);
+        throw Object.assign(new Error("WEEKLY_CAP_EXCEEDED"), { weeklyRemainingGc: remaining, remainingUsd });
+      }
+
+      // Compute weekly remaining from the updated row
+      const updatedRow = updated[0]!;
+      weeklyRemainingGc = Math.max(0, weeklyMaxGc - (updatedRow.weeklyWithdrawnGc ?? gcAmount));
+
+      await tx.insert(withdrawalQueueTable).values({
+        telegramId,
+        amountGc: gcAmount,
+        feePct: FEE_PCT,
+        feeGc,
+        netGc,
+        usdValue,
+        netUsd,
+        walletAddress: usdtWallet,
+        isVip: isVipUser ? 1 : 0,
+        tier,
+        status: "pending",
+      });
+
+      // Track today's paid-out GC for the daily cap
+      await tx
+        .insert(platformDailyStatsTable)
+        .values({ date: todayStr(), totalPaidOutGc: gcAmount })
+        .onConflictDoUpdate({
+          target: platformDailyStatsTable.date,
+          set: { totalPaidOutGc: sql`platform_daily_stats.total_paid_out_gc + ${gcAmount}` },
+        });
+    });
+  } catch (err: unknown) {
+    const e = err as Error & { weeklyRemainingGc?: number; remainingUsd?: string };
+    if (e.message === "INSUFFICIENT_BALANCE") {
+      res.status(400).json({ error: "Insufficient balance." });
+      return;
+    }
+    if (e.message === "WEEKLY_CAP_EXCEEDED") {
+      res.status(400).json({
+        error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`,
+        weeklyRemainingGc: e.weeklyRemainingGc ?? 0,
       });
       return;
     }
+    throw err;
   }
 
-  // ── Compute fee
-  const feeGc  = Math.floor(gcAmount * FEE_PCT);
-  const netGc  = gcAmount - feeGc;
-  const usdValue = gcAmount / gcPerUsd;
-  const netUsd   = netGc / gcPerUsd;
-
-  // ── Estimated processing time
-  const tier = isVipUser ? "vip" : "free";
-
-  // ── Atomic: deduct GC + insert queue entry + update weekly counter
-  await db.transaction(async (tx) => {
-    const weeklyUpdate: Record<string, unknown> = {
-      goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
-      weeklyWithdrawnGc: sql`CASE WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart} THEN ${gcAmount} ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount} END`,
-      weeklyWithdrawnResetAt: weekStart,
-    };
-
-    // Mark verified on first successful withdrawal (user confirmed identity via TON verification fee flow)
-    if (!user.hasVerified) {
-      weeklyUpdate.hasVerified = true;
-    }
-
-    await tx
-      .update(usersTable)
-      .set(weeklyUpdate)
-      .where(and(
-        eq(usersTable.telegramId, telegramId),
-        gte(usersTable.goldCoins, gcAmount),
-      ));
-
-    await tx.insert(withdrawalQueueTable).values({
-      telegramId,
-      amountGc: gcAmount,
-      feePct: FEE_PCT,
-      feeGc,
-      netGc,
-      usdValue,
-      netUsd,
-      walletAddress: usdtWallet,
-      isVip: isVipUser ? 1 : 0,
-      tier,
-      status: "pending",
-    });
-
-    // Track today's paid-out GC for daily cap
-    await tx
-      .insert(platformDailyStatsTable)
-      .values({ date: todayStr(), totalPaidOutGc: gcAmount })
-      .onConflictDoUpdate({
-        target: platformDailyStatsTable.date,
-        set: { totalPaidOutGc: sql`platform_daily_stats.total_paid_out_gc + ${gcAmount}` },
-      });
-  });
-
-  // Re-fetch updated user
   const [updated] = await db
     .select()
     .from(usersTable)
     .where(eq(usersTable.telegramId, telegramId))
     .limit(1);
-
-  const weeklyRemainingGc = Math.max(0, weeklyMaxGc - (weeklyUsedGc + gcAmount));
-  const weeklyRemainingUsd = (weeklyRemainingGc / gcPerUsd).toFixed(2);
 
   res.json({
     success: true,
@@ -205,12 +388,14 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     netUsd: parseFloat(netUsd.toFixed(4)),
     feeUsd: parseFloat((feeGc / gcPerUsd).toFixed(4)),
     estimatedTime: isVipUser ? "~4 hours" : "48–72 hours",
-    weeklyRemainingUsd,
+    weeklyRemainingUsd: (weeklyRemainingGc / gcPerUsd).toFixed(2),
+    weeklyRemainingGc,
     newGcBalance: updated?.goldCoins ?? 0,
   });
 });
 
 // ─── GET /withdrawals/:telegramId ─────────────────────────────────────────────
+// Returns only the requesting user's withdrawal history.
 router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
   const telegramId = req.params.telegramId;
   if (!telegramId) {
@@ -225,11 +410,44 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     .orderBy(desc(withdrawalQueueTable.createdAt))
     .limit(50);
 
-  res.json(rows.map(r => serializeRow(r as Record<string, unknown>)));
+  const weekStart = getWeekStart();
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, telegramId))
+    .limit(1);
+
+  if (!user) {
+    res.json([]);
+    return;
+  }
+
+  const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
+    !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
+
+  const gcPerUsd     = isVipUser ? VIP_GC_PER_USD  : FREE_GC_PER_USD;
+  const weeklyMaxUsd = isVipUser ? VIP_WEEKLY_MAX_USD : FREE_WEEKLY_MAX_USD;
+  const weeklyMaxGc  = weeklyMaxUsd * gcPerUsd;
+
+  const freshWeekly = (!user.weeklyWithdrawnResetAt || user.weeklyWithdrawnResetAt < weekStart)
+    ? 0
+    : (user.weeklyWithdrawnGc ?? 0);
+  const weeklyRemainingGc = Math.max(0, weeklyMaxGc - freshWeekly);
+
+  res.json({
+    withdrawals: rows.map(r => serializeRow(r as Record<string, unknown>)),
+    weeklyRemainingGc,
+    weeklyMaxGc,
+    weeklyUsedGc: freshWeekly,
+    hasVerified: user.hasVerified ?? false,
+  });
 });
 
-// ─── PATCH /withdrawals/:id/status  (admin-facing) ─────────────────────────
+// ─── PATCH /withdrawals/:id/status  (admin-only) ─────────────────────────────
 router.patch("/withdrawals/:id/status", async (req, res): Promise<void> => {
+  // This endpoint mutates payout records — it requires admin authorization.
+  if (!requireAdmin(req, res)) return;
+
   const id = parseInt(req.params.id ?? "", 10);
   if (isNaN(id)) {
     res.status(400).json({ error: "Invalid withdrawal id" });
@@ -244,6 +462,8 @@ router.patch("/withdrawals/:id/status", async (req, res): Promise<void> => {
 
   const { status, txHash } = body.data;
 
+  // Atomic: only update rows that haven't already been completed/failed.
+  // This prevents accidental double-approvals or re-opening completed withdrawals.
   const updateData: Record<string, unknown> = { status };
   if (txHash) updateData.txHash = txHash;
   if (status === "complete" || status === "processing") {
@@ -253,11 +473,30 @@ router.patch("/withdrawals/:id/status", async (req, res): Promise<void> => {
   const [updated] = await db
     .update(withdrawalQueueTable)
     .set(updateData)
-    .where(eq(withdrawalQueueTable.id, id))
+    .where(and(
+      eq(withdrawalQueueTable.id, id),
+      // Only allow transitions from non-terminal states
+      sql`${withdrawalQueueTable.status} NOT IN ('complete', 'failed')`,
+    ))
     .returning();
 
   if (!updated) {
-    res.status(404).json({ error: "Withdrawal not found" });
+    // Check if the row exists at all
+    const [existing] = await db
+      .select()
+      .from(withdrawalQueueTable)
+      .where(eq(withdrawalQueueTable.id, id))
+      .limit(1);
+
+    if (!existing) {
+      res.status(404).json({ error: "Withdrawal not found" });
+      return;
+    }
+    // Row exists but is in a terminal state
+    res.status(409).json({
+      error: `Cannot update a withdrawal that is already ${existing.status}.`,
+      currentStatus: existing.status,
+    });
     return;
   }
 

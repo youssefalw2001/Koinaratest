@@ -396,6 +396,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /withdrawals/verify-fee:
+    post:
+      operationId: verifyWithdrawalFee
+      tags: [withdrawals]
+      summary: Confirm one-time identity verification TON payment (sets hasVerified=true)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyFeeBody"
+      responses:
+        "200":
+          description: Verification confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyFeeResponse"
+        "400":
+          description: Payment not found or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: TON payment processing not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /withdrawals/request:
     post:
       operationId: requestWithdrawal
@@ -420,6 +451,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Identity verification required before withdrawal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Daily payout cap reached
           content:
@@ -431,7 +468,7 @@ paths:
     get:
       operationId: getWithdrawals
       tags: [withdrawals]
-      summary: Get withdrawal history for a user
+      summary: Get withdrawal history and weekly cap status for a user
       parameters:
         - in: path
           name: telegramId
@@ -440,13 +477,11 @@ paths:
             type: string
       responses:
         "200":
-          description: Withdrawal history
+          description: Withdrawal history with weekly remaining data
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/WithdrawalEntry"
+                $ref: "#/components/schemas/WithdrawalsHistoryResponse"
 
   /withdrawals/{id}/status:
     patch:
@@ -1044,6 +1079,51 @@ components:
         - gcAmount
         - usdtWallet
 
+    VerifyFeeBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        senderAddress:
+          type: string
+          description: "TON wallet address of the sender"
+      required:
+        - telegramId
+        - senderAddress
+
+    VerifyFeeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        alreadyVerified:
+          type: boolean
+      required:
+        - success
+        - alreadyVerified
+
+    WithdrawalsHistoryResponse:
+      type: object
+      properties:
+        withdrawals:
+          type: array
+          items:
+            $ref: "#/components/schemas/WithdrawalEntry"
+        weeklyRemainingGc:
+          type: integer
+        weeklyMaxGc:
+          type: integer
+        weeklyUsedGc:
+          type: integer
+        hasVerified:
+          type: boolean
+      required:
+        - withdrawals
+        - weeklyRemainingGc
+        - weeklyMaxGc
+        - weeklyUsedGc
+        - hasVerified
+
     RequestWithdrawalResponse:
       type: object
       properties:
@@ -1059,6 +1139,8 @@ components:
           type: string
         weeklyRemainingUsd:
           type: string
+        weeklyRemainingGc:
+          type: integer
         newGcBalance:
           type: integer
       required:
@@ -1068,6 +1150,7 @@ components:
         - feeUsd
         - estimatedTime
         - weeklyRemainingUsd
+        - weeklyRemainingGc
         - newGcBalance
 
     WithdrawalEntry:
