@@ -188,8 +188,9 @@ export default function Profile() {
           <span className="font-mono text-xs font-black text-[#f5c518] tracking-wider uppercase">Week 1 Journey</span>
           <span className="font-mono text-[10px] text-white/30 ml-auto">Day {currentDay}/7</span>
         </div>
-        <div className="grid grid-cols-7 gap-1 mb-3">
-          {DAY7_MILESTONES.map(({ day, label, icon: Icon }) => {
+        {/* Day icons strip */}
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {DAY7_MILESTONES.map(({ day, icon: Icon }) => {
             const isComplete = currentDay >= day;
             const isCurrent = currentDay === day - 1;
             const isLocked = currentDay < day - 1;
@@ -216,9 +217,7 @@ export default function Profile() {
                   ) : (
                     <Icon
                       size={12}
-                      style={{
-                        color: isComplete ? "#000" : isCurrent ? "#f5c518" : "rgba(255,255,255,0.3)",
-                      }}
+                      style={{ color: isComplete ? "#000" : isCurrent ? "#f5c518" : "rgba(255,255,255,0.3)" }}
                     />
                   )}
                   {day === 7 && isComplete && (
@@ -234,7 +233,9 @@ export default function Profile() {
             );
           })}
         </div>
-        <div className="h-1.5 rounded-full bg-white/8 overflow-hidden mb-2">
+
+        {/* Progress bar */}
+        <div className="h-1.5 rounded-full bg-white/8 overflow-hidden mb-3">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${(currentDay / 7) * 100}%` }}
@@ -242,9 +243,55 @@ export default function Profile() {
             style={{ background: "linear-gradient(90deg, #f5c518, #ff2d78)" }}
           />
         </div>
-        <div className="font-mono text-[10px] text-white/30">
+
+        {/* Milestone reward labels — all 7 days listed */}
+        <div className="space-y-1">
+          {DAY7_MILESTONES.map(({ day, label, reward, icon: Icon }) => {
+            const isComplete = currentDay >= day;
+            const isCurrent = currentDay === day - 1;
+            return (
+              <div
+                key={day}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg"
+                style={{
+                  background: isComplete
+                    ? "rgba(245,197,24,0.08)"
+                    : isCurrent
+                    ? "rgba(245,197,24,0.04)"
+                    : "transparent",
+                  border: isCurrent ? "1px solid rgba(245,197,24,0.2)" : "1px solid transparent",
+                }}
+              >
+                <div
+                  className="w-4 h-4 rounded flex items-center justify-center shrink-0"
+                  style={{
+                    background: isComplete ? "linear-gradient(135deg,#f5c518,#ff2d78)" : "rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <Icon size={8} style={{ color: isComplete ? "#000" : "rgba(255,255,255,0.25)" }} />
+                </div>
+                <div className="font-mono text-[9px] text-white/40 shrink-0 w-5">D{day}</div>
+                <div
+                  className="font-mono text-[9px] flex-1"
+                  style={{ color: isComplete ? "#f5c518" : isCurrent ? "rgba(245,197,24,0.7)" : "rgba(255,255,255,0.25)" }}
+                >
+                  {label}
+                </div>
+                <div
+                  className="font-mono text-[9px] shrink-0"
+                  style={{ color: isComplete ? "#ff2d78" : "rgba(255,255,255,0.2)" }}
+                >
+                  {reward}
+                </div>
+                {isComplete && <CheckCircle size={8} style={{ color: "#f5c518", flexShrink: 0 }} />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="font-mono text-[10px] text-white/30 mt-2">
           {currentDay < 7
-            ? `${DAY7_MILESTONES[currentDay]?.label ?? ""} — Complete trades daily to progress`
+            ? "Complete daily trades to unlock each milestone"
             : "🏆 Week 1 Complete — Survivor Bonus unlocked!"}
         </div>
       </div>
