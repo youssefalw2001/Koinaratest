@@ -127,10 +127,16 @@ function todayStr(): string {
 }
 
 // ─── Zod validators ──────────────────────────────────────────────────────────
+// TRC-20 addresses: start with "T", 34 chars total, base58 charset
+const TRC20_REGEX = /^T[A-Za-z1-9]{33}$/;
+
 const RequestWithdrawalBody = z.object({
   telegramId: z.string(),
   gcAmount: z.number().int().positive(),
-  usdtWallet: z.string().min(10, "Enter a valid USDT TRC-20 wallet address"),
+  usdtWallet: z.string()
+    .min(34, "USDT TRC-20 address must be 34 characters")
+    .max(34, "USDT TRC-20 address must be 34 characters")
+    .regex(TRC20_REGEX, "Invalid TRC-20 address format. Must start with 'T' and be 34 characters."),
 });
 
 const UpdateWithdrawalStatusBody = z.object({
@@ -241,7 +247,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     return;
   }
 
-  // ── Daily operator cap: check previous day's revenue
+  // Compute maxDailyPayoutGc from previous day's revenue (immutable data, safe to read outside tx).
   const yesterday = new Date();
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const yesterdayStr = yesterday.toISOString().split("T")[0];
@@ -252,23 +258,10 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .where(eq(platformDailyStatsTable.date, yesterdayStr))
     .limit(1);
 
-  // Use a default minimum daily cap when no revenue is tracked yet.
   const prevRevenueGc = prevDayStats?.totalRevenueGc ?? 0;
   const maxDailyPayoutGc = prevRevenueGc > 0
     ? Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO)
     : DEFAULT_DAILY_PAYOUT_CAP_GC;
-
-  const [todayStats] = await db
-    .select()
-    .from(platformDailyStatsTable)
-    .where(eq(platformDailyStatsTable.date, todayStr()))
-    .limit(1);
-
-  const paidOutToday = todayStats?.totalPaidOutGc ?? 0;
-  if (paidOutToday + gcAmount > maxDailyPayoutGc) {
-    res.status(503).json({ error: "Daily payout limit reached. Please try again tomorrow." });
-    return;
-  }
 
   const feeGc   = Math.floor(gcAmount * FEE_PCT);
   const netGc   = gcAmount - feeGc;
@@ -337,6 +330,27 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
       const updatedRow = updated[0]!;
       weeklyRemainingGc = Math.max(0, weeklyMaxGc - (updatedRow.weeklyWithdrawnGc ?? gcAmount));
 
+      // Atomically enforce daily payout cap inside the transaction.
+      // 1) Ensure a stats row exists for today (no-op if already there).
+      await tx
+        .insert(platformDailyStatsTable)
+        .values({ date: todayStr(), totalPaidOutGc: 0 })
+        .onConflictDoNothing();
+
+      // 2) Increment paidOutGc ONLY if cap is not exceeded. Returning 0 rows = cap hit.
+      const [dailyUpdated] = await tx
+        .update(platformDailyStatsTable)
+        .set({ totalPaidOutGc: sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount}` })
+        .where(and(
+          eq(platformDailyStatsTable.date, todayStr()),
+          sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount} <= ${maxDailyPayoutGc}`,
+        ))
+        .returning();
+
+      if (!dailyUpdated) {
+        throw new Error("DAILY_CAP_EXCEEDED");
+      }
+
       await tx.insert(withdrawalQueueTable).values({
         telegramId,
         amountGc: gcAmount,
@@ -350,15 +364,6 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
         tier,
         status: "pending",
       });
-
-      // Track today's paid-out GC for the daily cap
-      await tx
-        .insert(platformDailyStatsTable)
-        .values({ date: todayStr(), totalPaidOutGc: gcAmount })
-        .onConflictDoUpdate({
-          target: platformDailyStatsTable.date,
-          set: { totalPaidOutGc: sql`platform_daily_stats.total_paid_out_gc + ${gcAmount}` },
-        });
     });
   } catch (err: unknown) {
     const e = err as Error & { weeklyRemainingGc?: number; remainingUsd?: string };
@@ -371,6 +376,10 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
         error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`,
         weeklyRemainingGc: e.weeklyRemainingGc ?? 0,
       });
+      return;
+    }
+    if (e.message === "DAILY_CAP_EXCEEDED") {
+      res.status(503).json({ error: "Daily payout limit reached. Please try again tomorrow." });
       return;
     }
     throw err;

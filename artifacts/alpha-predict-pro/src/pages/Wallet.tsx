@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Wallet, Lock, Crown, CheckCircle, ArrowUpRight, AlertTriangle,
   Shield, Coins, Gem, Clock, History, ChevronRight, Loader2,
-  XCircle, RefreshCw
+  XCircle, RefreshCw, Zap, Copy, Check
 } from "lucide-react";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import {
@@ -89,6 +89,7 @@ export default function WalletPage() {
   const [withdrawSuccess, setWithdrawSuccess] = useState<{ netUsd: number; eta: string } | null>(null);
   const [verifyPending, setVerifyPending]   = useState(false);
   const [verifyDone, setVerifyDone]         = useState(false);
+  const [copiedTxHash, setCopiedTxHash]     = useState<number | null>(null);
 
   const vipCountdown = useVipCountdown(user?.vipExpiresAt);
 
@@ -518,6 +519,15 @@ export default function WalletPage() {
             </div>
           )}
 
+          {/* VIP instant queue badge */}
+          {vipActive && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#f5c518]/30 bg-[#f5c518]/8 mb-2">
+              <Zap size={11} className="text-[#f5c518]" />
+              <span className="font-mono text-[10px] text-[#f5c518] font-bold">INSTANT QUEUE</span>
+              <span className="font-mono text-[9px] text-white/30 ml-1">VIP withdrawals skip the 48hr wait</span>
+            </div>
+          )}
+
           {/* Submit */}
           <button
             onClick={handleWithdraw}
@@ -580,6 +590,12 @@ export default function WalletPage() {
             <div className="space-y-2">
               {withdrawHistory.withdrawals.map((entry) => {
                 const badge = statusBadge(entry.status);
+                const statusText: Record<string, string> = {
+                  pending: "Waiting in queue — your withdrawal will be processed soon.",
+                  processing: "Payment being sent — USDT is on its way to your wallet.",
+                  complete: "Payout complete — USDT has been sent to your wallet.",
+                  failed: "Payout failed — please contact support with your withdrawal ID.",
+                };
                 return (
                   <div
                     key={entry.id}
@@ -590,22 +606,43 @@ export default function WalletPage() {
                         {entry.amountGc.toLocaleString()} GC → ${entry.netUsd.toFixed(4)} USDT
                       </span>
                       <span
-                        className="font-mono text-[10px] font-black px-2 py-0.5 rounded-full"
+                        className="font-mono text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1"
                         style={{ color: badge.color, background: badge.bg }}
                       >
+                        {entry.status === "processing" && (
+                          <Loader2 size={8} className="animate-spin" />
+                        )}
                         {badge.label}
                       </span>
+                    </div>
+                    <div className="font-mono text-[9px] text-white/30 mb-1.5">
+                      {statusText[entry.status] ?? ""}
                     </div>
                     <div className="flex items-center gap-3 text-[10px] font-mono text-white/30">
                       <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
                       <span>·</span>
-                      <span>{entry.walletAddress.slice(0, 8)}...{entry.walletAddress.slice(-6)}</span>
+                      <span>{entry.walletAddress.slice(0, 6)}...{entry.walletAddress.slice(-4)}</span>
                       <span>·</span>
                       <span className="capitalize">{entry.tier}</span>
                     </div>
                     {entry.txHash && (
-                      <div className="mt-1 font-mono text-[9px] text-white/20">
-                        TX: {entry.txHash.slice(0, 12)}...
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="font-mono text-[9px] text-white/20">
+                          TX: {entry.txHash.slice(0, 10)}...{entry.txHash.slice(-6)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(entry.txHash ?? "");
+                            setCopiedTxHash(entry.id);
+                            setTimeout(() => setCopiedTxHash(null), 2000);
+                          }}
+                          className="flex items-center gap-1 font-mono text-[9px] text-[#00f0ff]/50 hover:text-[#00f0ff]"
+                        >
+                          {copiedTxHash === entry.id
+                            ? <><Check size={9} />Copied</>
+                            : <><Copy size={9} />Copy</>
+                          }
+                        </button>
                       </div>
                     )}
                   </div>
