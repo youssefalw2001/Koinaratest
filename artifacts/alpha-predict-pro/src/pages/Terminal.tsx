@@ -612,8 +612,8 @@ export default function Terminal() {
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
                 <span className="font-mono text-xs font-bold">
-                  <span className="text-[#f5c518]">+{expectedGc} 🪙 GC</span>
-                  <span className="text-[#f5c518]/60 ml-1.5">👑 VIP</span>
+                  <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
+                  <span className="text-[#f5c518]/60 ml-1.5">👑 VIP rate</span>
                 </span>
               ) : (
                 <span className="font-mono text-xs font-bold text-white/60">
