@@ -282,6 +282,9 @@ export default function Terminal() {
           queryClient.invalidateQueries({
             queryKey: getGetUserQueryKey(user?.telegramId ?? ""),
           });
+          queryClient.invalidateQueries({
+            queryKey: getGetVipActivityQueryKey(),
+          });
         } catch {
           setActivePrediction(null);
         }
@@ -515,7 +518,7 @@ export default function Terminal() {
             >
               <Flame size={14} className="text-[#f5c518] flame-icon" />
               <span className="font-mono text-xs font-bold text-[#f5c518]">
-                {winStreak}× STREAK 🔥 Keep Going!
+                {winStreak} WIN STREAK — Keep Going!
               </span>
               <Flame size={14} className="text-[#f5c518] flame-icon" style={{ animationDelay: "0.3s" }} />
             </motion.div>
