@@ -4,6 +4,7 @@ import usersRouter from "./users";
 import predictionsRouter from "./predictions";
 import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
+import withdrawalsRouter from "./withdrawals";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(usersRouter);
 router.use(predictionsRouter);
 router.use(questsRouter);
 router.use(rewardsRouter);
+router.use(withdrawalsRouter);
 
 export default router;

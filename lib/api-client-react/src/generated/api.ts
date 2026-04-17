@@ -33,13 +33,17 @@ import type {
   Prediction,
   Quest,
   RegisterUserBody,
+  RequestWithdrawalBody,
+  RequestWithdrawalResponse,
   ResolvePredictionBody,
   UpdateWalletBody,
+  UpdateWithdrawalStatusBody,
   UpgradeToVipBody,
   User,
   UserStats,
   WatchAdBody,
   WatchAdResponse,
+  WithdrawalEntry,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -1431,6 +1435,268 @@ export const useWatchAd = <
   TContext
 > => {
   return useMutation(getWatchAdMutationOptions(options));
+};
+
+/**
+ * @summary Request a GC withdrawal (deducts GC, queues payout)
+ */
+export const getRequestWithdrawalUrl = () => {
+  return `/api/withdrawals/request`;
+};
+
+export const requestWithdrawal = async (
+  requestWithdrawalBody: RequestWithdrawalBody,
+  options?: RequestInit,
+): Promise<RequestWithdrawalResponse> => {
+  return customFetch<RequestWithdrawalResponse>(getRequestWithdrawalUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(requestWithdrawalBody),
+  });
+};
+
+export const getRequestWithdrawalMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestWithdrawal>>,
+    TError,
+    { data: BodyType<RequestWithdrawalBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestWithdrawal>>,
+  TError,
+  { data: BodyType<RequestWithdrawalBody> },
+  TContext
+> => {
+  const mutationKey = ["requestWithdrawal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestWithdrawal>>,
+    { data: BodyType<RequestWithdrawalBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestWithdrawal(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestWithdrawalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestWithdrawal>>
+>;
+export type RequestWithdrawalMutationBody = BodyType<RequestWithdrawalBody>;
+export type RequestWithdrawalMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Request a GC withdrawal (deducts GC, queues payout)
+ */
+export const useRequestWithdrawal = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestWithdrawal>>,
+    TError,
+    { data: BodyType<RequestWithdrawalBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestWithdrawal>>,
+  TError,
+  { data: BodyType<RequestWithdrawalBody> },
+  TContext
+> => {
+  return useMutation(getRequestWithdrawalMutationOptions(options));
+};
+
+/**
+ * @summary Get withdrawal history for a user
+ */
+export const getGetWithdrawalsUrl = (telegramId: string) => {
+  return `/api/withdrawals/${telegramId}`;
+};
+
+export const getWithdrawals = async (
+  telegramId: string,
+  options?: RequestInit,
+): Promise<WithdrawalEntry[]> => {
+  return customFetch<WithdrawalEntry[]>(getGetWithdrawalsUrl(telegramId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWithdrawalsQueryKey = (telegramId: string) => {
+  return [`/api/withdrawals/${telegramId}`] as const;
+};
+
+export const getGetWithdrawalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWithdrawals>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWithdrawals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetWithdrawalsQueryKey(telegramId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getWithdrawals>>> = ({
+    signal,
+  }) => getWithdrawals(telegramId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!telegramId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWithdrawals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWithdrawalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWithdrawals>>
+>;
+export type GetWithdrawalsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get withdrawal history for a user
+ */
+
+export function useGetWithdrawals<
+  TData = Awaited<ReturnType<typeof getWithdrawals>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWithdrawals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWithdrawalsQueryOptions(telegramId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update withdrawal status (admin)
+ */
+export const getUpdateWithdrawalStatusUrl = (id: number) => {
+  return `/api/withdrawals/${id}/status`;
+};
+
+export const updateWithdrawalStatus = async (
+  id: number,
+  updateWithdrawalStatusBody: UpdateWithdrawalStatusBody,
+  options?: RequestInit,
+): Promise<WithdrawalEntry> => {
+  return customFetch<WithdrawalEntry>(getUpdateWithdrawalStatusUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateWithdrawalStatusBody),
+  });
+};
+
+export const getUpdateWithdrawalStatusMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWithdrawalStatus>>,
+    TError,
+    { id: number; data: BodyType<UpdateWithdrawalStatusBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateWithdrawalStatus>>,
+  TError,
+  { id: number; data: BodyType<UpdateWithdrawalStatusBody> },
+  TContext
+> => {
+  const mutationKey = ["updateWithdrawalStatus"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateWithdrawalStatus>>,
+    { id: number; data: BodyType<UpdateWithdrawalStatusBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateWithdrawalStatus(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateWithdrawalStatusMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateWithdrawalStatus>>
+>;
+export type UpdateWithdrawalStatusMutationBody =
+  BodyType<UpdateWithdrawalStatusBody>;
+export type UpdateWithdrawalStatusMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update withdrawal status (admin)
+ */
+export const useUpdateWithdrawalStatus = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWithdrawalStatus>>,
+    TError,
+    { id: number; data: BodyType<UpdateWithdrawalStatusBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateWithdrawalStatus>>,
+  TError,
+  { id: number; data: BodyType<UpdateWithdrawalStatusBody> },
+  TContext
+> => {
+  return useMutation(getUpdateWithdrawalStatusMutationOptions(options));
 };
 
 /**

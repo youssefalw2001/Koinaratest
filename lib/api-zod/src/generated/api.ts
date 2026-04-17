@@ -490,6 +490,81 @@ export const WatchAdResponse = zod.object({
 });
 
 /**
+ * @summary Request a GC withdrawal (deducts GC, queues payout)
+ */
+export const RequestWithdrawalBody = zod.object({
+  telegramId: zod.string(),
+  gcAmount: zod.number().describe("Amount of Gold Coins to withdraw"),
+  usdtWallet: zod.string().describe("USDT TRC-20 wallet address for payout"),
+});
+
+export const RequestWithdrawalResponse = zod.object({
+  success: zod.boolean(),
+  gcDeducted: zod.number(),
+  netUsd: zod.number(),
+  feeUsd: zod.number(),
+  estimatedTime: zod.string(),
+  weeklyRemainingUsd: zod.string(),
+  newGcBalance: zod.number(),
+});
+
+/**
+ * @summary Get withdrawal history for a user
+ */
+export const GetWithdrawalsParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const GetWithdrawalsResponseItem = zod.object({
+  id: zod.number(),
+  telegramId: zod.string(),
+  amountGc: zod.number(),
+  feePct: zod.number(),
+  feeGc: zod.number(),
+  netGc: zod.number(),
+  usdValue: zod.number(),
+  netUsd: zod.number(),
+  status: zod.enum(["pending", "processing", "complete", "failed"]),
+  walletAddress: zod.string(),
+  txHash: zod.string().nullish(),
+  isVip: zod.number(),
+  tier: zod.string(),
+  processesAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const GetWithdrawalsResponse = zod.array(GetWithdrawalsResponseItem);
+
+/**
+ * @summary Update withdrawal status (admin)
+ */
+export const UpdateWithdrawalStatusParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateWithdrawalStatusBody = zod.object({
+  status: zod.enum(["pending", "processing", "complete", "failed"]),
+  txHash: zod.string().optional(),
+});
+
+export const UpdateWithdrawalStatusResponse = zod.object({
+  id: zod.number(),
+  telegramId: zod.string(),
+  amountGc: zod.number(),
+  feePct: zod.number(),
+  feeGc: zod.number(),
+  netGc: zod.number(),
+  usdValue: zod.number(),
+  netUsd: zod.number(),
+  status: zod.enum(["pending", "processing", "complete", "failed"]),
+  walletAddress: zod.string(),
+  txHash: zod.string().nullish(),
+  isVip: zod.number(),
+  tier: zod.string(),
+  processesAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+
+/**
  * @summary Claim daily login reward in Trade Credits (streak-based)
  */
 export const ClaimDailyRewardBody = zod.object({

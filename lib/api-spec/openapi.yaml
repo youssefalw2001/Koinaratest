@@ -18,6 +18,8 @@ tags:
     description: Quest/Earn Center operations
   - name: rewards
     description: Daily rewards and bonuses
+  - name: withdrawals
+    description: GC withdrawal queue operations
 paths:
   /healthz:
     get:
@@ -385,6 +387,89 @@ paths:
                 $ref: "#/components/schemas/WatchAdResponse"
         "400":
           description: Daily ad cap reached or user not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals/request:
+    post:
+      operationId: requestWithdrawal
+      tags: [withdrawals]
+      summary: Request a GC withdrawal (deducts GC, queues payout)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestWithdrawalBody"
+      responses:
+        "200":
+          description: Withdrawal queued successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestWithdrawalResponse"
+        "400":
+          description: Validation error (min amount, insufficient balance, weekly cap)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Daily payout cap reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals/{telegramId}:
+    get:
+      operationId: getWithdrawals
+      tags: [withdrawals]
+      summary: Get withdrawal history for a user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Withdrawal history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WithdrawalEntry"
+
+  /withdrawals/{id}/status:
+    patch:
+      operationId: updateWithdrawalStatus
+      tags: [withdrawals]
+      summary: Update withdrawal status (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWithdrawalStatusBody"
+      responses:
+        "200":
+          description: Withdrawal updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalEntry"
+        "404":
+          description: Withdrawal not found
           content:
             application/json:
               schema:
@@ -803,3 +888,105 @@ components:
         - adsWatchedToday
         - dailyCap
         - message
+
+    RequestWithdrawalBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        gcAmount:
+          type: integer
+          description: "Amount of Gold Coins to withdraw"
+        usdtWallet:
+          type: string
+          description: "USDT TRC-20 wallet address for payout"
+      required:
+        - telegramId
+        - gcAmount
+        - usdtWallet
+
+    RequestWithdrawalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        gcDeducted:
+          type: integer
+        netUsd:
+          type: number
+        feeUsd:
+          type: number
+        estimatedTime:
+          type: string
+        weeklyRemainingUsd:
+          type: string
+        newGcBalance:
+          type: integer
+      required:
+        - success
+        - gcDeducted
+        - netUsd
+        - feeUsd
+        - estimatedTime
+        - weeklyRemainingUsd
+        - newGcBalance
+
+    WithdrawalEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        telegramId:
+          type: string
+        amountGc:
+          type: integer
+        feePct:
+          type: number
+        feeGc:
+          type: integer
+        netGc:
+          type: integer
+        usdValue:
+          type: number
+        netUsd:
+          type: number
+        status:
+          type: string
+          enum: [pending, processing, complete, failed]
+        walletAddress:
+          type: string
+        txHash:
+          type: ["string", "null"]
+        isVip:
+          type: integer
+        tier:
+          type: string
+        processesAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - telegramId
+        - amountGc
+        - feePct
+        - feeGc
+        - netGc
+        - usdValue
+        - netUsd
+        - status
+        - walletAddress
+        - isVip
+        - tier
+        - createdAt
+
+    UpdateWithdrawalStatusBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, processing, complete, failed]
+        txHash:
+          type: string
+      required:
+        - status

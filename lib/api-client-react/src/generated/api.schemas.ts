@@ -235,6 +235,69 @@ export interface WatchAdResponse {
   message: string;
 }
 
+export interface RequestWithdrawalBody {
+  telegramId: string;
+  /** Amount of Gold Coins to withdraw */
+  gcAmount: number;
+  /** USDT TRC-20 wallet address for payout */
+  usdtWallet: string;
+}
+
+export interface RequestWithdrawalResponse {
+  success: boolean;
+  gcDeducted: number;
+  netUsd: number;
+  feeUsd: number;
+  estimatedTime: string;
+  weeklyRemainingUsd: string;
+  newGcBalance: number;
+}
+
+export type WithdrawalEntryStatus =
+  (typeof WithdrawalEntryStatus)[keyof typeof WithdrawalEntryStatus];
+
+export const WithdrawalEntryStatus = {
+  pending: "pending",
+  processing: "processing",
+  complete: "complete",
+  failed: "failed",
+} as const;
+
+export interface WithdrawalEntry {
+  id: number;
+  telegramId: string;
+  amountGc: number;
+  feePct: number;
+  feeGc: number;
+  netGc: number;
+  usdValue: number;
+  netUsd: number;
+  status: WithdrawalEntryStatus;
+  walletAddress: string;
+  /** @nullable */
+  txHash?: string | null;
+  isVip: number;
+  tier: string;
+  /** @nullable */
+  processesAt?: string | null;
+  createdAt: string;
+}
+
+export type UpdateWithdrawalStatusBodyStatus =
+  (typeof UpdateWithdrawalStatusBodyStatus)[keyof typeof UpdateWithdrawalStatusBodyStatus];
+
+export const UpdateWithdrawalStatusBodyStatus = {
+  pending: "pending",
+  processing: "processing",
+  complete: "complete",
+  failed: "failed",
+} as const;
+
+export interface UpdateWithdrawalStatusBody {
+  status: UpdateWithdrawalStatusBodyStatus;
+  txHash?: string;
+}
+
 export type GetUserPredictionsParams = {
   limit?: number;
 };
