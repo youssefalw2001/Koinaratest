@@ -77,6 +77,8 @@ export interface User {
   goldCoins: number;
   totalGcEarned: number;
   isVip: boolean;
+  /** True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial */
+  day7BonusClaimed?: boolean;
   /** Set to true when a user this person referred purchases VIP; cleared after trial is activated */
   referralVipRewardPending?: boolean;
   /**

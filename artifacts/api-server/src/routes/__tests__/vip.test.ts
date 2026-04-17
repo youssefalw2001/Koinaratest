@@ -56,6 +56,7 @@ beforeAll(async () => {
     goldCoins: 0,
     totalGcEarned: 0,
     registrationDate: new Date().toISOString().split("T")[0],
+    walletAddress: MOCK_SENDER, // Required: wallet binding check now rejects unbound wallets
   });
   process.env.KOINARA_TON_WALLET = "UQtest_operator_wallet";
 });

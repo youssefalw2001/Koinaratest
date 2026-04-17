@@ -17,6 +17,7 @@ export const usersTable = pgTable("users", {
   vipPlan: text("vip_plan"),
   vipTrialExpiresAt: timestamp("vip_trial_expires_at", { withTimezone: true }),
   hadVipTrial: boolean("had_vip_trial").notNull().default(false),
+  day7BonusClaimed: boolean("day7_bonus_claimed").notNull().default(false),
   referralVipRewardPending: boolean("referral_vip_reward_pending").notNull().default(false),
   hasVerified: boolean("has_verified").notNull().default(false),
   walletAddress: text("wallet_address"),

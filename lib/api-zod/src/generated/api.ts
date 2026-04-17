@@ -37,6 +37,12 @@ export const RegisterUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  day7BonusClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -81,6 +87,12 @@ export const GetUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  day7BonusClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -147,6 +159,12 @@ export const UpdateWalletResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  day7BonusClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -195,6 +213,12 @@ export const ActivateVipTrialResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  day7BonusClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()
@@ -249,6 +273,12 @@ export const UpgradeToVipResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  day7BonusClaimed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
+    ),
   referralVipRewardPending: zod
     .boolean()
     .optional()

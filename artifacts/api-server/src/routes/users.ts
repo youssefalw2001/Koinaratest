@@ -139,15 +139,21 @@ router.post("/users/register", async (req, res): Promise<void> => {
     const existingUser = existing[0];
     const updateData: Record<string, unknown> = { username, firstName, lastName, photoUrl };
 
-    // Day-7 survivor bonus: +3000 TC + 24h VIP trial (one-time lifetime — checked via hadVipTrial)
-    if (existingUser.registrationDate && !existingUser.hadVipTrial) {
+    // Day-7 survivor bonus: +3000 TC awarded once using a dedicated flag (day7BonusClaimed)
+    // so it fires regardless of whether the user already used a VIP trial via another path.
+    // The 24h trial portion still respects hadVipTrial (one lifetime trial only).
+    if (existingUser.registrationDate && !existingUser.day7BonusClaimed) {
       const regDate = new Date(existingUser.registrationDate);
       const daysSinceReg = (Date.now() - regDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceReg >= 7) {
-        const trialExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        updateData.vipTrialExpiresAt = trialExpiry;
-        updateData.hadVipTrial = true;
+        updateData.day7BonusClaimed = true;
         updateData.tradeCredits = sql`${usersTable.tradeCredits} + 3000`;
+        // Only grant the trial if they haven't had one yet
+        if (!existingUser.hadVipTrial) {
+          const trialExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          updateData.vipTrialExpiresAt = trialExpiry;
+          updateData.hadVipTrial = true;
+        }
       }
     }
 
@@ -323,10 +329,15 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       return;
     }
 
-    // Cryptographic binding: the senderAddress must match the wallet this user previously
-    // connected via TON Connect. This prevents any user from claiming a payment made by
-    // a different wallet they don't control.
-    if (user.walletAddress && user.walletAddress.toLowerCase() !== senderAddress.toLowerCase()) {
+    // Wallet binding enforcement: require a TON wallet to be connected before paying.
+    // If no wallet is bound, reject — this prevents claiming VIP using another user's tx.
+    if (!user.walletAddress) {
+      res.status(400).json({ error: "Please connect your TON wallet first before subscribing." });
+      return;
+    }
+    // Cryptographic binding: the senderAddress must exactly match the connected wallet.
+    // Case-insensitive compare handles TON address format variants.
+    if (user.walletAddress.toLowerCase() !== senderAddress.toLowerCase()) {
       res.status(403).json({ error: "Sender address does not match your connected wallet. Please reconnect your wallet and try again." });
       return;
     }
