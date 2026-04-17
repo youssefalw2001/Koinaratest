@@ -463,6 +463,18 @@ export const ClaimQuestResponse = zod.object({
 });
 
 /**
+ * @summary Get today's ad watch count and remaining cap for a user
+ */
+export const GetAdStatusParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const GetAdStatusResponse = zod.object({
+  adsWatchedToday: zod.number(),
+  dailyCap: zod.number(),
+});
+
+/**
  * @summary Record a rewarded ad watch and credit Trade Credits
  */
 export const WatchAdBody = zod.object({

@@ -130,50 +130,36 @@ export default function Profile() {
         </div>
       )}
 
-      {/* Daily Reward Button */}
-      <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={handleDailyClaim}
-        disabled={dailyClaimed || claimDaily.isPending}
-        className={`w-full flex items-center justify-between p-4 rounded-xl border-2 mb-4 transition-all ${
-          dailyClaimed
-            ? "border-white/10 bg-white/5 opacity-50"
-            : vip
-            ? "border-[#f5c518] bg-[#f5c518]/10"
-            : "border-[#00f0ff] bg-[#00f0ff]/10"
-        }`}
-        style={!dailyClaimed ? {
-          boxShadow: vip ? "0 0 20px rgba(245,197,24,0.25)" : "0 0 20px rgba(0,240,255,0.25)"
-        } : {}}
-        data-testid="btn-claim-daily"
+      {/* Daily Streak Info — reward is auto-credited on app open */}
+      <div
+        className="w-full flex items-center justify-between p-4 rounded-xl border-2 mb-4"
+        style={{
+          borderColor: vip ? "rgba(245,197,24,0.4)" : "rgba(0,240,255,0.3)",
+          background: vip ? "rgba(245,197,24,0.06)" : "rgba(0,240,255,0.06)",
+        }}
       >
         <div className="flex items-center gap-3">
           <Flame
             size={20}
             style={{
-              color: dailyClaimed ? "rgba(255,255,255,0.3)" : vip ? "#f5c518" : "#00f0ff",
-              filter: dailyClaimed ? "none" : `drop-shadow(0 0 6px ${vip ? "#f5c518" : "#00f0ff"})`,
+              color: vip ? "#f5c518" : "#00f0ff",
+              filter: `drop-shadow(0 0 6px ${vip ? "#f5c518" : "#00f0ff"})`,
             }}
           />
           <div className="text-left">
-            <div className="font-mono text-sm font-black text-white">
-              {dailyClaimed ? "Daily Reward Claimed" : "Claim Daily Reward"}
-            </div>
+            <div className="font-mono text-sm font-black text-white">Daily Reward</div>
             <div className="font-mono text-[10px] text-white/40">
-              {vip ? "VIP Active" : `Streak: ${loginStreak} days`}
+              Auto-credited on login · {vip ? "VIP Active" : `${loginStreak}-day streak`}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {dailyClaimed ? (
-            <CheckCircle size={16} className="text-white/30" />
-          ) : (
-            <span className="font-mono text-sm font-black" style={{ color: vip ? "#f5c518" : "#00f0ff" }}>
-              {vip ? "150+" : "100+"} TC
-            </span>
-          )}
+          <CheckCircle size={16} style={{ color: vip ? "#f5c518" : "#00f0ff" }} />
+          <span className="font-mono text-sm font-black" style={{ color: vip ? "#f5c518" : "#00f0ff" }}>
+            {vip ? `${150 + loginStreak * 15}` : `${100 + loginStreak * 10}`} TC/day
+          </span>
         </div>
-      </motion.button>
+      </div>
 
       {/* Week 1 Journey Tracker */}
       <div

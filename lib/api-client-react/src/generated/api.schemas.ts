@@ -222,6 +222,11 @@ export interface VipActivityItem {
 
 export type GetVipActivityResponse = VipActivityItem[];
 
+export interface AdStatusResponse {
+  adsWatchedToday: number;
+  dailyCap: number;
+}
+
 export interface WatchAdResponse {
   tcAwarded: number;
   newTcBalance: number;

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers, Play, CheckCircle2, Tv } from "lucide-react";
-import { useListQuests, useClaimQuest, useWatchAd, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useListQuests, useClaimQuest, useWatchAd, useGetAdStatus, getGetAdStatusQueryKey, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
@@ -43,32 +43,21 @@ export default function Earn() {
   const [adState, setAdState] = useState<"idle" | "watching" | "done">("idle");
   const [adCountdown, setAdCountdown] = useState(AD_DURATION);
   const [adResult, setAdResult] = useState<{ tc: number; adsLeft: number } | null>(null);
-  const [adsWatchedToday, setAdsWatchedToday] = useState<number | null>(null);
   const [showAdToast, setShowAdToast] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const { data: adStatusData, refetch: refetchAdStatus } = useGetAdStatus(user?.telegramId ?? "", {
+    query: { enabled: !!user, queryKey: getGetAdStatusQueryKey(user?.telegramId ?? "") }
+  });
+
   const vip = isVipActive(user);
   const adTcReward = vip ? 100 : 80;
-  const adDailyCap = vip ? 25 : 5;
+  const adDailyCap = adStatusData?.dailyCap ?? (vip ? 25 : 5);
+  const adsWatchedToday = adStatusData?.adsWatchedToday ?? null;
   const adsRemaining = adsWatchedToday !== null ? Math.max(0, adDailyCap - adsWatchedToday) : null;
   const adProgress = adsWatchedToday !== null ? (adsWatchedToday / adDailyCap) * 100 : 0;
   const adsCapped = adsRemaining === 0;
-
-  const loadAdStatus = useCallback(async () => {
-    if (!user) return;
-    try {
-      const resp = await fetch(`/api/rewards/ad-status/${user.telegramId}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setAdsWatchedToday(data.adsWatchedToday ?? 0);
-      }
-    } catch {}
-  }, [user]);
-
-  useEffect(() => {
-    loadAdStatus();
-  }, [loadAdStatus]);
 
   const handleStartAd = () => {
     if (adState !== "idle") return;
@@ -93,7 +82,7 @@ export default function Earn() {
       const result = await watchAdMutation.mutateAsync({ data: { telegramId: user.telegramId } });
       const adsLeft = result.dailyCap - result.adsWatchedToday;
       setAdResult({ tc: result.tcAwarded, adsLeft });
-      setAdsWatchedToday(result.adsWatchedToday);
+      refetchAdStatus();
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       // Show floating toast
       setShowAdToast(true);
@@ -103,11 +92,8 @@ export default function Earn() {
         setAdResult(null);
         setAdState("idle");
       }, 3500);
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "";
-      if (msg.includes("cap")) {
-        setAdsWatchedToday(adDailyCap);
-      }
+    } catch {
+      refetchAdStatus();
       setAdState("idle");
     }
   };

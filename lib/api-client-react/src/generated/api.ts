@@ -18,6 +18,7 @@ import type {
 
 import type {
   ActivateVipTrialBody,
+  AdStatusResponse,
   ClaimQuestBody,
   ClaimQuestResponse,
   CreatePredictionBody,
@@ -1258,6 +1259,93 @@ export const useClaimQuest = <
 > => {
   return useMutation(getClaimQuestMutationOptions(options));
 };
+
+/**
+ * @summary Get today's ad watch count and remaining cap for a user
+ */
+export const getGetAdStatusUrl = (telegramId: string) => {
+  return `/api/rewards/ad-status/${telegramId}`;
+};
+
+export const getAdStatus = async (
+  telegramId: string,
+  options?: RequestInit,
+): Promise<AdStatusResponse> => {
+  return customFetch<AdStatusResponse>(getGetAdStatusUrl(telegramId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAdStatusQueryKey = (telegramId: string) => {
+  return [`/api/rewards/ad-status/${telegramId}`] as const;
+};
+
+export const getGetAdStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAdStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAdStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAdStatusQueryKey(telegramId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdStatus>>> = ({
+    signal,
+  }) => getAdStatus(telegramId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!telegramId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAdStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAdStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAdStatus>>
+>;
+export type GetAdStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get today's ad watch count and remaining cap for a user
+ */
+
+export function useGetAdStatus<
+  TData = Awaited<ReturnType<typeof getAdStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAdStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAdStatusQueryOptions(telegramId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Record a rewarded ad watch and credit Trade Credits

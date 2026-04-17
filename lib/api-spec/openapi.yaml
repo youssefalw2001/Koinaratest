@@ -340,6 +340,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /rewards/ad-status/{telegramId}:
+    get:
+      operationId: getAdStatus
+      tags: [rewards]
+      summary: Get today's ad watch count and remaining cap for a user
+      parameters:
+        - name: telegramId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ad status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdStatusResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /rewards/ad:
     post:
       operationId: watchAd
@@ -747,6 +772,17 @@ components:
       type: array
       items:
         $ref: "#/components/schemas/VipActivityItem"
+
+    AdStatusResponse:
+      type: object
+      properties:
+        adsWatchedToday:
+          type: integer
+        dailyCap:
+          type: integer
+      required:
+        - adsWatchedToday
+        - dailyCap
 
     WatchAdResponse:
       type: object
