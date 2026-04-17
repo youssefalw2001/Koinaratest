@@ -3,8 +3,48 @@ import { eq, sql, desc, and, gte } from "drizzle-orm";
 import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable, vipTxHashesTable } from "@workspace/db";
 import { z } from "zod";
 import { serializeRow } from "../lib/serialize";
+import { verifyTelegramInitData } from "../lib/telegramVerify";
 
 const router: IRouter = Router();
+
+// ─── User identity binding ───────────────────────────────────────────────────
+// Resolves the authenticated Telegram user ID from the X-Telegram-Init-Data header.
+// When TELEGRAM_BOT_TOKEN is configured, the initData signature is cryptographically
+// verified (production path). When the env var is absent (dev/test), the telegramId
+// from the request body is trusted with a console warning.
+//
+// Returns null and writes a 401 response when production auth fails.
+function resolveAuthenticatedTelegramId(
+  req: Request,
+  res: Response,
+  requestedId: string,
+): string | null {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+  if (!botToken) {
+    console.warn("[Auth] TELEGRAM_BOT_TOKEN not set — trusting caller telegramId (dev mode only)");
+    return requestedId;
+  }
+
+  const initData = req.headers["x-telegram-init-data"];
+  if (typeof initData !== "string" || initData.trim() === "") {
+    res.status(401).json({ error: "Authentication required. Please reopen the app." });
+    return null;
+  }
+
+  const verifiedId = verifyTelegramInitData(initData, botToken);
+  if (!verifiedId) {
+    res.status(401).json({ error: "Invalid authentication. Please reopen the app." });
+    return null;
+  }
+
+  if (verifiedId !== requestedId) {
+    res.status(403).json({ error: "Forbidden." });
+    return null;
+  }
+
+  return verifiedId;
+}
 
 // ─── Rates & caps ───────────────────────────────────────────────────────────
 const FREE_GC_PER_USD = 4000;
@@ -157,10 +197,13 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
 
   const { telegramId, senderAddress } = body.data;
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -222,10 +265,13 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   const { telegramId, gcAmount, usdtWallet } = body.data;
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -430,10 +476,13 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     return;
   }
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const rows = await db
     .select()
     .from(withdrawalQueueTable)
-    .where(eq(withdrawalQueueTable.telegramId, telegramId))
+    .where(eq(withdrawalQueueTable.telegramId, authedId))
     .orderBy(desc(withdrawalQueueTable.createdAt))
     .limit(50);
 
@@ -441,7 +490,7 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
