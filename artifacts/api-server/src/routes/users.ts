@@ -30,6 +30,7 @@ const TONAPI_BASE = "https://tonapi.io/v2";
 type TonApiAccount = { address: string };
 type TonApiTx = {
   hash: string;
+  utime: number;
   out_msgs: Array<{
     destination?: { address?: string };
     value?: number;
@@ -95,11 +96,17 @@ async function verifyTonTransaction(
     return { ok: false, err: "TON API unreachable — please retry in a moment" };
   }
 
-  // Step 3: Find a matching transaction
+  // Step 3: Find a matching transaction within the recency window.
+  // Only accept transactions confirmed within the last 15 minutes to prevent
+  // a user reusing an old payment or scanning stale tx history.
   const expectedNano = plan === "weekly" ? TON_WEEKLY_NANO : TON_MONTHLY_NANO;
   const minNano = (expectedNano * 95n) / 100n;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const RECENCY_WINDOW_SEC = 15 * 60; // 15 minutes
 
   for (const tx of txList.transactions) {
+    const ageSec = nowSec - (tx.utime ?? 0);
+    if (ageSec > RECENCY_WINDOW_SEC) continue; // skip transactions older than 15 min
     for (const msg of tx.out_msgs) {
       const destRaw = msg.destination?.address ?? "";
       if (destRaw !== operatorRaw) continue;
@@ -112,7 +119,7 @@ async function verifyTonTransaction(
 
   return {
     ok: false,
-    err: "No matching TON payment found. Please ensure the transaction is confirmed and try again.",
+    err: "No matching TON payment found within the last 15 minutes. Please ensure the transaction is confirmed and try again.",
   };
 }
 
@@ -495,8 +502,11 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
   const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
   // Atomically apply the trial + clear/set any trigger flags in a single UPDATE.
+  // Always clear referralVipRewardPending regardless of reason — a trial is a single
+  // consumption event; if the user earned it via tc_zero or gc_milestone but also has
+  // a pending referral reward, clear it so it cannot be claimed separately later.
   const flagUpdates = {
-    ...(reason === "referral" ? { referralVipRewardPending: false } : {}),
+    referralVipRewardPending: false,
     ...(reason === "gc_milestone" ? { gcMilestoneTrialClaimed: true } : {}),
   };
 

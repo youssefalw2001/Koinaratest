@@ -14,8 +14,9 @@ const app = express();
 app.use(express.json());
 app.use("/", usersRouter);
 
-async function buildFetchMock(plan: "weekly" | "monthly") {
+async function buildFetchMock(plan: "weekly" | "monthly", utimeOverride?: number) {
   const nanoValue = plan === "weekly" ? 500000000 : 1500000000;
+  const utime = utimeOverride ?? Math.floor(Date.now() / 1000) - 60; // 1 minute ago by default
   return vi.fn(async (url: string) => {
     const u = url.toString();
     if (u.includes("/accounts/") && !u.includes("/transactions")) {
@@ -31,6 +32,7 @@ async function buildFetchMock(plan: "weekly" | "monthly") {
           transactions: [
             {
               hash: MOCK_TX_HASH,
+              utime,
               out_msgs: [
                 {
                   destination: { address: MOCK_OPERATOR_RAW },
@@ -178,6 +180,18 @@ describe("POST /users/:telegramId/vip/subscribe — TON payment plans", () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/does not match/i);
   });
+
+  it("rejects a matching transaction that is older than the 15-minute recency window", async () => {
+    const staleUtime = Math.floor(Date.now() / 1000) - 20 * 60; // 20 minutes ago
+    vi.stubGlobal("fetch", await buildFetchMock("weekly", staleUtime));
+
+    const res = await request(app)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip/subscribe`)
+      .send({ plan: "weekly", senderAddress: MOCK_SENDER });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/No matching TON payment/);
+  });
 });
 
 const TRIAL_TELEGRAM_ID = "__activate_trial_test__";
@@ -268,5 +282,18 @@ describe("POST /users/:telegramId/activate-trial — eligibility enforcement", (
       .send({ reason: "referral" });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/no pending referral reward/i);
+  });
+
+  it("clears referralVipRewardPending even when trial fires via a different reason (tc_zero)", async () => {
+    // User has TC=0 (qualifies for tc_zero) AND also has a pending referral reward.
+    // The trial is a single-consumption event — granting it via any reason must consume
+    // the referral flag too, preventing a second trial from being claimed later.
+    await createTrialUser({ tradeCredits: 0, referralVipRewardPending: true });
+    const res = await request(app)
+      .post(`/users/${TRIAL_TELEGRAM_ID}/activate-trial`)
+      .send({ reason: "tc_zero" });
+    expect(res.status).toBe(200);
+    expect(res.body.vipTrialExpiresAt).toBeTruthy();
+    expect(res.body.referralVipRewardPending).toBe(false); // consumed by tc_zero grant
   });
 });
