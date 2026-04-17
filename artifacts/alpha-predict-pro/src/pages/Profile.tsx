@@ -51,8 +51,8 @@ export default function Profile() {
 
   const winRate = stats ? Math.round(stats.winRate * 100) : 0;
   const loginStreak = user?.loginStreak ?? 0;
-  const registrationDayIndex = user?.createdAt
-    ? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / 86400000)
+  const registrationDayIndex = user?.registrationDate
+    ? Math.floor((Date.now() - new Date(user.registrationDate).getTime()) / 86400000)
     : 0;
   const currentDay = Math.min(registrationDayIndex + 1, 7);
   const vip = isVipActive(user);

@@ -60,16 +60,22 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
  *    value meets the 95%-of-expected threshold.
  * 4. Return the on-chain tx hash for idempotency (dedup in vip_tx_hashes).
  *
- * In dev (KOINARA_TON_WALLET unset) we skip verification and return ok=true.
+ * Fail-closed: returns configErr=true (→ 503) when KOINARA_TON_WALLET is unset.
  */
 async function verifyTonTransaction(
   senderAddress: string,
   plan: "weekly" | "monthly",
-): Promise<{ ok: boolean; err?: string; txHash?: string }> {
+): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
   const walletEnv = getKoinaraWallet();
   if (!walletEnv) {
-    console.warn("[VIP] KOINARA_TON_WALLET not set — skipping on-chain TON verification (dev mode)");
-    return { ok: true };
+    // Fail-closed: never silently approve a payment when the operator wallet is not configured.
+    // In production set KOINARA_TON_WALLET to the operator TON address to enable TON VIP payments.
+    console.error("[VIP] KOINARA_TON_WALLET is not set — TON payment processing is disabled");
+    return {
+      ok: false,
+      err: "TON payment processing is not currently configured. Please contact support.",
+      configErr: true,
+    };
   }
 
   // Step 1: Resolve operator wallet to canonical raw address
@@ -325,12 +331,12 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     // recent transactions for a matching payment, returns the on-chain tx hash.
     const verification = await verifyTonTransaction(senderAddress, plan);
     if (!verification.ok) {
-      res.status(422).json({ error: verification.err ?? "TON transaction verification failed" });
+      const statusCode = verification.configErr ? 503 : 422;
+      res.status(statusCode).json({ error: verification.err ?? "TON transaction verification failed" });
       return;
     }
 
     // Deduplication using the on-chain tx hash returned by verifyTonTransaction.
-    // In dev mode (wallet env unset), verification.txHash is undefined — skip dedup.
     const verifiedTxHash = verification.txHash;
     if (verifiedTxHash) {
       const [existingTx] = await db

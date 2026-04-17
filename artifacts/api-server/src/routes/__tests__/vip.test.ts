@@ -152,4 +152,18 @@ describe("POST /users/:telegramId/vip — TON payment plans", () => {
 
     expect(res.status).toBe(400);
   });
+
+  it("returns 503 when operator wallet env is not configured (fail-closed security)", async () => {
+    const saved = process.env.KOINARA_TON_WALLET;
+    delete process.env.KOINARA_TON_WALLET;
+
+    const res = await request(app)
+      .post(`/users/${TEST_TELEGRAM_ID}/vip`)
+      .send({ plan: "weekly", senderAddress: MOCK_SENDER });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBeTruthy();
+
+    process.env.KOINARA_TON_WALLET = saved;
+  });
 });

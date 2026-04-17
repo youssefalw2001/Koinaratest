@@ -56,9 +56,10 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     const gc = user.goldCoins ?? 0;
     const tc = user.tradeCredits ?? 0;
 
-    let reason: "tc_zero" | "gc_milestone" | null = null;
+    let reason: "tc_zero" | "gc_milestone" | "referral" | null = null;
     if (tc === 0) reason = "tc_zero";
     else if (gc >= 5000) reason = "gc_milestone";
+    else if (user.referredBy) reason = "referral";
 
     if (!reason || trialTriggeredRef.current) return;
 
