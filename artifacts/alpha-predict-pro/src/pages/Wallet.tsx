@@ -6,7 +6,7 @@ import { useUpgradeToVip, useUpdateWallet, getGetUserQueryKey } from "@workspace
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
-const GC_TO_USD = 0.001;
+const GC_TO_USD = 0.00025; // 4,000 GC = $1.00
 const VIP_FEE_TC = 500;
 const MILESTONE_GC = 10000;
 
@@ -249,7 +249,7 @@ export default function WalletPage() {
                   Pay {VIP_FEE_TC} TC for 7-day VIP access — or use TON for longer plans
                 </div>
                 <div className="w-full space-y-2 mb-4">
-                  {["2x Gold Coin wins", "Higher daily GC cap (3,000)", "Withdrawal access", "VIP-only quests", "Max bet 5,000 TC"].map(perk => (
+                  {["3,000 GC daily cap (vs 800)", "Max bet 5,000 TC (vs 1,000)", "Withdrawal access", "VIP-only quests", "Streak TC bonus +50%"].map(perk => (
                     <div key={perk} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#f5c518]/30 bg-[#f5c518]/5">
                       <CheckCircle size={12} className="text-[#f5c518]" />
                       <span className="font-mono text-xs text-white">{perk}</span>

@@ -143,7 +143,7 @@ export default function Profile() {
               {dailyClaimed ? "Daily Reward Claimed" : "Claim Daily Reward"}
             </div>
             <div className="font-mono text-[10px] text-white/40">
-              {user?.isVip ? "VIP 2x Bonus Active" : `Streak: ${user?.loginStreak ?? 0} days`}
+              {user?.isVip ? "VIP Active" : `Streak: ${user?.loginStreak ?? 0} days`}
             </div>
           </div>
         </div>
@@ -198,7 +198,7 @@ export default function Profile() {
           })}
         </div>
         <div className="font-mono text-[10px] text-white/30 mt-2">
-          {user?.loginStreak ?? 0} day streak — {user?.isVip ? "VIP 2x bonus active" : "Go VIP for 2x"}
+          {user?.loginStreak ?? 0} day streak — {user?.isVip ? "VIP bonus active" : "Go VIP for higher caps"}
         </div>
       </div>
 

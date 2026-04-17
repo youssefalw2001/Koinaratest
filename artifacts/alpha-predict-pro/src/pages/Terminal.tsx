@@ -138,7 +138,7 @@ export default function Terminal() {
   const priceColor = priceUp ? "#00f0ff" : "#ff2d78";
   const maxBet = user?.isVip ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
-  const expectedGc = Math.floor(bet * GC_RATIO * (user?.isVip ? 2 : 1));
+  const expectedGc = Math.floor(bet * GC_RATIO); // payout is always bet × 0.85; VIP advantage is daily cap only
 
   const ringProgress = countdown / ROUND_DURATION;
   const ringColor = ringProgress > 0.5 ? "#00f0ff" : ringProgress > 0.2 ? "#f5c518" : "#ff2d78";
@@ -302,7 +302,7 @@ export default function Terminal() {
           <div className="flex items-center justify-between mb-3 px-3 py-2 rounded bg-[#f5c518]/5 border border-[#f5c518]/15">
             <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
             <span className="font-mono text-sm font-bold text-[#f5c518]">
-              +{expectedGc} 🪙 GC {user?.isVip ? "(VIP 2x)" : ""}
+              +{expectedGc} 🪙 GC
             </span>
           </div>
 
