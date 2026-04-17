@@ -466,6 +466,13 @@ export default function Terminal() {
               </div>
               <div className="w-px h-6 bg-white/10" />
               <div className="text-center">
+                <div className="font-mono text-[9px] text-white/30 mb-0.5">NOW</div>
+                <span className={`font-mono text-xs font-bold ${isWinningNow ? "text-[#00f0ff]" : "text-[#ff2d78]"}`}>
+                  ${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+              <div className="w-px h-6 bg-white/10" />
+              <div className="text-center">
                 <div className="font-mono text-[9px] text-white/30 mb-0.5">LIVE P&L</div>
                 <span
                   className={`font-mono text-sm font-bold ${
