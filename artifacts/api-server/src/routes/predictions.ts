@@ -134,8 +134,8 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
       const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
       const vipNow = isVipActive(user);
       const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
-      // Payout is always bet_TC × 0.85; VIP advantage is a higher daily earning cap only
-      const rawPayout = Math.floor(prediction.amount * GC_RATIO);
+      // VIP users earn 2× per-trade payout (bet_TC × 0.85 × 2) on top of a higher daily cap
+      const rawPayout = Math.floor(prediction.amount * GC_RATIO) * (vipNow ? 2 : 1);
       const remaining = dailyCap - currentDailyGc;
       gcPayout = Math.min(rawPayout, Math.max(0, remaining));
 
