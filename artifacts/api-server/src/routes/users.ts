@@ -21,6 +21,61 @@ import { serializeRow } from "../lib/serialize";
 
 const router: IRouter = Router();
 
+const KOINARA_TON_WALLET_ENV = process.env.KOINARA_TON_WALLET;
+const TON_WEEKLY_NANO = BigInt("500000000");  // 0.5 TON
+const TON_MONTHLY_NANO = BigInt("1500000000"); // 1.5 TON
+
+async function verifyTonTransaction(
+  txHash: string,
+  plan: "weekly" | "monthly",
+): Promise<{ ok: boolean; err?: string }> {
+  if (!KOINARA_TON_WALLET_ENV) {
+    console.warn("[VIP] KOINARA_TON_WALLET not set — skipping on-chain TON verification (dev mode)");
+    return { ok: true };
+  }
+
+  let resp: Response;
+  try {
+    resp = await fetch(`https://tonapi.io/v2/blockchain/transactions/${encodeURIComponent(txHash)}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "Accept": "application/json" },
+    });
+  } catch {
+    return { ok: false, err: "TON API unreachable — please retry in a moment" };
+  }
+
+  if (resp.status === 404) {
+    return { ok: false, err: "Transaction not found on TON blockchain" };
+  }
+  if (!resp.ok) {
+    return { ok: false, err: "TON verification service error — please retry" };
+  }
+
+  let tx: { out_msgs?: Array<{ destination?: { account_id?: string }; value?: number }> };
+  try {
+    tx = (await resp.json()) as typeof tx;
+  } catch {
+    return { ok: false, err: "Failed to parse TON transaction data" };
+  }
+
+  const expectedNano = plan === "weekly" ? TON_WEEKLY_NANO : TON_MONTHLY_NANO;
+  const walletSuffix = KOINARA_TON_WALLET_ENV.replace(/[^a-zA-Z0-9]/g, "").slice(-20).toLowerCase();
+  const outMsgs = tx.out_msgs ?? [];
+
+  const verified = outMsgs.some(msg => {
+    const destId = (msg.destination?.account_id ?? "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    if (!destId.includes(walletSuffix)) return false;
+    const valueNano = BigInt(Math.floor(msg.value ?? 0));
+    return valueNano >= expectedNano * 95n / 100n;
+  });
+
+  if (!verified) {
+    return { ok: false, err: "Transaction destination or amount does not match VIP plan requirements" };
+  }
+
+  return { ok: true };
+}
+
 const USER_SCHEMA = (row: Record<string, unknown>) =>
   RegisterUserResponse.parse(serializeRow(row));
 
@@ -44,13 +99,14 @@ router.post("/users/register", async (req, res): Promise<void> => {
     const existingUser = existing[0];
     const updateData: Record<string, unknown> = { username, firstName, lastName, photoUrl };
 
-    // Day-7 survivor bonus: +3000 TC + 24h VIP trial (one-time, only if never set)
-    if (existingUser.registrationDate && !existingUser.vipTrialExpiresAt) {
+    // Day-7 survivor bonus: +3000 TC + 24h VIP trial (one-time lifetime — checked via hadVipTrial)
+    if (existingUser.registrationDate && !existingUser.hadVipTrial) {
       const regDate = new Date(existingUser.registrationDate);
       const daysSinceReg = (Date.now() - regDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceReg >= 7) {
         const trialExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
         updateData.vipTrialExpiresAt = trialExpiry;
+        updateData.hadVipTrial = true;
         updateData.tradeCredits = sql`${usersTable.tradeCredits} + 3000`;
       }
     }
@@ -241,6 +297,13 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     const durationDays = plan === "weekly" ? 7 : 30;
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const vipPlan = plan === "weekly" ? "ton_weekly" : "ton_monthly";
+
+    // On-chain verification: check tx exists, correct destination wallet, correct amount
+    const verification = await verifyTonTransaction(txHash, plan as "weekly" | "monthly");
+    if (!verification.ok) {
+      res.status(422).json({ error: verification.err ?? "TON transaction verification failed" });
+      return;
+    }
 
     await db.insert(vipTxHashesTable).values({
       txHash,

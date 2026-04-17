@@ -7,13 +7,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
 
 const DAY7_MILESTONES = [
-  { day: 1, label: "First Trade", reward: "500 TC bonus", icon: Rocket },
-  { day: 2, label: "Win Streak", reward: "+50 TC", icon: Flame },
-  { day: 3, label: "10 Trades", reward: "+100 TC", icon: Target },
-  { day: 4, label: "VIP Eligible", reward: "Unlock", icon: Crown },
-  { day: 5, label: "Pro Trader", reward: "+150 TC", icon: TrendingUp },
+  { day: 1, label: "Welcome Pack", reward: "500 TC bonus", icon: Rocket },
+  { day: 2, label: "Daily Streak", reward: "+50 TC daily", icon: Flame },
+  { day: 3, label: "First Win", reward: "+100 GC", icon: Target },
+  { day: 4, label: "VIP Preview", reward: "Trial eligible", icon: Crown },
+  { day: 5, label: "Gold Earner", reward: "+150 TC", icon: TrendingUp },
   { day: 6, label: "GC Milestone", reward: "+200 TC", icon: Award },
-  { day: 7, label: "Survivor", reward: "GC BONUS 🎉", icon: Star },
+  { day: 7, label: "Survivor Bonus", reward: "3K TC + VIP Trial", icon: Star },
 ];
 
 export default function Profile() {

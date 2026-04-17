@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers, Play, CheckCircle2, Tv } from "lucide-react";
 import { useListQuests, useClaimQuest, useWatchAd, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
@@ -52,6 +52,21 @@ export default function Earn() {
   const adsRemaining = adsWatchedToday !== null ? Math.max(0, adDailyCap - adsWatchedToday) : null;
   const adProgress = adsWatchedToday !== null ? (adsWatchedToday / adDailyCap) * 100 : 0;
   const adsCapped = adsRemaining === 0;
+
+  const loadAdStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      const resp = await fetch(`/api/rewards/ad-status/${user.telegramId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setAdsWatchedToday(data.adsWatchedToday ?? 0);
+      }
+    } catch {}
+  }, [user]);
+
+  useEffect(() => {
+    loadAdStatus();
+  }, [loadAdStatus]);
 
   const handleStartAd = () => {
     if (adState !== "idle") return;

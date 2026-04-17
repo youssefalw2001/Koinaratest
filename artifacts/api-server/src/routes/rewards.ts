@@ -153,4 +153,44 @@ router.post("/rewards/ad", async (req, res): Promise<void> => {
   res.json(WatchAdResponse.parse(response));
 });
 
+router.get("/rewards/ad-status/:telegramId", async (req, res): Promise<void> => {
+  const telegramId = req.params.telegramId;
+  if (!telegramId) {
+    res.status(400).json({ error: "telegramId required" });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, telegramId))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const vip = isVipActive(user);
+  const dailyCap = vip ? AD_CAP_VIP : AD_CAP_FREE;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const todayWatches = await db
+    .select()
+    .from(adWatchesTable)
+    .where(
+      and(
+        eq(adWatchesTable.telegramId, telegramId),
+        gte(adWatchesTable.watchedAt, todayStart)
+      )
+    );
+
+  const adsWatchedToday = todayWatches.length;
+  const adsRemaining = Math.max(0, dailyCap - adsWatchedToday);
+
+  res.json({ adsWatchedToday, dailyCap, adsRemaining });
+});
+
 export default router;
