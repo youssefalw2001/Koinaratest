@@ -5,3 +5,4 @@ export * from "./withdrawals";
 export * from "./adwatches";
 export * from "./gems";
 export * from "./vipTxHashes";
+export * from "./contentSubmissions";

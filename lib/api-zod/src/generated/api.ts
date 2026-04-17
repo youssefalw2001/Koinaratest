@@ -542,7 +542,7 @@ export const UpdateWithdrawalStatusParams = zod.object({
 });
 
 export const UpdateWithdrawalStatusBody = zod.object({
-  status: zod.enum(["pending", "processing", "complete", "failed"]),
+  status: zod.enum(["pending", "processing", "complete", "failed"]).optional(),
   txHash: zod.string().optional(),
 });
 
@@ -578,3 +578,80 @@ export const ClaimDailyRewardResponse = zod.object({
   message: zod.string(),
   isVipBonus: zod.boolean(),
 });
+
+/**
+ * @summary Get referral count and pending GC earnings for a user
+ */
+export const GetReferralStatsParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const GetReferralStatsResponse = zod.object({
+  referralCount: zod.number(),
+  pendingGc: zod.number(),
+  isUnlocked: zod.boolean(),
+  unlocksAt: zod.string().nullish(),
+});
+
+/**
+ * @summary Purchase a gem powerup with TC
+ */
+export const PurchaseGemBody = zod.object({
+  telegramId: zod.string(),
+  gemType: zod.enum([
+    "starter_boost",
+    "big_swing",
+    "streak_saver",
+    "mystery_box",
+    "daily_refill",
+    "double_or_nothing",
+  ]),
+});
+
+/**
+ * @summary Get all active powerup gems for a user
+ */
+export const GetActiveGemsParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const GetActiveGemsResponseItem = zod.object({
+  id: zod.number(),
+  telegramId: zod.string(),
+  gemType: zod.string(),
+  usesRemaining: zod.number(),
+  expiresAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const GetActiveGemsResponse = zod.array(GetActiveGemsResponseItem);
+
+/**
+ * @summary Submit a content post URL for VIP reward review
+ */
+export const SubmitContentBody = zod.object({
+  telegramId: zod.string(),
+  platform: zod.enum(["tiktok", "instagram", "youtube", "x"]),
+  url: zod.string(),
+});
+
+/**
+ * @summary Get all content submissions for a user
+ */
+export const GetContentSubmissionsParams = zod.object({
+  telegramId: zod.coerce.string(),
+});
+
+export const GetContentSubmissionsResponseItem = zod.object({
+  id: zod.number(),
+  telegramId: zod.string(),
+  platform: zod.string(),
+  url: zod.string(),
+  viewCount: zod.number(),
+  status: zod.string(),
+  gcAwarded: zod.number(),
+  createdAt: zod.string(),
+  updatedAt: zod.string().optional(),
+});
+export const GetContentSubmissionsResponse = zod.array(
+  GetContentSubmissionsResponseItem,
+);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock } from "lucide-react";
-import { useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
+import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink, Clock } from "lucide-react";
+import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 
@@ -23,12 +23,29 @@ export default function Profile() {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") }
   });
 
+  const { data: referralData } = useGetReferralStats(user?.telegramId ?? "", {
+    query: { enabled: !!user, queryKey: getGetReferralStatsQueryKey(user?.telegramId ?? "") }
+  });
+
   const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
 
   const handleCopyReferral = async () => {
     await navigator.clipboard.writeText(referralLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShareTelegram = () => {
+    const text = encodeURIComponent("Join me on Koinara — trade BTC predictions, earn real USDT! 🚀");
+    const url = encodeURIComponent(referralLink);
+    const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tg = (window as any).Telegram?.WebApp;
+    if (typeof window !== "undefined" && tg) {
+      tg.openTelegramLink(shareUrl);
+    } else {
+      window.open(shareUrl, "_blank");
+    }
   };
 
   const winRate = stats ? Math.round(stats.winRate * 100) : 0;
@@ -280,17 +297,74 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Referral */}
-      <div className="p-4 rounded-xl border border-[#ff2d78]/30 bg-[#ff2d78]/5 mb-4">
-        <div className="flex items-center gap-2 mb-2">
+      {/* Referral — enhanced section */}
+      <div className="p-4 rounded-2xl border-2 border-[#ff2d78]/40 bg-[#ff2d78]/5 mb-4" style={{ boxShadow: "0 0 20px rgba(255,45,120,0.1)" }}>
+        <div className="flex items-center gap-2 mb-3">
           <Share2 size={14} className="text-[#ff2d78]" />
-          <span className="font-mono text-xs text-[#ff2d78] tracking-wider uppercase">Referral</span>
+          <span className="font-mono text-xs font-black text-[#ff2d78] tracking-wider uppercase">Invite & Earn</span>
+          {referralData && (
+            <div className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#ff2d78]/15 border border-[#ff2d78]/30">
+              <span className="font-mono text-[9px] text-[#ff2d78] font-bold">{referralData.referralCount} referrals</span>
+            </div>
+          )}
         </div>
-        <div className="font-mono text-[10px] text-white/40 mb-3">
-          Invite friends — earn TC commission on their winnings
+
+        {/* Rewards summary */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
+            <div className="font-mono text-[9px] text-white/40 mb-0.5">You earn (per referral)</div>
+            <div className="font-mono text-sm font-black text-[#ff2d78]">200 GC</div>
+            <div className="font-mono text-[8px] text-white/30">after their 1st trade</div>
+          </div>
+          <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
+            <div className="font-mono text-[9px] text-white/40 mb-0.5">Friend earns</div>
+            <div className="font-mono text-sm font-black text-[#00f0ff]">500 TC</div>
+            <div className="font-mono text-[8px] text-white/30">welcome bonus</div>
+          </div>
         </div>
+
+        {/* Pending GC earnings */}
+        {referralData && referralData.pendingGc > 0 && (
+          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/8 mb-3">
+            <Clock size={10} className="text-[#f5c518] shrink-0" />
+            <div className="flex-1">
+              <span className="font-mono text-xs font-bold text-[#f5c518]">{referralData.pendingGc} GC pending</span>
+              {referralData.unlocksAt && (
+                <div className="font-mono text-[9px] text-white/30">
+                  Unlocks {new Date(referralData.unlocksAt).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+            {referralData.isUnlocked && (
+              <span className="font-mono text-[9px] text-[#00f0ff] border border-[#00f0ff]/30 px-1.5 py-0.5 rounded">READY</span>
+            )}
+          </div>
+        )}
+
+        {/* VIP commission info */}
+        <div className="flex items-start gap-2 p-2.5 rounded-xl border mb-3"
+          style={{
+            borderColor: vip ? "rgba(245,197,24,0.3)" : "rgba(255,255,255,0.08)",
+            background: vip ? "rgba(245,197,24,0.06)" : "rgba(255,255,255,0.02)",
+          }}
+        >
+          <Crown size={10} className={`shrink-0 mt-0.5 ${vip ? "text-[#f5c518]" : "text-white/20"}`} />
+          <div>
+            <div className={`font-mono text-[10px] font-bold mb-0.5 ${vip ? "text-[#f5c518]" : "text-white/25"}`}>
+              VIP Commission
+            </div>
+            <div className={`font-mono text-[9px] leading-relaxed ${vip ? "text-white/50" : "text-white/20"}`}>
+              20% of every purchase + 10% of every withdrawal your referrals make — in GC, for life.
+            </div>
+            {!vip && (
+              <div className="font-mono text-[8px] text-[#f5c518]/60 mt-0.5">Requires VIP — activate in Wallet</div>
+            )}
+          </div>
+        </div>
+
+        {/* Referral link */}
         <div className="flex gap-2">
-          <div className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-2 font-mono text-[11px] text-white/50 truncate">
+          <div className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-2 font-mono text-[10px] text-white/40 truncate">
             {referralLink || "Loading..."}
           </div>
           <button
@@ -301,6 +375,18 @@ export default function Profile() {
             {copied ? <CheckCircle size={12} /> : <Copy size={12} />}
             {copied ? "Copied!" : "Copy"}
           </button>
+          <button
+            onClick={handleShareTelegram}
+            className="flex items-center gap-1 px-3 py-2 rounded border border-white/20 font-mono text-xs text-white/50 bg-white/5 shrink-0"
+            data-testid="btn-share-telegram"
+          >
+            <ExternalLink size={12} />
+            Share
+          </button>
+        </div>
+
+        <div className="font-mono text-[9px] text-white/25 mt-2">
+          Daily cap: 50 new referrals counted · GC locked 14 days before withdrawal
         </div>
       </div>
 

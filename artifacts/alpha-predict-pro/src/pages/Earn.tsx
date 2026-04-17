@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers, Play, CheckCircle2, Tv } from "lucide-react";
-import { useListQuests, useClaimQuest, useWatchAd, useGetAdStatus, getGetAdStatusQueryKey, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
+import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers, Play, CheckCircle2, Tv, Video, Send, CheckCircle, AlertCircle } from "lucide-react";
+import { useListQuests, useClaimQuest, useWatchAd, useGetAdStatus, useSubmitContent, useGetContentSubmissions, getGetAdStatusQueryKey, getListQuestsQueryKey, getGetUserQueryKey, getGetContentSubmissionsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
@@ -30,6 +30,21 @@ const categoryColors: Record<string, string> = {
 
 const AD_DURATION = 15;
 
+const PLATFORMS = [
+  { id: "tiktok", label: "TikTok" },
+  { id: "instagram", label: "Instagram" },
+  { id: "youtube", label: "YouTube" },
+  { id: "x", label: "X (Twitter)" },
+] as const;
+
+const CONTENT_TIERS = [
+  { views: "1K", gc: "500 GC" },
+  { views: "10K", gc: "6,000 GC" },
+  { views: "50K", gc: "40,000 GC" },
+  { views: "100K", gc: "100,000 GC" },
+  { views: "1M", gc: "1,500,000 GC" },
+];
+
 export default function Earn() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
@@ -37,6 +52,7 @@ export default function Earn() {
   const claimQuest = useClaimQuest();
   const watchAdMutation = useWatchAd();
 
+  const [activeTab, setActiveTab] = useState<"quests" | "content">("quests");
   const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
   const [lastClaim, setLastClaim] = useState<{ tc: number; id: number } | null>(null);
 
@@ -46,6 +62,14 @@ export default function Earn() {
   const [showAdToast, setShowAdToast] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [contentUrl, setContentUrl] = useState("");
+  const [contentPlatform, setContentPlatform] = useState<"tiktok" | "instagram" | "youtube" | "x">("tiktok");
+  const [contentSubmitFeedback, setContentSubmitFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const submitContentMutation = useSubmitContent();
+  const { data: submissions, refetch: refetchSubmissions } = useGetContentSubmissions(user?.telegramId ?? "", {
+    query: { enabled: !!user && isVipActive(user), queryKey: getGetContentSubmissionsQueryKey(user?.telegramId ?? "") },
+  });
 
   const { data: adStatusData, refetch: refetchAdStatus } = useGetAdStatus(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetAdStatusQueryKey(user?.telegramId ?? "") }
@@ -118,6 +142,22 @@ export default function Earn() {
     } catch {}
   };
 
+  const handleSubmitContent = async () => {
+    if (!user || !contentUrl.trim()) return;
+    try {
+      await submitContentMutation.mutateAsync({
+        data: { telegramId: user.telegramId, platform: contentPlatform, url: contentUrl.trim() },
+      });
+      setContentUrl("");
+      setContentSubmitFeedback({ ok: true, msg: "Submitted! Our team reviews within 48hrs." });
+      refetchSubmissions();
+      setTimeout(() => setContentSubmitFeedback(null), 4000);
+    } catch {
+      setContentSubmitFeedback({ ok: false, msg: "Invalid URL or submission failed." });
+      setTimeout(() => setContentSubmitFeedback(null), 3000);
+    }
+  };
+
   const freeQuests = quests?.filter(q => !q.isVipOnly) ?? [];
   const vipQuests = quests?.filter(q => q.isVipOnly) ?? [];
 
@@ -147,10 +187,37 @@ export default function Earn() {
         <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Earn Center</span>
       </div>
       <h1 className="font-mono text-2xl font-black text-white mb-1">Koinara Quests</h1>
-      <p className="font-mono text-xs text-white/40 mb-6">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
+      <p className="font-mono text-xs text-white/40 mb-4">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
-      {/* VIP Banner */}
-      {user && !isVipActive(user) && (
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.02] mb-5">
+        <button
+          onClick={() => setActiveTab("quests")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-mono text-xs font-bold transition-all ${
+            activeTab === "quests"
+              ? "bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30"
+              : "text-white/40 border border-transparent"
+          }`}
+        >
+          <Gift size={11} />
+          Quests
+        </button>
+        <button
+          onClick={() => setActiveTab("content")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-mono text-xs font-bold transition-all relative ${
+            activeTab === "content"
+              ? "bg-[#f5c518]/15 text-[#f5c518] border border-[#f5c518]/30"
+              : "text-white/40 border border-transparent"
+          }`}
+        >
+          <Video size={11} />
+          Content
+          {!vip && <Crown size={8} className="text-[#f5c518] ml-0.5" />}
+        </button>
+      </div>
+
+      {/* VIP Banner (quests tab only) */}
+      {activeTab === "quests" && user && !isVipActive(user) && (
         <div
           className="flex items-center gap-3 p-3 rounded-xl border-2 border-[#f5c518]/50 bg-[#f5c518]/8 mb-6"
           style={{ boxShadow: "0 0 20px rgba(245,197,24,0.15)" }}
@@ -160,6 +227,131 @@ export default function Earn() {
             <div className="font-mono text-xs font-bold text-[#f5c518]">VIP unlocks 6,000 GC daily cap</div>
             <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value quests + 25 ads/day</div>
           </div>
+        </div>
+      )}
+
+      {/* Content Rewards Tab */}
+      {activeTab === "content" && (
+        <div>
+          {!vip ? (
+            <div className="relative">
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl bg-black/80 backdrop-blur-sm border border-[#f5c518]/30">
+                <Crown size={32} className="text-[#f5c518] drop-shadow-[0_0_15px_#f5c518] mb-3" />
+                <div className="font-mono text-sm font-black text-[#f5c518] mb-1">VIP Required</div>
+                <div className="font-mono text-[11px] text-white/50 text-center px-6">
+                  Content rewards are exclusive to VIP members. Activate VIP in Wallet.
+                </div>
+              </div>
+              <div className="opacity-20 pointer-events-none p-4 rounded-2xl border border-white/10 h-64" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Reward tiers */}
+              <div className="p-4 rounded-2xl border border-[#f5c518]/30 bg-[#f5c518]/5">
+                <div className="font-mono text-[10px] text-[#f5c518] tracking-widest uppercase mb-3">Reward Tiers · #KoinTrades</div>
+                <div className="space-y-1.5">
+                  {CONTENT_TIERS.map(({ views, gc }, idx) => (
+                    <div key={idx} className="flex items-center justify-between px-2 py-1.5 rounded-lg" style={{ background: "rgba(245,197,24,0.05)" }}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#f5c518]" />
+                        <span className="font-mono text-xs text-white/60">{views} views</span>
+                      </div>
+                      <span className="font-mono text-xs font-bold text-[#f5c518]">{gc}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="font-mono text-[9px] text-white/30 mt-2">Cap: $1,000/week maximum per creator</div>
+              </div>
+
+              {/* Submit form */}
+              <div className="p-4 rounded-2xl border border-white/15 bg-white/[0.02]">
+                <div className="font-mono text-xs font-black text-white mb-3">Submit Content</div>
+
+                <div className="mb-3">
+                  <div className="font-mono text-[10px] text-white/40 mb-1.5 uppercase tracking-wider">Platform</div>
+                  <div className="flex gap-1.5">
+                    {PLATFORMS.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => setContentPlatform(id)}
+                        className={`flex-1 py-1.5 rounded-lg font-mono text-[10px] font-bold border transition-all ${
+                          contentPlatform === id
+                            ? "border-[#00f0ff] bg-[#00f0ff]/15 text-[#00f0ff]"
+                            : "border-white/10 text-white/30"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <div className="font-mono text-[10px] text-white/40 mb-1.5 uppercase tracking-wider">Post URL</div>
+                  <input
+                    type="url"
+                    value={contentUrl}
+                    onChange={(e) => setContentUrl(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 font-mono text-xs text-white placeholder-white/20 outline-none focus:border-[#00f0ff]/50"
+                  />
+                  <div className="font-mono text-[9px] text-white/25 mt-1">Must include hashtag #KoinTrades in your post</div>
+                </div>
+
+                {contentSubmitFeedback && (
+                  <div className={`flex items-center gap-2 p-2.5 rounded-xl mb-3 border ${
+                    contentSubmitFeedback.ok ? "border-[#00f0ff]/30 bg-[#00f0ff]/8 text-[#00f0ff]" : "border-[#ff2d78]/30 bg-[#ff2d78]/8 text-[#ff2d78]"
+                  }`}>
+                    {contentSubmitFeedback.ok ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
+                    <span className="font-mono text-[10px]">{contentSubmitFeedback.msg}</span>
+                  </div>
+                )}
+
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleSubmitContent}
+                  disabled={!contentUrl.trim() || submitContentMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-black border-2 transition-all disabled:opacity-40"
+                  style={{ borderColor: "#00f0ff", color: "#00f0ff", background: "rgba(0,240,255,0.1)" }}
+                >
+                  <Send size={14} />
+                  {submitContentMutation.isPending ? "SUBMITTING..." : "SUBMIT FOR REVIEW"}
+                </motion.button>
+
+                <div className="font-mono text-[9px] text-white/25 mt-2 text-center">
+                  Verification is manual — our team reviews within 48hrs
+                </div>
+              </div>
+
+              {/* Submissions list */}
+              {submissions && submissions.length > 0 && (
+                <div>
+                  <div className="font-mono text-[10px] text-white/40 tracking-widest uppercase mb-2">Your Submissions</div>
+                  <div className="space-y-2">
+                    {submissions.map((sub) => (
+                      <div key={sub.id} className="flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-white/[0.02]">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono text-[10px] text-white/60 truncate">{sub.url}</div>
+                          <div className="font-mono text-[9px] text-white/30 capitalize">{sub.platform} · {new Date(sub.createdAt).toLocaleDateString()}</div>
+                        </div>
+                        <div
+                          className={`font-mono text-[9px] font-bold px-2 py-1 rounded-full border ${
+                            sub.status === "paid"
+                              ? "text-[#00f0ff] border-[#00f0ff]/30 bg-[#00f0ff]/10"
+                              : sub.status === "verified"
+                              ? "text-[#f5c518] border-[#f5c518]/30 bg-[#f5c518]/10"
+                              : "text-white/40 border-white/15 bg-white/5"
+                          }`}
+                        >
+                          {sub.status === "paid" ? "✓ PAID" : sub.status === "verified" ? "VERIFIED" : "PENDING"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -182,6 +374,9 @@ export default function Earn() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Quests Tab Content */}
+      {activeTab === "quests" && <>
 
       {/* Ad Reward Section */}
       <div className="mb-6">
@@ -413,6 +608,8 @@ export default function Earn() {
           </div>
         </>
       )}
+
+      </>}
     </div>
   );
 }

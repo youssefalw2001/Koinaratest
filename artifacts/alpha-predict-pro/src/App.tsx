@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 // Pages
 import Terminal from "./pages/Terminal";
 import Earn from "./pages/Earn";
+import Shop from "./pages/Shop";
 import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
@@ -261,6 +262,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Terminal} />
         <Route path="/earn" component={Earn} />
+        <Route path="/shop" component={Shop} />
         <Route path="/wallet" component={Wallet} />
         <Route path="/leaderboard" component={Leaderboard} />
         <Route path="/profile" component={Profile} />

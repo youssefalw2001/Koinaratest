@@ -519,4 +519,47 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
   res.json(USER_SCHEMA(updated as Record<string, unknown>));
 });
 
+router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
+  const { telegramId } = req.params;
+  if (!telegramId) {
+    res.status(400).json({ error: "telegramId required" });
+    return;
+  }
+
+  const [user] = await db
+    .select({
+      telegramId: usersTable.telegramId,
+      referralEarnings: usersTable.referralEarnings,
+      referralEarningsUnlockedAt: usersTable.referralEarningsUnlockedAt,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, telegramId))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const referralCountResult = await db
+    .select({ cnt: count() })
+    .from(usersTable)
+    .where(eq(usersTable.referredBy, telegramId));
+  const referralCount = Number(referralCountResult[0]?.cnt ?? 0);
+
+  const now = new Date();
+  const isUnlocked =
+    user.referralEarningsUnlockedAt != null &&
+    new Date(user.referralEarningsUnlockedAt) <= now;
+
+  res.json({
+    referralCount,
+    pendingGc: user.referralEarnings ?? 0,
+    isUnlocked,
+    unlocksAt: user.referralEarningsUnlockedAt
+      ? new Date(user.referralEarningsUnlockedAt).toISOString()
+      : null,
+  });
+});
+
 export default router;

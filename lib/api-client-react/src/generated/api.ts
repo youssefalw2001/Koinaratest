@@ -21,21 +21,27 @@ import type {
   AdStatusResponse,
   ClaimQuestBody,
   ClaimQuestResponse,
+  ContentSubmission,
   CreatePredictionBody,
   DailyRewardBody,
   DailyRewardResponse,
   ErrorResponse,
+  GemItem,
   GetLeaderboardParams,
   GetUserPredictionsParams,
   GetVipActivityResponse,
   HealthStatus,
   LeaderboardEntry,
   Prediction,
+  PurchaseGemBody,
+  PurchaseGemResponse,
   Quest,
+  ReferralStatsResponse,
   RegisterUserBody,
   RequestWithdrawalBody,
   RequestWithdrawalResponse,
   ResolvePredictionBody,
+  SubmitContentBody,
   UpdateWalletBody,
   UpdateWithdrawalStatusBody,
   UpgradeToVipBody,
@@ -1784,3 +1790,450 @@ export const useClaimDailyReward = <
 > => {
   return useMutation(getClaimDailyRewardMutationOptions(options));
 };
+
+/**
+ * @summary Get referral count and pending GC earnings for a user
+ */
+export const getGetReferralStatsUrl = (telegramId: string) => {
+  return `/api/users/${telegramId}/referrals`;
+};
+
+export const getReferralStats = async (
+  telegramId: string,
+  options?: RequestInit,
+): Promise<ReferralStatsResponse> => {
+  return customFetch<ReferralStatsResponse>(
+    getGetReferralStatsUrl(telegramId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetReferralStatsQueryKey = (telegramId: string) => {
+  return [`/api/users/${telegramId}/referrals`] as const;
+};
+
+export const getGetReferralStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getReferralStats>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getReferralStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetReferralStatsQueryKey(telegramId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getReferralStats>>
+  > = ({ signal }) =>
+    getReferralStats(telegramId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!telegramId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getReferralStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetReferralStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getReferralStats>>
+>;
+export type GetReferralStatsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get referral count and pending GC earnings for a user
+ */
+
+export function useGetReferralStats<
+  TData = Awaited<ReturnType<typeof getReferralStats>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getReferralStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetReferralStatsQueryOptions(telegramId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Purchase a gem powerup with TC
+ */
+export const getPurchaseGemUrl = () => {
+  return `/api/gems/purchase`;
+};
+
+export const purchaseGem = async (
+  purchaseGemBody: PurchaseGemBody,
+  options?: RequestInit,
+): Promise<PurchaseGemResponse> => {
+  return customFetch<PurchaseGemResponse>(getPurchaseGemUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(purchaseGemBody),
+  });
+};
+
+export const getPurchaseGemMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof purchaseGem>>,
+    TError,
+    { data: BodyType<PurchaseGemBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof purchaseGem>>,
+  TError,
+  { data: BodyType<PurchaseGemBody> },
+  TContext
+> => {
+  const mutationKey = ["purchaseGem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof purchaseGem>>,
+    { data: BodyType<PurchaseGemBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return purchaseGem(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PurchaseGemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof purchaseGem>>
+>;
+export type PurchaseGemMutationBody = BodyType<PurchaseGemBody>;
+export type PurchaseGemMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Purchase a gem powerup with TC
+ */
+export const usePurchaseGem = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof purchaseGem>>,
+    TError,
+    { data: BodyType<PurchaseGemBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof purchaseGem>>,
+  TError,
+  { data: BodyType<PurchaseGemBody> },
+  TContext
+> => {
+  return useMutation(getPurchaseGemMutationOptions(options));
+};
+
+/**
+ * @summary Get all active powerup gems for a user
+ */
+export const getGetActiveGemsUrl = (telegramId: string) => {
+  return `/api/gems/${telegramId}/active`;
+};
+
+export const getActiveGems = async (
+  telegramId: string,
+  options?: RequestInit,
+): Promise<GemItem[]> => {
+  return customFetch<GemItem[]>(getGetActiveGemsUrl(telegramId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetActiveGemsQueryKey = (telegramId: string) => {
+  return [`/api/gems/${telegramId}/active`] as const;
+};
+
+export const getGetActiveGemsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getActiveGems>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getActiveGems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetActiveGemsQueryKey(telegramId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveGems>>> = ({
+    signal,
+  }) => getActiveGems(telegramId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!telegramId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getActiveGems>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetActiveGemsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getActiveGems>>
+>;
+export type GetActiveGemsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all active powerup gems for a user
+ */
+
+export function useGetActiveGems<
+  TData = Awaited<ReturnType<typeof getActiveGems>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getActiveGems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetActiveGemsQueryOptions(telegramId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Submit a content post URL for VIP reward review
+ */
+export const getSubmitContentUrl = () => {
+  return `/api/content/submit`;
+};
+
+export const submitContent = async (
+  submitContentBody: SubmitContentBody,
+  options?: RequestInit,
+): Promise<ContentSubmission> => {
+  return customFetch<ContentSubmission>(getSubmitContentUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(submitContentBody),
+  });
+};
+
+export const getSubmitContentMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitContent>>,
+    TError,
+    { data: BodyType<SubmitContentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitContent>>,
+  TError,
+  { data: BodyType<SubmitContentBody> },
+  TContext
+> => {
+  const mutationKey = ["submitContent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitContent>>,
+    { data: BodyType<SubmitContentBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return submitContent(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitContentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitContent>>
+>;
+export type SubmitContentMutationBody = BodyType<SubmitContentBody>;
+export type SubmitContentMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Submit a content post URL for VIP reward review
+ */
+export const useSubmitContent = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitContent>>,
+    TError,
+    { data: BodyType<SubmitContentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitContent>>,
+  TError,
+  { data: BodyType<SubmitContentBody> },
+  TContext
+> => {
+  return useMutation(getSubmitContentMutationOptions(options));
+};
+
+/**
+ * @summary Get all content submissions for a user
+ */
+export const getGetContentSubmissionsUrl = (telegramId: string) => {
+  return `/api/content/${telegramId}`;
+};
+
+export const getContentSubmissions = async (
+  telegramId: string,
+  options?: RequestInit,
+): Promise<ContentSubmission[]> => {
+  return customFetch<ContentSubmission[]>(
+    getGetContentSubmissionsUrl(telegramId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetContentSubmissionsQueryKey = (telegramId: string) => {
+  return [`/api/content/${telegramId}`] as const;
+};
+
+export const getGetContentSubmissionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getContentSubmissions>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getContentSubmissions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetContentSubmissionsQueryKey(telegramId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getContentSubmissions>>
+  > = ({ signal }) =>
+    getContentSubmissions(telegramId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!telegramId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getContentSubmissions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetContentSubmissionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getContentSubmissions>>
+>;
+export type GetContentSubmissionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all content submissions for a user
+ */
+
+export function useGetContentSubmissions<
+  TData = Awaited<ReturnType<typeof getContentSubmissions>>,
+  TError = ErrorType<unknown>,
+>(
+  telegramId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getContentSubmissions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetContentSubmissionsQueryOptions(
+    telegramId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

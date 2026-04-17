@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Zap, Gift, Wallet, Trophy, User, Crown, Clock } from "lucide-react";
+import { Zap, Gift, Wallet, Trophy, User, Crown, Clock, Gem } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { formatGcUsd } from "@/lib/format";
@@ -12,8 +12,8 @@ const MAGENTA = "#ff2d78";
 const tabs = [
   { path: "/", icon: Zap, label: "Trade" },
   { path: "/earn", icon: Gift, label: "Earn" },
+  { path: "/shop", icon: Gem, label: "Shop" },
   { path: "/wallet", icon: Wallet, label: "Wallet" },
-  { path: "/leaderboard", icon: Trophy, label: "Ranks" },
   { path: "/profile", icon: User, label: "Profile" },
 ];
 

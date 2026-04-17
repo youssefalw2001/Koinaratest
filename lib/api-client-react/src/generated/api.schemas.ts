@@ -294,8 +294,87 @@ export const UpdateWithdrawalStatusBodyStatus = {
 } as const;
 
 export interface UpdateWithdrawalStatusBody {
-  status: UpdateWithdrawalStatusBodyStatus;
+  status?: UpdateWithdrawalStatusBodyStatus;
   txHash?: string;
+}
+
+export interface ReferralStatsResponse {
+  referralCount: number;
+  pendingGc: number;
+  isUnlocked: boolean;
+  /** @nullable */
+  unlocksAt?: string | null;
+}
+
+export type PurchaseGemBodyGemType =
+  (typeof PurchaseGemBodyGemType)[keyof typeof PurchaseGemBodyGemType];
+
+export const PurchaseGemBodyGemType = {
+  starter_boost: "starter_boost",
+  big_swing: "big_swing",
+  streak_saver: "streak_saver",
+  mystery_box: "mystery_box",
+  daily_refill: "daily_refill",
+  double_or_nothing: "double_or_nothing",
+} as const;
+
+export interface PurchaseGemBody {
+  telegramId: string;
+  gemType: PurchaseGemBodyGemType;
+}
+
+/**
+ * @nullable
+ */
+export type PurchaseGemResponseMysteryReward = {
+  [key: string]: unknown;
+} | null;
+
+export interface PurchaseGemResponse {
+  success: boolean;
+  gemType: string;
+  tcSpent: number;
+  newTcBalance: number;
+  /** @nullable */
+  mysteryReward?: PurchaseGemResponseMysteryReward;
+}
+
+export interface GemItem {
+  id: number;
+  telegramId: string;
+  gemType: string;
+  usesRemaining: number;
+  /** @nullable */
+  expiresAt?: string | null;
+  createdAt: string;
+}
+
+export type SubmitContentBodyPlatform =
+  (typeof SubmitContentBodyPlatform)[keyof typeof SubmitContentBodyPlatform];
+
+export const SubmitContentBodyPlatform = {
+  tiktok: "tiktok",
+  instagram: "instagram",
+  youtube: "youtube",
+  x: "x",
+} as const;
+
+export interface SubmitContentBody {
+  telegramId: string;
+  platform: SubmitContentBodyPlatform;
+  url: string;
+}
+
+export interface ContentSubmission {
+  id: number;
+  telegramId: string;
+  platform: string;
+  url: string;
+  viewCount: number;
+  status: string;
+  gcAwarded: number;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export type GetUserPredictionsParams = {

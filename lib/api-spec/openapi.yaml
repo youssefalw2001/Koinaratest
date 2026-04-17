@@ -18,6 +18,10 @@ tags:
     description: Quest/Earn Center operations
   - name: rewards
     description: Daily rewards and bonuses
+  - name: gems
+    description: Gem shop powerup operations
+  - name: content
+    description: VIP content rewards operations
   - name: withdrawals
     description: GC withdrawal queue operations
 paths:
@@ -499,6 +503,141 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{telegramId}/referrals:
+    get:
+      operationId: getReferralStats
+      tags: [users]
+      summary: Get referral count and pending GC earnings for a user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Referral stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralStatsResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /gems/purchase:
+    post:
+      operationId: purchaseGem
+      tags: [gems]
+      summary: Purchase a gem powerup with TC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseGemBody"
+      responses:
+        "201":
+          description: Gem purchased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseGemResponse"
+        "400":
+          description: Insufficient TC or invalid gem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: VIP required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /gems/{telegramId}/active:
+    get:
+      operationId: getActiveGems
+      tags: [gems]
+      summary: Get all active powerup gems for a user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active gems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GemItem"
+
+  /content/submit:
+    post:
+      operationId: submitContent
+      tags: [content]
+      summary: Submit a content post URL for VIP reward review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitContentBody"
+      responses:
+        "201":
+          description: Submission created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentSubmission"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: VIP required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content/{telegramId}:
+    get:
+      operationId: getContentSubmissions
+      tags: [content]
+      summary: Get all content submissions for a user
+      parameters:
+        - in: path
+          name: telegramId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of submissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentSubmission"
 
 components:
   schemas:
@@ -988,5 +1127,118 @@ components:
           enum: [pending, processing, complete, failed]
         txHash:
           type: string
+
+    ReferralStatsResponse:
+      type: object
+      properties:
+        referralCount:
+          type: integer
+        pendingGc:
+          type: integer
+        isUnlocked:
+          type: boolean
+        unlocksAt:
+          type: ["string", "null"]
       required:
+        - referralCount
+        - pendingGc
+        - isUnlocked
+
+    PurchaseGemBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        gemType:
+          type: string
+          enum: [starter_boost, big_swing, streak_saver, mystery_box, daily_refill, double_or_nothing]
+      required:
+        - telegramId
+        - gemType
+
+    PurchaseGemResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        gemType:
+          type: string
+        tcSpent:
+          type: integer
+        newTcBalance:
+          type: integer
+        mysteryReward:
+          type: ["object", "null"]
+      required:
+        - success
+        - gemType
+        - tcSpent
+        - newTcBalance
+
+    GemItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        telegramId:
+          type: string
+        gemType:
+          type: string
+        usesRemaining:
+          type: integer
+        expiresAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - telegramId
+        - gemType
+        - usesRemaining
+        - createdAt
+
+    SubmitContentBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+        platform:
+          type: string
+          enum: [tiktok, instagram, youtube, x]
+        url:
+          type: string
+      required:
+        - telegramId
+        - platform
+        - url
+
+    ContentSubmission:
+      type: object
+      properties:
+        id:
+          type: integer
+        telegramId:
+          type: string
+        platform:
+          type: string
+        url:
+          type: string
+        viewCount:
+          type: integer
+        status:
+          type: string
+        gcAwarded:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - telegramId
+        - platform
+        - url
+        - viewCount
         - status
+        - gcAwarded
+        - createdAt

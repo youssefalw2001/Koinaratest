@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame } from "lucide-react";
+import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -16,9 +16,12 @@ import {
   useResolvePrediction,
   useGetUserPredictions,
   useGetVipActivity,
+  useGetActiveGems,
+  usePurchaseGem,
   getGetUserPredictionsQueryKey,
   getGetUserQueryKey,
   getGetVipActivityQueryKey,
+  getGetActiveGemsQueryKey,
 } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
 import { useTelegram } from "@/lib/TelegramProvider";
@@ -218,8 +221,24 @@ export default function Terminal() {
     synthRef.current = Array.from({ length: 10 }, (_, i) => makeSynth(2 + i * 4));
   }
 
+  const [donPredictionId, setDonPredictionId] = useState<number | null>(null);
+
   const createPrediction = useCreatePrediction();
   const resolvePrediction = useResolvePrediction();
+  const purchaseGem = usePurchaseGem();
+
+  const { data: activeGems, refetch: refetchGems } = useGetActiveGems(user?.telegramId ?? "", {
+    query: { enabled: !!user, queryKey: getGetActiveGemsQueryKey(user?.telegramId ?? "") },
+  });
+
+  const activePowerupNames = (activeGems ?? [])
+    .filter((g) => g.usesRemaining > 0)
+    .map((g) => g.gemType);
+
+  const hasStreakSaver = activePowerupNames.includes("streak_saver");
+  const hasStarterBoost = activePowerupNames.includes("starter_boost");
+  const hasBigSwing = activePowerupNames.includes("big_swing");
+
   const { data: recentPredictions } = useGetUserPredictions(
     user?.telegramId ?? "",
     { limit: 5 },
@@ -843,6 +862,30 @@ export default function Terminal() {
           )}
         </AnimatePresence>
 
+        {/* Active Powerup Badges */}
+        {activeGems && activeGems.filter(g => g.usesRemaining > 0).length > 0 && !activePrediction && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {hasBigSwing && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-[#f5c518]/50 bg-[#f5c518]/10">
+                <Gem size={9} className="text-[#f5c518]" />
+                <span className="font-mono text-[9px] text-[#f5c518] font-bold">5× BIG SWING</span>
+              </div>
+            )}
+            {!hasBigSwing && hasStarterBoost && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-[#00f0ff]/50 bg-[#00f0ff]/10">
+                <Zap size={9} className="text-[#00f0ff]" />
+                <span className="font-mono text-[9px] text-[#00f0ff] font-bold">2× BOOST</span>
+              </div>
+            )}
+            {hasStreakSaver && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-[#ff2d78]/50 bg-[#ff2d78]/10">
+                <Shield size={9} className="text-[#ff2d78]" />
+                <span className="font-mono text-[9px] text-[#ff2d78] font-bold">STREAK SAVER</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bet Amount Selector */}
         {!activePrediction && (
           <>
@@ -1079,9 +1122,45 @@ export default function Terminal() {
                     </div>
                   </>
                 ) : (
-                  <div className="font-mono text-sm text-white/50 mt-1">
-                    -{showResult.amount} TC lost
-                  </div>
+                  <>
+                    <div className="font-mono text-sm text-white/50 mt-1">
+                      -{showResult.amount} TC lost
+                    </div>
+                    {/* Double or Nothing button — appears on loss */}
+                    {donPredictionId !== showResult.id && (
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={async () => {
+                          if (!user || !price || showResult.amount * 2 > (user.tradeCredits ?? 0)) return;
+                          setDonPredictionId(showResult.id);
+                          setShowResult(null);
+                          try {
+                            const pred = await createPrediction.mutateAsync({
+                              data: {
+                                telegramId: user.telegramId,
+                                direction: showResult.direction as "long" | "short",
+                                amount: showResult.amount * 2,
+                                entryPrice: price,
+                              },
+                            });
+                            queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+                            startCountdown(pred.id, showResult.direction, showResult.amount * 2, price);
+                          } catch {
+                            setDonPredictionId(null);
+                          }
+                        }}
+                        disabled={!user || showResult.amount * 2 > (user?.tradeCredits ?? 0)}
+                        className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-mono text-xs font-black border-2 border-[#ff2d78] text-[#ff2d78] bg-[#ff2d78]/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                        style={{ boxShadow: "0 0 15px rgba(255,45,120,0.2)" }}
+                      >
+                        <RotateCcw size={12} />
+                        DOUBLE OR NOTHING — {(showResult.amount * 2).toLocaleString()} TC
+                      </motion.button>
+                    )}
+                    {showResult.amount * 2 > (user?.tradeCredits ?? 0) && (
+                      <div className="font-mono text-[9px] text-white/25 mt-1 text-center">Not enough TC to double</div>
+                    )}
+                  </>
                 )}
                 <div className="font-mono text-[10px] text-white/30 mt-2">
                   {showResult.direction.toUpperCase()} · Exit $
