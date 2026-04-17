@@ -4,6 +4,7 @@ import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Cop
 import { useGetUserStats, useClaimDailyReward, getGetUserQueryKey, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
+import { isVipActive } from "@/lib/vipActive";
 
 export default function Profile() {
   const { user } = useTelegram();
@@ -227,7 +228,7 @@ export default function Profile() {
       </div>
 
       {/* VIP CTA for free users */}
-      {user && !user.isVip && (
+      {user && !isVipActive(user) && (
         <div
           className="p-4 rounded-2xl border-2 border-[#f5c518]/60 bg-[#f5c518]/5 text-center"
           style={{ boxShadow: "0 0 25px rgba(245,197,24,0.15)" }}

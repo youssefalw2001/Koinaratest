@@ -5,6 +5,7 @@ import { TonConnectButton, useTonAddress } from "@tonconnect/ui-react";
 import { useUpgradeToVip, useUpdateWallet, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
+import { isVipActive } from "@/lib/vipActive";
 
 const GC_TO_USD = 0.00025; // 4,000 GC = $1.00
 const VIP_FEE_TC = 500;
@@ -149,7 +150,7 @@ export default function WalletPage() {
           </span>
         </div>
 
-        {!user?.isVip ? (
+        {!isVipActive(user) ? (
           <div className="flex flex-col items-center py-5">
             <div
               className="w-14 h-14 rounded-full flex items-center justify-center border-2 border-[#ff2d78] mb-4"

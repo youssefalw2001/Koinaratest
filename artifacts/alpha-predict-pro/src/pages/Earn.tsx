@@ -4,6 +4,7 @@ import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookO
 import { useListQuests, useClaimQuest, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
+import { isVipActive } from "@/lib/vipActive";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
   "trending-up": TrendingUp,
@@ -61,7 +62,7 @@ export default function Earn() {
       <p className="font-mono text-xs text-white/40 mb-6">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
       {/* VIP Banner */}
-      {user && !user.isVip && (
+      {user && !isVipActive(user) && (
         <div
           className="flex items-center gap-3 p-3 rounded-xl border-2 border-[#f5c518]/50 bg-[#f5c518]/8 mb-6"
           style={{ boxShadow: "0 0 20px rgba(245,197,24,0.15)" }}
@@ -168,7 +169,7 @@ export default function Earn() {
             {vipQuests.map((quest) => {
               const Icon = iconMap[quest.iconName] ?? Crown;
               const isClaimed = claimedIds.has(quest.id);
-              const isLocked = !user?.isVip;
+              const isLocked = !isVipActive(user);
               return (
                 <motion.div
                   key={quest.id}
