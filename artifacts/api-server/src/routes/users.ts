@@ -88,9 +88,9 @@ async function verifyTonTransaction(
   }
   const operatorRaw = operatorAccount.address; // e.g. "0:abc123..."
 
-  // Step 2: Fetch sender's recent outgoing transactions
+  // Step 2: Fetch sender's recent outgoing transactions (limit=50 for active wallets)
   const { data: txList, err: txErr } = await tonapiGet<TonApiTxList>(
-    `/accounts/${encodeURIComponent(senderAddress)}/transactions?limit=10`,
+    `/accounts/${encodeURIComponent(senderAddress)}/transactions?limit=50`,
   );
   if (!txList || txErr) {
     return { ok: false, err: "TON API unreachable — please retry in a moment" };
