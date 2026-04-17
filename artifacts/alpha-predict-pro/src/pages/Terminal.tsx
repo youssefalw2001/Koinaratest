@@ -113,7 +113,8 @@ export default function Terminal() {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const [priceHistory, setPriceHistory] = useState<PriceTick[]>([]);
+  const priceHistoryRef = useRef<PriceTick[]>([]);
+  const [chartData, setChartData] = useState<PriceTick[]>([]);
   const [bet, setBet] = useState(DEFAULT_BET);
   const [activePrediction, setActivePrediction] = useState<{
     id: number;
@@ -160,10 +161,8 @@ export default function Terminal() {
   useEffect(() => {
     if (price > 0) {
       priceRef.current = price;
-      setPriceHistory((prev) => {
-        const next = [...prev, { p: price }];
-        return next.slice(-CHART_TICKS);
-      });
+      priceHistoryRef.current = [...priceHistoryRef.current, { p: price }].slice(-CHART_TICKS);
+      setChartData([...priceHistoryRef.current]);
     }
   }, [price]);
 
@@ -349,13 +348,13 @@ export default function Terminal() {
 
       <div className="px-4 pt-3 flex flex-col gap-3">
         {/* Live Price Chart */}
-        {priceHistory.length > 1 && (
+        {chartData.length > 1 && (
           <div
             className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
             style={{ height: 88 }}
           >
             <ResponsiveContainer width="100%" height={88}>
-              <ComposedChart data={priceHistory} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
+              <ComposedChart data={chartData} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
                 <defs>
                   <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.22} />
@@ -381,8 +380,8 @@ export default function Terminal() {
                   style={{ filter: "drop-shadow(0 0 3px #00f0ff)" }}
                 />
                 <ReferenceDot
-                  x={priceHistory.length - 1}
-                  y={priceHistory[priceHistory.length - 1]?.p ?? 0}
+                  x={chartData.length - 1}
+                  y={chartData[chartData.length - 1]?.p ?? 0}
                   r={4}
                   fill="#00f0ff"
                   stroke="rgba(0,240,255,0.45)"
