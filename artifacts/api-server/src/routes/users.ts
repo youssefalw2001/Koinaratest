@@ -18,6 +18,7 @@ import {
   ActivateVipTrialBody,
 } from "@workspace/api-zod";
 import { serializeRow } from "../lib/serialize";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -538,6 +539,9 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
     return;
   }
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [user] = await db
     .select({
       telegramId: usersTable.telegramId,
@@ -545,7 +549,7 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
       referralEarningsUnlockedAt: usersTable.referralEarningsUnlockedAt,
     })
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -556,7 +560,7 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
   const referralCountResult = await db
     .select({ cnt: count() })
     .from(usersTable)
-    .where(eq(usersTable.referredBy, telegramId));
+    .where(eq(usersTable.referredBy, authedId));
   const referralCount = Number(referralCountResult[0]?.cnt ?? 0);
 
   const now = new Date();

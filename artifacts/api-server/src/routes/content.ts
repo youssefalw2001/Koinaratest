@@ -4,6 +4,7 @@ import { db, contentSubmissionsTable, usersTable } from "@workspace/db";
 import { serializeRows, serializeRow } from "../lib/serialize";
 import { z } from "zod/v4";
 import { isVipActive } from "../lib/vip";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -22,10 +23,13 @@ router.post("/content/submit", async (req, res): Promise<void> => {
 
   const { telegramId, platform, url } = parsed.data;
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -40,7 +44,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
 
   const [submission] = await db
     .insert(contentSubmissionsTable)
-    .values({ telegramId, platform, url, status: "pending" })
+    .values({ telegramId: authedId, platform, url, status: "pending" })
     .returning();
 
   res.status(201).json(serializeRow(submission as Record<string, unknown>));
@@ -53,10 +57,13 @@ router.get("/content/:telegramId", async (req, res): Promise<void> => {
     return;
   }
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [requestUser] = await db
     .select({ telegramId: usersTable.telegramId })
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!requestUser) {
@@ -67,7 +74,7 @@ router.get("/content/:telegramId", async (req, res): Promise<void> => {
   const submissions = await db
     .select()
     .from(contentSubmissionsTable)
-    .where(eq(contentSubmissionsTable.telegramId, telegramId))
+    .where(eq(contentSubmissionsTable.telegramId, authedId))
     .orderBy(contentSubmissionsTable.createdAt);
 
   res.json(serializeRows(submissions as Record<string, unknown>[]));

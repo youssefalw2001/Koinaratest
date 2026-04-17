@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { serializeRows, serializeRow } from "../lib/serialize";
 import { z } from "zod/v4";
 import { isVipActive } from "../lib/vip";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -39,12 +40,16 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
   }
 
   const { telegramId, gemType } = parsed.data;
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const catalog = GEM_CATALOG[gemType as GemType];
 
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -132,12 +137,15 @@ router.get("/gems/:telegramId/active", async (req, res): Promise<void> => {
     return;
   }
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const gems = await db
     .select()
     .from(gemInventoryTable)
     .where(
       and(
-        eq(gemInventoryTable.telegramId, telegramId),
+        eq(gemInventoryTable.telegramId, authedId),
         gt(gemInventoryTable.usesRemaining, 0),
       ),
     )
