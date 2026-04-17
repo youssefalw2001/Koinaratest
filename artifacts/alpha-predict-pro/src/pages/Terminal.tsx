@@ -1,7 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, ReferenceDot, ResponsiveContainer } from "recharts";
+import {
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  ReferenceDot,
+  ResponsiveContainer,
+} from "recharts";
 import {
   useCreatePrediction,
   useResolvePrediction,
@@ -329,9 +337,22 @@ export default function Terminal() {
             style={{ height: 88 }}
           >
             <ResponsiveContainer width="100%" height={88}>
-              <LineChart data={priceHistory} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
+              <ComposedChart data={priceHistory} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
+                <defs>
+                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <XAxis hide />
                 <YAxis domain={["dataMin", "dataMax"]} hide />
+                <Area
+                  type="monotone"
+                  dataKey="p"
+                  stroke="none"
+                  fill="url(#chartGrad)"
+                  isAnimationActive={false}
+                />
                 <Line
                   type="monotone"
                   dataKey="p"
@@ -339,17 +360,18 @@ export default function Terminal() {
                   strokeWidth={1.5}
                   dot={false}
                   isAnimationActive={false}
+                  style={{ filter: "drop-shadow(0 0 3px #00f0ff)" }}
                 />
                 <ReferenceDot
                   x={priceHistory.length - 1}
                   y={priceHistory[priceHistory.length - 1]?.p ?? 0}
                   r={4}
                   fill="#00f0ff"
-                  stroke="rgba(0,240,255,0.5)"
-                  strokeWidth={5}
+                  stroke="rgba(0,240,255,0.45)"
+                  strokeWidth={6}
                   isFront
                 />
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
@@ -567,8 +589,9 @@ export default function Terminal() {
             <div className="flex items-center justify-between px-3 py-2 rounded border border-[#f5c518]/15 bg-[#f5c518]/5">
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
-                <span className="font-mono text-sm font-bold text-[#f5c518]">
-                  +{expectedGc} 🪙 GC
+                <span className="font-mono text-xs font-bold">
+                  <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
+                  <span className="text-[#f5c518]/60 ml-1.5">👑 2× VIP rate</span>
                 </span>
               ) : (
                 <span className="font-mono text-xs font-bold text-white/60">
