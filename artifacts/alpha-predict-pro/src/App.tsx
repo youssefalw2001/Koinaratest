@@ -12,6 +12,7 @@ import { useTelegram } from "./lib/TelegramProvider";
 import { Layout } from "./components/Layout";
 import { useLocation } from "wouter";
 import { useClaimDailyReward, getGetUserQueryKey } from "@workspace/api-client-react";
+import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
 
 // Pages
@@ -117,7 +118,7 @@ function DailyLoginPrompt() {
     (async () => {
       try {
         const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
-        const vip = user.isVip ?? false;
+        const vip = isVipActive(user);
         setClaimedReward({ tc: result.tcAwarded, streak: result.streak, isVip: vip });
         qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
         refreshUser();

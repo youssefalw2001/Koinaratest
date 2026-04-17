@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock } from "lucide-react";
-import { useGetUserStats, useClaimDailyReward, getGetUserQueryKey, getGetUserStatsQueryKey } from "@workspace/api-client-react";
+import { useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
-import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
 
 const DAY7_MILESTONES = [
@@ -18,28 +17,11 @@ const DAY7_MILESTONES = [
 
 export default function Profile() {
   const { user } = useTelegram();
-  const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const [dailyClaimed, setDailyClaimed] = useState(false);
-  const [dailyResult, setDailyResult] = useState<{ tc: number; streak: number; isVip: boolean } | null>(null);
 
   const { data: stats, isLoading: statsLoading } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") }
   });
-
-  const claimDaily = useClaimDailyReward();
-
-  const handleDailyClaim = async () => {
-    if (!user || dailyClaimed) return;
-    try {
-      const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
-      setDailyClaimed(true);
-      setDailyResult({ tc: result.tcAwarded, streak: result.streak, isVip: result.isVipBonus });
-      setTimeout(() => setDailyResult(null), 4000);
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      queryClient.invalidateQueries({ queryKey: getGetUserStatsQueryKey(user.telegramId) });
-    } catch {}
-  };
 
   const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
 
@@ -63,34 +45,6 @@ export default function Profile() {
         <User size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
         <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Profile</span>
       </div>
-
-      {/* Daily Reward Toast */}
-      <AnimatePresence>
-        {dailyResult && (
-          <motion.div
-            initial={{ opacity: 0, y: -30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -30 }}
-            className="fixed top-4 left-4 right-4 z-50 max-w-[420px] mx-auto"
-          >
-            <div
-              className="p-4 rounded-2xl border-2 text-center"
-              style={{
-                borderColor: dailyResult.isVip ? "#f5c518" : "#00f0ff",
-                background: dailyResult.isVip ? "rgba(245,197,24,0.18)" : "rgba(0,240,255,0.18)",
-                boxShadow: dailyResult.isVip ? "0 0 40px rgba(245,197,24,0.5)" : "0 0 40px rgba(0,240,255,0.5)",
-              }}
-            >
-              <div className="font-mono text-4xl font-black mb-1" style={{ color: dailyResult.isVip ? "#f5c518" : "#00f0ff" }}>
-                +{dailyResult.tc} 🔵 TC
-              </div>
-              <div className="font-mono text-xs text-white/70">
-                {dailyResult.isVip ? "VIP BONUS — " : ""}Day {dailyResult.streak} streak!
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* User Info */}
       {user && (
