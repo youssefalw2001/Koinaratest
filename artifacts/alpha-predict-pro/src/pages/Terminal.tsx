@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, AlertCircle } from "lucide-react";
 import { useCreatePrediction, useResolvePrediction, useGetUserPredictions, getGetUserPredictionsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
+import { isVipActive } from "@/lib/vipActive";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -136,7 +137,7 @@ export default function Terminal() {
 
   const priceUp = price > prevPrice;
   const priceColor = priceUp ? "#00f0ff" : "#ff2d78";
-  const maxBet = user?.isVip ? 5000 : 1000;
+  const maxBet = isVipActive(user) ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
   const expectedGc = Math.floor(bet * GC_RATIO); // payout is always bet × 0.85; VIP advantage is daily cap only
 

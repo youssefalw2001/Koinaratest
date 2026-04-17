@@ -535,6 +535,8 @@ components:
           type: ["string", "null"]
         goldCoins:
           type: integer
+        totalGcEarned:
+          type: integer
         isVip:
           type: boolean
         rank:
@@ -542,6 +544,7 @@ components:
       required:
         - telegramId
         - goldCoins
+        - totalGcEarned
         - isVip
         - rank
 
