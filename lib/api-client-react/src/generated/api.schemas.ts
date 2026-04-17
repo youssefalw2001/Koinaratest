@@ -55,8 +55,11 @@ export const UpgradeToVipBodyPlan = {
 
 export interface UpgradeToVipBody {
   plan: UpgradeToVipBodyPlan;
-  /** @nullable */
-  txHash?: string | null;
+  /**
+   * The sender's TON wallet address (user-friendly or raw). Used to locate the on-chain payment transaction.
+   * @nullable
+   */
+  senderAddress?: string | null;
 }
 
 export interface User {
@@ -74,6 +77,11 @@ export interface User {
   goldCoins: number;
   totalGcEarned: number;
   isVip: boolean;
+  /**
+   * Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null
+   * @nullable
+   */
+  vipPlan?: string | null;
   /** @nullable */
   vipExpiresAt?: string | null;
   /** @nullable */

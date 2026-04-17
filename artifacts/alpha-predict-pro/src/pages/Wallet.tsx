@@ -77,13 +77,16 @@ export default function WalletPage() {
     setTonPending(true);
     try {
       const amount = tonPlan === "weekly" ? TON_WEEKLY_AMOUNT : TON_MONTHLY_AMOUNT;
-      const tx = await tonConnectUI.sendTransaction({
+      await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 300,
         messages: [{ address: KOINARA_TON_WALLET, amount }],
       });
+      // After the transaction is sent, pass the sender's wallet address to the backend.
+      // The backend resolves it to a raw address and scans the sender's recent transactions
+      // on-chain to find and verify the matching payment.
       await upgradeToVip.mutateAsync({
         telegramId: user.telegramId,
-        data: { plan: tonPlan, txHash: tx.boc },
+        data: { plan: tonPlan, senderAddress: walletAddress },
       });
       setVipSuccess(true);
       setShowVipModal(false);

@@ -37,6 +37,12 @@ export const RegisterUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  vipPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+    ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),
@@ -69,6 +75,12 @@ export const GetUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  vipPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+    ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),
@@ -123,6 +135,12 @@ export const UpdateWalletResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  vipPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+    ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),
@@ -159,6 +177,12 @@ export const ActivateVipTrialResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  vipPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+    ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),
@@ -182,7 +206,12 @@ export const UpgradeToVipParams = zod.object({
 
 export const UpgradeToVipBody = zod.object({
   plan: zod.enum(["weekly", "monthly", "tc"]),
-  txHash: zod.string().nullish(),
+  senderAddress: zod
+    .string()
+    .nullish()
+    .describe(
+      "The sender's TON wallet address (user-friendly or raw). Used to locate the on-chain payment transaction.",
+    ),
 });
 
 export const UpgradeToVipResponse = zod.object({
@@ -196,6 +225,12 @@ export const UpgradeToVipResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
+  vipPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+    ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),

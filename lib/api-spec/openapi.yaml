@@ -449,8 +449,9 @@ components:
         plan:
           type: string
           enum: [weekly, monthly, tc]
-        txHash:
+        senderAddress:
           type: ["string", "null"]
+          description: "The sender's TON wallet address (user-friendly or raw). Used to locate the on-chain payment transaction."
       required:
         - plan
 
@@ -477,6 +478,9 @@ components:
           type: integer
         isVip:
           type: boolean
+        vipPlan:
+          type: ["string", "null"]
+          description: "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null"
         vipExpiresAt:
           type: ["string", "null"]
         vipTrialExpiresAt:

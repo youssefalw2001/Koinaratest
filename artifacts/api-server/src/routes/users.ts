@@ -21,59 +21,93 @@ import { serializeRow } from "../lib/serialize";
 
 const router: IRouter = Router();
 
-const KOINARA_TON_WALLET_ENV = process.env.KOINARA_TON_WALLET;
-const TON_WEEKLY_NANO = BigInt("500000000");  // 0.5 TON
-const TON_MONTHLY_NANO = BigInt("1500000000"); // 1.5 TON
+// Read lazily so tests can set/unset the env var at runtime.
+const getKoinaraWallet = () => process.env.KOINARA_TON_WALLET;
+const TON_WEEKLY_NANO = BigInt("500000000");   // 0.5 TON in nanotons
+const TON_MONTHLY_NANO = BigInt("1500000000"); // 1.5 TON in nanotons
+const TONAPI_BASE = "https://tonapi.io/v2";
 
+type TonApiAccount = { address: string };
+type TonApiTx = {
+  hash: string;
+  out_msgs: Array<{
+    destination?: { address?: string };
+    value?: number;
+  }>;
+};
+type TonApiTxList = { transactions: TonApiTx[] };
+
+async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: string }> {
+  try {
+    const resp = await fetch(`${TONAPI_BASE}${path}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: "application/json" },
+    });
+    if (!resp.ok) return { data: null, err: `tonapi ${resp.status}` };
+    return { data: (await resp.json()) as T };
+  } catch {
+    return { data: null, err: "TON API unreachable" };
+  }
+}
+
+/**
+ * Verify a VIP TON payment by inspecting the sender's recent on-chain transactions.
+ *
+ * Strategy:
+ * 1. Resolve our operator wallet to its canonical raw address (0:hex) via tonapi.
+ * 2. Fetch the last 10 outgoing transactions from the user's wallet.
+ * 3. Find one where out_msgs destination matches operator raw address and
+ *    value meets the 95%-of-expected threshold.
+ * 4. Return the on-chain tx hash for idempotency (dedup in vip_tx_hashes).
+ *
+ * In dev (KOINARA_TON_WALLET unset) we skip verification and return ok=true.
+ */
 async function verifyTonTransaction(
-  txHash: string,
+  senderAddress: string,
   plan: "weekly" | "monthly",
-): Promise<{ ok: boolean; err?: string }> {
-  if (!KOINARA_TON_WALLET_ENV) {
+): Promise<{ ok: boolean; err?: string; txHash?: string }> {
+  const walletEnv = getKoinaraWallet();
+  if (!walletEnv) {
     console.warn("[VIP] KOINARA_TON_WALLET not set — skipping on-chain TON verification (dev mode)");
     return { ok: true };
   }
 
-  let resp: Response;
-  try {
-    resp = await fetch(`https://tonapi.io/v2/blockchain/transactions/${encodeURIComponent(txHash)}`, {
-      signal: AbortSignal.timeout(8000),
-      headers: { "Accept": "application/json" },
-    });
-  } catch {
+  // Step 1: Resolve operator wallet to canonical raw address
+  const { data: operatorAccount, err: resolveErr } = await tonapiGet<TonApiAccount>(
+    `/accounts/${encodeURIComponent(walletEnv)}`,
+  );
+  if (!operatorAccount || resolveErr) {
+    return { ok: false, err: "TON API unreachable — please retry in a moment" };
+  }
+  const operatorRaw = operatorAccount.address; // e.g. "0:abc123..."
+
+  // Step 2: Fetch sender's recent outgoing transactions
+  const { data: txList, err: txErr } = await tonapiGet<TonApiTxList>(
+    `/accounts/${encodeURIComponent(senderAddress)}/transactions?limit=10`,
+  );
+  if (!txList || txErr) {
     return { ok: false, err: "TON API unreachable — please retry in a moment" };
   }
 
-  if (resp.status === 404) {
-    return { ok: false, err: "Transaction not found on TON blockchain" };
-  }
-  if (!resp.ok) {
-    return { ok: false, err: "TON verification service error — please retry" };
-  }
-
-  let tx: { out_msgs?: Array<{ destination?: { account_id?: string }; value?: number }> };
-  try {
-    tx = (await resp.json()) as typeof tx;
-  } catch {
-    return { ok: false, err: "Failed to parse TON transaction data" };
-  }
-
+  // Step 3: Find a matching transaction
   const expectedNano = plan === "weekly" ? TON_WEEKLY_NANO : TON_MONTHLY_NANO;
-  const walletSuffix = KOINARA_TON_WALLET_ENV.replace(/[^a-zA-Z0-9]/g, "").slice(-20).toLowerCase();
-  const outMsgs = tx.out_msgs ?? [];
+  const minNano = (expectedNano * 95n) / 100n;
 
-  const verified = outMsgs.some(msg => {
-    const destId = (msg.destination?.account_id ?? "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-    if (!destId.includes(walletSuffix)) return false;
-    const valueNano = BigInt(Math.floor(msg.value ?? 0));
-    return valueNano >= expectedNano * 95n / 100n;
-  });
-
-  if (!verified) {
-    return { ok: false, err: "Transaction destination or amount does not match VIP plan requirements" };
+  for (const tx of txList.transactions) {
+    for (const msg of tx.out_msgs) {
+      const destRaw = msg.destination?.address ?? "";
+      if (destRaw !== operatorRaw) continue;
+      const valueNano = BigInt(Math.floor(msg.value ?? 0));
+      if (valueNano >= minNano) {
+        return { ok: true, txHash: tx.hash };
+      }
+    }
   }
 
-  return { ok: true };
+  return {
+    ok: false,
+    err: "No matching TON payment found. Please ensure the transaction is confirmed and try again.",
+  };
 }
 
 const USER_SCHEMA = (row: Record<string, unknown>) =>
@@ -268,7 +302,7 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  const { plan, txHash } = body.data;
+  const { plan, senderAddress } = body.data;
   const now = new Date();
 
   // Idempotency: if user is already VIP and it hasn't expired, return current state
@@ -278,19 +312,8 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
   }
 
   if (plan === "weekly" || plan === "monthly") {
-    if (!txHash) {
-      res.status(400).json({ error: "txHash required for TON plans" });
-      return;
-    }
-
-    // Deduplication: reject already-used txHashes to prevent double-spend
-    const [existingTx] = await db
-      .select()
-      .from(vipTxHashesTable)
-      .where(eq(vipTxHashesTable.txHash, txHash))
-      .limit(1);
-    if (existingTx) {
-      res.status(409).json({ error: "Transaction hash already used. Please contact support if this is an error." });
+    if (!senderAddress) {
+      res.status(400).json({ error: "senderAddress required for TON plans" });
       return;
     }
 
@@ -298,18 +321,34 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const vipPlan = plan === "weekly" ? "ton_weekly" : "ton_monthly";
 
-    // On-chain verification: check tx exists, correct destination wallet, correct amount
-    const verification = await verifyTonTransaction(txHash, plan as "weekly" | "monthly");
+    // On-chain verification: resolves operator wallet to raw address, scans sender's
+    // recent transactions for a matching payment, returns the on-chain tx hash.
+    const verification = await verifyTonTransaction(senderAddress, plan);
     if (!verification.ok) {
       res.status(422).json({ error: verification.err ?? "TON transaction verification failed" });
       return;
     }
 
-    await db.insert(vipTxHashesTable).values({
-      txHash,
-      telegramId: params.data.telegramId,
-      plan: vipPlan,
-    });
+    // Deduplication using the on-chain tx hash returned by verifyTonTransaction.
+    // In dev mode (wallet env unset), verification.txHash is undefined — skip dedup.
+    const verifiedTxHash = verification.txHash;
+    if (verifiedTxHash) {
+      const [existingTx] = await db
+        .select()
+        .from(vipTxHashesTable)
+        .where(eq(vipTxHashesTable.txHash, verifiedTxHash))
+        .limit(1);
+      if (existingTx) {
+        res.status(409).json({ error: "This transaction has already been used. Please contact support if this is an error." });
+        return;
+      }
+
+      await db.insert(vipTxHashesTable).values({
+        txHash: verifiedTxHash,
+        telegramId: params.data.telegramId,
+        plan: vipPlan,
+      });
+    }
 
     const [updated] = await db
       .update(usersTable)
