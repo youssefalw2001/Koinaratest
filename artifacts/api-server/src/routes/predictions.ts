@@ -218,11 +218,17 @@ router.get("/predictions/vip-activity", async (req, res): Promise<void> => {
     .orderBy(desc(predictionsTable.resolvedAt))
     .limit(10);
 
+  const stableId = (s: string): number => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+    return 1000 + (h % 9000);
+  };
+
   const activity = rows.map((r) => {
     const raw = r.username ?? r.firstName ?? `VIP_${r.telegramId.slice(-4)}`;
     const truncated = raw.length > 10 ? `${raw.slice(0, 8)}..` : raw;
     return {
-      displayName: `${truncated}_${Math.floor(1000 + Math.random() * 8999)}`,
+      displayName: `${truncated}_${stableId(r.telegramId)}`,
       payout: r.payout ?? 0,
       resolvedAt: r.resolvedAt
         ? new Date(r.resolvedAt).toISOString()

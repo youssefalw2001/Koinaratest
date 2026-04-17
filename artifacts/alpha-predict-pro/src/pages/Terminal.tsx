@@ -836,7 +836,7 @@ export default function Terminal() {
                 >
                   <Crown size={13} className="text-[#f5c518]" />
                   <span className="font-mono text-[10px] text-[#f5c518]">
-                    VIP active — up to 3,000 GC/day
+                    Congratulations! VIP 2× payout active — up to 3,000 GC/day
                   </span>
                 </div>
               )}
