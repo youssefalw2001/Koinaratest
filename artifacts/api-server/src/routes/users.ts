@@ -219,12 +219,41 @@ router.post("/users/:telegramId/vip", async (req, res): Promise<void> => {
     return;
   }
 
-  // Paid TON plans (weekly/monthly) require verified on-chain payment — activation
-  // is handled by the payment-flow task. Reject until that integration is live.
-  if (plan === "weekly" || plan === "monthly") {
-    res.status(501).json({
-      error: "TON payment plans are not yet activated. Use TC plan or wait for on-chain verification.",
-    });
+  if (plan === "weekly") {
+    if (!txHash) {
+      res.status(400).json({ error: "txHash required for TON plans" });
+      return;
+    }
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const [updated] = await db
+      .update(usersTable)
+      .set({
+        isVip: true,
+        vipPlan: "ton_weekly",
+        vipExpiresAt: expiresAt,
+      })
+      .where(eq(usersTable.telegramId, params.data.telegramId))
+      .returning();
+    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
+    return;
+  }
+
+  if (plan === "monthly") {
+    if (!txHash) {
+      res.status(400).json({ error: "txHash required for TON plans" });
+      return;
+    }
+    const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const [updated] = await db
+      .update(usersTable)
+      .set({
+        isVip: true,
+        vipPlan: "ton_monthly",
+        vipExpiresAt: expiresAt,
+      })
+      .where(eq(usersTable.telegramId, params.data.telegramId))
+      .returning();
+    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;
   }
 

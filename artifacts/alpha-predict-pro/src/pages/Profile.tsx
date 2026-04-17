@@ -1,10 +1,20 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy } from "lucide-react";
+import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock } from "lucide-react";
 import { useGetUserStats, useClaimDailyReward, getGetUserQueryKey, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+
+const DAY7_MILESTONES = [
+  { day: 1, label: "First Trade", reward: "500 TC bonus", icon: Rocket },
+  { day: 2, label: "Win Streak", reward: "+50 TC", icon: Flame },
+  { day: 3, label: "10 Trades", reward: "+100 TC", icon: Target },
+  { day: 4, label: "VIP Eligible", reward: "Unlock", icon: Crown },
+  { day: 5, label: "Pro Trader", reward: "+150 TC", icon: TrendingUp },
+  { day: 6, label: "GC Milestone", reward: "+200 TC", icon: Award },
+  { day: 7, label: "Survivor", reward: "GC BONUS 🎉", icon: Star },
+];
 
 export default function Profile() {
   const { user } = useTelegram();
@@ -40,6 +50,9 @@ export default function Profile() {
   };
 
   const winRate = stats ? Math.round(stats.winRate * 100) : 0;
+  const loginStreak = user?.loginStreak ?? 0;
+  const currentDay = Math.min(loginStreak, 7);
+  const vip = isVipActive(user);
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
@@ -82,10 +95,10 @@ export default function Profile() {
           <div
             className="w-16 h-16 rounded-full flex items-center justify-center font-mono text-2xl font-black shrink-0"
             style={{
-              background: user.isVip ? "rgba(245,197,24,0.15)" : "rgba(0,240,255,0.1)",
-              border: `2px solid ${user.isVip ? "#f5c518" : "#00f0ff"}`,
-              boxShadow: user.isVip ? "0 0 15px rgba(245,197,24,0.4)" : "0 0 15px rgba(0,240,255,0.3)",
-              color: user.isVip ? "#f5c518" : "#00f0ff",
+              background: vip ? "rgba(245,197,24,0.15)" : "rgba(0,240,255,0.1)",
+              border: `2px solid ${vip ? "#f5c518" : "#00f0ff"}`,
+              boxShadow: vip ? "0 0 15px rgba(245,197,24,0.4)" : "0 0 15px rgba(0,240,255,0.3)",
+              color: vip ? "#f5c518" : "#00f0ff",
             }}
           >
             {(user.firstName ?? user.username ?? "K").charAt(0).toUpperCase()}
@@ -95,7 +108,7 @@ export default function Profile() {
               <span className="font-mono text-lg font-black text-white">
                 {user.firstName ?? user.username ?? "Koin Trader"}
               </span>
-              {user.isVip && <Crown size={14} className="text-[#f5c518]" />}
+              {vip && <Crown size={14} className="text-[#f5c518]" />}
             </div>
             {user.username && (
               <span className="font-mono text-xs text-white/40">@{user.username}</span>
@@ -122,12 +135,12 @@ export default function Profile() {
         className={`w-full flex items-center justify-between p-4 rounded-xl border-2 mb-4 transition-all ${
           dailyClaimed
             ? "border-white/10 bg-white/5 opacity-50"
-            : user?.isVip
+            : vip
             ? "border-[#f5c518] bg-[#f5c518]/10"
             : "border-[#00f0ff] bg-[#00f0ff]/10"
         }`}
         style={!dailyClaimed ? {
-          boxShadow: user?.isVip ? "0 0 20px rgba(245,197,24,0.25)" : "0 0 20px rgba(0,240,255,0.25)"
+          boxShadow: vip ? "0 0 20px rgba(245,197,24,0.25)" : "0 0 20px rgba(0,240,255,0.25)"
         } : {}}
         data-testid="btn-claim-daily"
       >
@@ -135,8 +148,8 @@ export default function Profile() {
           <Flame
             size={20}
             style={{
-              color: dailyClaimed ? "rgba(255,255,255,0.3)" : user?.isVip ? "#f5c518" : "#00f0ff",
-              filter: dailyClaimed ? "none" : `drop-shadow(0 0 6px ${user?.isVip ? "#f5c518" : "#00f0ff"})`,
+              color: dailyClaimed ? "rgba(255,255,255,0.3)" : vip ? "#f5c518" : "#00f0ff",
+              filter: dailyClaimed ? "none" : `drop-shadow(0 0 6px ${vip ? "#f5c518" : "#00f0ff"})`,
             }}
           />
           <div className="text-left">
@@ -144,7 +157,7 @@ export default function Profile() {
               {dailyClaimed ? "Daily Reward Claimed" : "Claim Daily Reward"}
             </div>
             <div className="font-mono text-[10px] text-white/40">
-              {user?.isVip ? "VIP Active" : `Streak: ${user?.loginStreak ?? 0} days`}
+              {vip ? "VIP Active" : `Streak: ${loginStreak} days`}
             </div>
           </div>
         </div>
@@ -152,12 +165,86 @@ export default function Profile() {
           {dailyClaimed ? (
             <CheckCircle size={16} className="text-white/30" />
           ) : (
-            <span className="font-mono text-sm font-black" style={{ color: user?.isVip ? "#f5c518" : "#00f0ff" }}>
-              {user?.isVip ? "150+" : "100+"} TC
+            <span className="font-mono text-sm font-black" style={{ color: vip ? "#f5c518" : "#00f0ff" }}>
+              {vip ? "150+" : "100+"} TC
             </span>
           )}
         </div>
       </motion.button>
+
+      {/* Week 1 Journey Tracker */}
+      <div
+        className="p-4 rounded-2xl border-2 mb-4"
+        style={{
+          borderColor: "rgba(245,197,24,0.3)",
+          background: "rgba(245,197,24,0.03)",
+        }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Rocket size={14} className="text-[#f5c518]" />
+          <span className="font-mono text-xs font-black text-[#f5c518] tracking-wider uppercase">Week 1 Journey</span>
+          <span className="font-mono text-[10px] text-white/30 ml-auto">Day {currentDay}/7</span>
+        </div>
+        <div className="grid grid-cols-7 gap-1 mb-3">
+          {DAY7_MILESTONES.map(({ day, label, icon: Icon }) => {
+            const isComplete = currentDay >= day;
+            const isCurrent = currentDay === day - 1;
+            const isLocked = currentDay < day - 1;
+            return (
+              <div key={day} className="flex flex-col items-center gap-1">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center relative"
+                  style={{
+                    background: isComplete
+                      ? "linear-gradient(135deg, #f5c518, #ff2d78)"
+                      : isCurrent
+                      ? "rgba(245,197,24,0.15)"
+                      : "rgba(255,255,255,0.05)",
+                    border: isComplete
+                      ? "1px solid rgba(245,197,24,0.6)"
+                      : isCurrent
+                      ? "1px solid rgba(245,197,24,0.4)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    boxShadow: isComplete ? "0 0 8px rgba(245,197,24,0.4)" : isCurrent ? "0 0 12px rgba(245,197,24,0.3)" : "none",
+                  }}
+                >
+                  {isLocked ? (
+                    <Lock size={10} className="text-white/20" />
+                  ) : (
+                    <Icon
+                      size={12}
+                      style={{
+                        color: isComplete ? "#000" : isCurrent ? "#f5c518" : "rgba(255,255,255,0.3)",
+                      }}
+                    />
+                  )}
+                  {day === 7 && isComplete && (
+                    <div className="absolute -top-1 -right-1 text-[8px]">🎉</div>
+                  )}
+                </div>
+                <div className="font-mono text-[7px] text-center leading-tight" style={{
+                  color: isComplete ? "#f5c518" : isCurrent ? "rgba(245,197,24,0.6)" : "rgba(255,255,255,0.2)"
+                }}>
+                  D{day}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="h-1.5 rounded-full bg-white/8 overflow-hidden mb-2">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${(currentDay / 7) * 100}%` }}
+            className="h-full rounded-full"
+            style={{ background: "linear-gradient(90deg, #f5c518, #ff2d78)" }}
+          />
+        </div>
+        <div className="font-mono text-[10px] text-white/30">
+          {currentDay < 7
+            ? `${DAY7_MILESTONES[currentDay]?.label ?? ""} — Complete trades daily to progress`
+            : "🏆 Week 1 Complete — Survivor Bonus unlocked!"}
+        </div>
+      </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -185,7 +272,7 @@ export default function Profile() {
         </div>
         <div className="flex gap-2">
           {Array.from({ length: 7 }).map((_, i) => {
-            const active = i < (user?.loginStreak ?? 0);
+            const active = i < loginStreak;
             return (
               <div
                 key={i}
@@ -199,7 +286,7 @@ export default function Profile() {
           })}
         </div>
         <div className="font-mono text-[10px] text-white/30 mt-2">
-          {user?.loginStreak ?? 0} day streak — {user?.isVip ? "VIP bonus active" : "Go VIP for higher caps"}
+          {loginStreak} day streak — {vip ? "VIP bonus active" : "Go VIP for higher caps"}
         </div>
       </div>
 
@@ -228,7 +315,7 @@ export default function Profile() {
       </div>
 
       {/* VIP CTA for free users */}
-      {user && !isVipActive(user) && (
+      {user && !vip && (
         <div
           className="p-4 rounded-2xl border-2 border-[#f5c518]/60 bg-[#f5c518]/5 text-center"
           style={{ boxShadow: "0 0 25px rgba(245,197,24,0.15)" }}

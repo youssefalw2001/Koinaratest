@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers } from "lucide-react";
-import { useListQuests, useClaimQuest, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
+import { Gift, ExternalLink, Lock, Crown, Star, TrendingUp, Activity, Zap, BookOpen, MessageCircle, Users, BarChart2, Layers, Play, CheckCircle2, Tv } from "lucide-react";
+import { useListQuests, useClaimQuest, useWatchAd, getListQuestsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
@@ -28,13 +28,64 @@ const categoryColors: Record<string, string> = {
   "Education": "#a855f7",
 };
 
+const AD_DURATION = 15;
+
 export default function Earn() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
   const { data: quests, isLoading } = useListQuests();
   const claimQuest = useClaimQuest();
+  const watchAdMutation = useWatchAd();
+
   const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
   const [lastClaim, setLastClaim] = useState<{ tc: number; id: number } | null>(null);
+
+  const [adState, setAdState] = useState<"idle" | "watching" | "done">("idle");
+  const [adCountdown, setAdCountdown] = useState(AD_DURATION);
+  const [adResult, setAdResult] = useState<{ tc: number; adsLeft: number } | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const vip = isVipActive(user);
+  const adTcReward = vip ? 100 : 80;
+  const adDailyCap = vip ? 25 : 5;
+
+  const handleStartAd = () => {
+    if (adState !== "idle") return;
+    setAdState("watching");
+    setAdCountdown(AD_DURATION);
+    countdownRef.current = setInterval(() => {
+      setAdCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownRef.current!);
+          handleAdComplete();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleAdComplete = async () => {
+    if (!user) return;
+    setAdState("done");
+    try {
+      const result = await watchAdMutation.mutateAsync({ data: { telegramId: user.telegramId } });
+      setAdResult({ tc: result.tcAwarded, adsLeft: result.dailyCap - result.adsWatchedToday });
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      setTimeout(() => {
+        setAdResult(null);
+        setAdState("idle");
+      }, 3500);
+    } catch {
+      setAdState("idle");
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
 
   const handleClaim = async (questId: number, externalUrl: string) => {
     if (!user) return;
@@ -70,7 +121,7 @@ export default function Earn() {
           <Crown size={20} className="text-[#f5c518] shrink-0 drop-shadow-[0_0_6px_#f5c518]" />
           <div>
             <div className="font-mono text-xs font-bold text-[#f5c518]">VIP unlocks 3,000 GC daily cap</div>
-            <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value quests</div>
+            <div className="font-mono text-[10px] text-white/50">Unlock exclusive high-value quests + 25 ads/day</div>
           </div>
         </div>
       )}
@@ -94,6 +145,98 @@ export default function Earn() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Ad Reward Section */}
+      <div className="mb-6">
+        <div className="font-mono text-[10px] text-white/40 tracking-widest uppercase mb-3">Watch & Earn</div>
+        <div
+          className="p-4 rounded-2xl border-2 relative overflow-hidden"
+          style={{
+            borderColor: vip ? "#f5c518" : "#ff2d78",
+            background: vip ? "rgba(245,197,24,0.04)" : "rgba(255,45,120,0.04)",
+            boxShadow: vip ? "0 0 20px rgba(245,197,24,0.12)" : "0 0 20px rgba(255,45,120,0.12)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Tv size={16} style={{ color: vip ? "#f5c518" : "#ff2d78" }} />
+              <span className="font-mono text-sm font-black text-white">Watch Ad</span>
+              {vip && <span className="font-mono text-[9px] text-[#f5c518] border border-[#f5c518]/40 bg-[#f5c518]/10 px-1.5 py-0.5 rounded">VIP</span>}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs">🔵</span>
+              <span className="font-mono text-sm font-black" style={{ color: vip ? "#f5c518" : "#ff2d78" }}>+{adTcReward} TC</span>
+            </div>
+          </div>
+
+          <div className="font-mono text-[10px] text-white/40 mb-3">
+            Up to {adDailyCap} ads/day · 15s each · Instant TC credit
+          </div>
+
+          {adState === "idle" && (
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={handleStartAd}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-black border-2 transition-all"
+              style={{
+                borderColor: vip ? "#f5c518" : "#ff2d78",
+                color: vip ? "#f5c518" : "#ff2d78",
+                background: vip ? "rgba(245,197,24,0.12)" : "rgba(255,45,120,0.12)",
+                boxShadow: vip ? "0 0 15px rgba(245,197,24,0.2)" : "0 0 15px rgba(255,45,120,0.2)",
+              }}
+              data-testid="btn-watch-ad"
+            >
+              <Play size={14} />
+              WATCH AD — EARN {adTcReward} TC
+            </motion.button>
+          )}
+
+          {adState === "watching" && (
+            <div className="flex flex-col items-center py-2">
+              <div className="relative w-16 h-16 flex items-center justify-center mb-2">
+                <svg className="absolute inset-0" viewBox="0 0 64 64">
+                  <circle
+                    cx="32" cy="32" r="28"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.08)"
+                    strokeWidth="4"
+                  />
+                  <circle
+                    cx="32" cy="32" r="28"
+                    fill="none"
+                    stroke={vip ? "#f5c518" : "#ff2d78"}
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeDasharray={175.9}
+                    strokeDashoffset={175.9 * (adCountdown / AD_DURATION)}
+                    transform="rotate(-90 32 32)"
+                    style={{ transition: "stroke-dashoffset 1s linear", filter: `drop-shadow(0 0 4px ${vip ? "#f5c518" : "#ff2d78"})` }}
+                  />
+                </svg>
+                <span className="font-mono text-xl font-black text-white z-10">{adCountdown}</span>
+              </div>
+              <div className="font-mono text-xs text-white/50">Watching ad...</div>
+            </div>
+          )}
+
+          {adState === "done" && (
+            <AnimatePresence>
+              {adResult && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center py-2"
+                >
+                  <CheckCircle2 size={28} className="text-[#00f0ff] mb-1 drop-shadow-[0_0_8px_#00f0ff]" />
+                  <div className="font-mono text-lg font-black text-[#00f0ff]">+{adResult.tc} TC Earned!</div>
+                  <div className="font-mono text-[10px] text-white/40">{adResult.adsLeft} ads remaining today</div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
+        </div>
+      </div>
 
       {isLoading && (
         <div className="space-y-3">

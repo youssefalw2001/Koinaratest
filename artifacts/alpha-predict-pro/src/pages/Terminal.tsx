@@ -346,6 +346,29 @@ export default function Terminal() {
       {/* VIP Activity Ticker */}
       <VipTicker items={vipActivity} />
 
+      {/* VIP Countdown / FOMO Banner */}
+      {vip && user?.vipExpiresAt && (() => {
+        const diff = new Date(user.vipExpiresAt).getTime() - Date.now();
+        if (diff <= 0) return null;
+        const d = Math.floor(diff / 86400000);
+        const h = Math.floor((diff % 86400000) / 3600000);
+        const label = d > 0 ? `${d}d ${h}h` : `${h}h`;
+        return (
+          <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#f5c518]/30 bg-[#f5c518]/5">
+            <Crown size={11} className="text-[#f5c518]" />
+            <span className="font-mono text-[10px] text-[#f5c518]">VIP Active</span>
+            <span className="font-mono text-[10px] text-white/40 ml-auto">{label} remaining</span>
+          </div>
+        );
+      })()}
+
+      {!vip && (
+        <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#ff2d78]/25 bg-[#ff2d78]/5">
+          <span className="font-mono text-[10px] text-[#ff2d78]">⚡ VIP users earn 2× on every trade</span>
+          <span className="font-mono text-[9px] text-white/30 ml-auto">→ Wallet</span>
+        </div>
+      )}
+
       <div className="px-4 pt-3 flex flex-col gap-3">
         {/* Live Price Chart */}
         {chartData.length > 1 && (

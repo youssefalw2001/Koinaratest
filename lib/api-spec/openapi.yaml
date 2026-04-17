@@ -228,6 +228,19 @@ paths:
                 items:
                   $ref: "#/components/schemas/Prediction"
 
+  /predictions/vip-activity:
+    get:
+      operationId: getVipActivity
+      tags: [predictions]
+      summary: Get recent winning trades by VIP users for social proof ticker
+      responses:
+        "200":
+          description: VIP activity feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetVipActivityResponse"
+
   /predictions/leaderboard:
     get:
       operationId: getLeaderboard
@@ -291,6 +304,31 @@ paths:
                 $ref: "#/components/schemas/ClaimQuestResponse"
         "400":
           description: Already claimed or quest not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rewards/ad:
+    post:
+      operationId: watchAd
+      tags: [rewards]
+      summary: Record a rewarded ad watch and credit Trade Credits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchAdBody"
+      responses:
+        "200":
+          description: Ad reward credited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchAdResponse"
+        "400":
+          description: Daily ad cap reached or user not found
           content:
             application/json:
               schema:
@@ -626,3 +664,50 @@ components:
         - streak
         - message
         - isVipBonus
+
+    WatchAdBody:
+      type: object
+      properties:
+        telegramId:
+          type: string
+      required:
+        - telegramId
+
+    VipActivityItem:
+      type: object
+      properties:
+        displayName:
+          type: string
+        payout:
+          type: integer
+        resolvedAt:
+          type: string
+      required:
+        - displayName
+        - payout
+        - resolvedAt
+
+    GetVipActivityResponse:
+      type: array
+      items:
+        $ref: "#/components/schemas/VipActivityItem"
+
+    WatchAdResponse:
+      type: object
+      properties:
+        tcAwarded:
+          type: integer
+        newTcBalance:
+          type: integer
+        adsWatchedToday:
+          type: integer
+        dailyCap:
+          type: integer
+        message:
+          type: string
+      required:
+        - tcAwarded
+        - newTcBalance
+        - adsWatchedToday
+        - dailyCap
+        - message
