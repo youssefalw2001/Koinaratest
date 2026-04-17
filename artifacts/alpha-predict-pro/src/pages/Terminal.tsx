@@ -94,7 +94,7 @@ function VipTicker({ items }: { items: TickerItem[] }) {
               {item.displayName}
             </span>
             <span className="font-mono text-[10px] text-[#f5c518]">
-              withdrew {item.payout} GC
+              won {item.payout} GC
             </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
@@ -615,8 +615,10 @@ export default function Terminal() {
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
                 <span className="font-mono text-xs font-bold">
+                  <span className="text-white/40">+{expectedGc}</span>
+                  <span className="text-[#f5c518]/60 mx-1">→</span>
                   <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
-                  <span className="text-[#f5c518]/60 ml-1.5">👑 VIP rate</span>
+                  <span className="text-[#f5c518]/60 ml-1">👑 VIP</span>
                 </span>
               ) : (
                 <span className="font-mono text-xs font-bold text-white/60">
