@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, or, gt, isNotNull } from "drizzle-orm";
 import { db, predictionsTable, usersTable } from "@workspace/db";
 import {
   CreatePredictionBody,
@@ -201,7 +201,17 @@ router.get("/predictions/vip-activity", async (req, res): Promise<void> => {
     .where(
       and(
         eq(predictionsTable.status, "won"),
-        eq(usersTable.isVip, true),
+        or(
+          and(
+            eq(usersTable.isVip, true),
+            isNotNull(usersTable.vipExpiresAt),
+            gt(usersTable.vipExpiresAt, new Date()),
+          ),
+          and(
+            isNotNull(usersTable.vipTrialExpiresAt),
+            gt(usersTable.vipTrialExpiresAt, new Date()),
+          ),
+        ),
       ),
     )
     .orderBy(desc(predictionsTable.resolvedAt))
