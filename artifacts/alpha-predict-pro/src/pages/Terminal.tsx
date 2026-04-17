@@ -127,6 +127,7 @@ export default function Terminal() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const resolveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const winStreakRef = useRef(0);
   const lossStreakRef = useRef(0);
   const priceRef = useRef<number>(0);
@@ -217,6 +218,8 @@ export default function Terminal() {
       clearTimeout(timer);
       if (fallbackInterval) clearInterval(fallbackInterval);
       if (wsRef.current) wsRef.current.close();
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
     };
   }, []);
 
@@ -236,7 +239,7 @@ export default function Terminal() {
       }, 1000);
       countdownRef.current = interval;
 
-      setTimeout(async () => {
+      resolveTimeoutRef.current = setTimeout(async () => {
         const exitP = priceRef.current || entryPrice;
         try {
           const resolved = await resolvePrediction.mutateAsync({
