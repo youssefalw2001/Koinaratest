@@ -12,6 +12,8 @@ interface TelegramContextType {
   dismissVipPromo: () => void;
   showDailyLoginPrompt: boolean;
   dismissDailyLoginPrompt: () => void;
+  showDay7Celebration: boolean;
+  dismissDay7Celebration: () => void;
 }
 
 const TelegramContext = createContext<TelegramContextType>({
@@ -22,6 +24,8 @@ const TelegramContext = createContext<TelegramContextType>({
   dismissVipPromo: () => {},
   showDailyLoginPrompt: false,
   dismissDailyLoginPrompt: () => {},
+  showDay7Celebration: false,
+  dismissDay7Celebration: () => {},
 });
 
 export function TelegramProvider({ children }: { children: ReactNode }) {
@@ -30,6 +34,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [telegramId, setTelegramId] = useState<string | null>(null);
   const [showVipPromo, setShowVipPromo] = useState(false);
   const [showDailyLoginPrompt, setShowDailyLoginPrompt] = useState(false);
+  const [showDay7Celebration, setShowDay7Celebration] = useState(false);
   const trialTriggeredRef = useRef(false);
   const dailyPromptShownRef = useRef(false);
   const queryClient = useQueryClient();
@@ -91,6 +96,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
 
   const dismissVipPromo = useCallback(() => setShowVipPromo(false), []);
   const dismissDailyLoginPrompt = useCallback(() => setShowDailyLoginPrompt(false), []);
+  const dismissDay7Celebration = useCallback(() => setShowDay7Celebration(false), []);
 
   const refreshUser = useCallback(() => {
     if (telegramId) {
@@ -129,6 +135,16 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         const registeredUser = await registerUser.mutateAsync({ data: payload });
         setUser(registeredUser);
         setTelegramId(registeredUser.telegramId);
+
+        // Detect first-time Day-7 bonus celebration using localStorage as a one-time flag.
+        // The server sets day7BonusClaimed=true when the bonus fires; we show a modal once.
+        if (registeredUser.day7BonusClaimed) {
+          const celebKey = `day7_celebrated_${registeredUser.telegramId}`;
+          if (!localStorage.getItem(celebKey)) {
+            localStorage.setItem(celebKey, "1");
+            setTimeout(() => setShowDay7Celebration(true), 2000);
+          }
+        }
       } catch (error) {
         console.error("Failed to init telegram user", error);
       } finally {
@@ -148,6 +164,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       dismissVipPromo,
       showDailyLoginPrompt,
       dismissDailyLoginPrompt,
+      showDay7Celebration,
+      dismissDay7Celebration,
     }}>
       {children}
     </TelegramContext.Provider>

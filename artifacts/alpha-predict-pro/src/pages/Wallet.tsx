@@ -13,7 +13,9 @@ const MILESTONE_GC = 10000;
 
 const TON_WEEKLY_AMOUNT = "500000000";
 const TON_MONTHLY_AMOUNT = "1500000000";
-const KOINARA_TON_WALLET = import.meta.env.VITE_KOINARA_TON_WALLET ?? "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFu";
+// Fail-closed: if the env var is not set at build time, TON payments are disabled.
+// Never fall back to a default address — that would send user funds to an unknown wallet.
+const KOINARA_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || undefined;
 
 type VipTab = "tc" | "ton";
 
@@ -74,6 +76,11 @@ export default function WalletPage() {
 
   const handleTonVip = async () => {
     if (!user || !walletAddress) return;
+    // Fail-closed: refuse to send if the operator wallet isn't configured.
+    if (!KOINARA_TON_WALLET) {
+      console.error("[Koinara] VITE_KOINARA_TON_WALLET is not set — TON payments disabled.");
+      return;
+    }
     setTonPending(true);
     try {
       const amount = tonPlan === "weekly" ? TON_WEEKLY_AMOUNT : TON_MONTHLY_AMOUNT;
@@ -407,6 +414,11 @@ export default function WalletPage() {
                       <div className="flex flex-col items-center gap-2">
                         <div className="font-mono text-[10px] text-white/40">Connect TON wallet to pay</div>
                         <TonConnectButton />
+                      </div>
+                    ) : !KOINARA_TON_WALLET ? (
+                      <div className="flex items-center gap-2 p-3 rounded-xl border border-red-500/30 bg-red-500/10">
+                        <AlertTriangle size={14} className="text-red-400 shrink-0" />
+                        <div className="font-mono text-[10px] text-red-400">TON payments are not configured. Contact support.</div>
                       </div>
                     ) : (
                       <button

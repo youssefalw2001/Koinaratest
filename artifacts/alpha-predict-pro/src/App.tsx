@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Crown, CheckCircle, Flame } from "lucide-react";
+import { Crown, CheckCircle, Flame, Star, Trophy } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
@@ -194,6 +194,69 @@ function DailyLoginPrompt() {
   );
 }
 
+function Day7CelebrationModal() {
+  const { showDay7Celebration, dismissDay7Celebration } = useTelegram();
+  const [, setLocation] = useLocation();
+
+  return (
+    <AnimatePresence>
+      {showDay7Celebration && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90"
+          onClick={dismissDay7Celebration}
+        >
+          <motion.div
+            initial={{ y: 400, scale: 0.9 }}
+            animate={{ y: 0, scale: 1 }}
+            exit={{ y: 400 }}
+            transition={{ type: "spring", damping: 22, stiffness: 280 }}
+            className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]"
+            style={{
+              background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)",
+              boxShadow: "0 -30px 100px rgba(0,240,255,0.3)",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="relative mb-4">
+                <Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" />
+                <Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" />
+              </div>
+              <div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div>
+              <div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div>
+              <div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div>
+              <div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div>
+              <div className="font-mono text-[10px] text-white/30 mb-8">
+                You've survived 7 days in the arena. The market respects consistency.
+              </div>
+              <button
+                onClick={() => { dismissDay7Celebration(); setLocation("/"); }}
+                className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3"
+                style={{
+                  background: "linear-gradient(90deg, #00f0ff, #0080ff)",
+                  color: "#000",
+                  boxShadow: "0 0 30px rgba(0,240,255,0.5)",
+                }}
+              >
+                KEEP TRADING
+              </button>
+              <button
+                onClick={dismissDay7Celebration}
+                className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function Router() {
   return (
     <Layout>
@@ -207,6 +270,7 @@ function Router() {
       </Switch>
       <VipPromoModal />
       <DailyLoginPrompt />
+      <Day7CelebrationModal />
     </Layout>
   );
 }
