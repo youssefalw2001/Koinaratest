@@ -13,50 +13,20 @@ on:
         default: "main"
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: gh-pages-deploy
   cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
-
-      - name: Verify GitHub Pages is enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          API="https://api.github.com/repos/${REPO}/pages"
-
-          status=$(curl -sS -o /tmp/pages_get.json -w "%{http_code}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${API}")
-
-          if [ "${status}" = "404" ]; then
-            echo "::error::GitHub Pages is not enabled yet for this repository."
-            echo "::error::Open Settings > Pages and set Source to 'GitHub Actions', then rerun this workflow."
-            exit 1
-          fi
-
-          if [ "${status}" -ge 400 ]; then
-            echo "::error::Failed to read GitHub Pages status (HTTP ${status})."
-            echo "::error::Check repository permissions and Pages settings, then rerun."
-            exit 1
-          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -80,17 +50,13 @@ jobs:
           PORT: "4173"
           BASE_PATH: "/${{ github.event.repository.name }}/"
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy static site to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: artifacts/alpha-predict-pro/dist/public
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: artifacts/alpha-predict-pro/dist/public
+          force_orphan: true
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Show deployed URL
-        run: 'echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"'
+      - name: Show preview URL
+        run: 'echo "Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"'
