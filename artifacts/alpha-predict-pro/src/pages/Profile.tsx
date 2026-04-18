@@ -58,8 +58,8 @@ export default function Profile() {
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
       <div className="flex items-center gap-2 mb-6">
-        <User size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Profile</span>
+        <User size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
+        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Profile</span>
       </div>
 
       {/* User Info */}
@@ -255,12 +255,12 @@ export default function Profile() {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
-          { label: "Win Rate", value: statsLoading ? "..." : `${winRate}%`, icon: TrendingUp, color: winRate >= 50 ? "#00f0ff" : "#ff2d78" },
-          { label: "Total Trades", value: statsLoading ? "..." : (stats?.totalPredictions ?? 0), icon: Target, color: "#00f0ff" },
-          { label: "GC Earned", value: statsLoading ? "..." : `${stats?.totalGcEarned ?? 0}`, icon: Award, color: "#f5c518" },
-          { label: "Referrals", value: statsLoading ? "..." : (stats?.referralCount ?? 0), icon: Share2, color: "#ff2d78" },
+          { label: "Win Rate", value: statsLoading ? "..." : `${winRate}%`, icon: TrendingUp, color: "#00E676" },
+          { label: "Total Trades", value: statsLoading ? "..." : (stats?.totalPredictions ?? 0), icon: Target, color: "#4DA3FF" },
+          { label: "GC Earned", value: statsLoading ? "..." : `${stats?.totalGcEarned ?? 0}`, icon: Award, color: "#FFD700" },
+          { label: "Referrals", value: statsLoading ? "..." : (stats?.referralCount ?? 0), icon: Share2, color: "#FF1744" },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="p-3 rounded-xl border border-white/10 bg-white/[0.02]">
+          <div key={label} className="p-3 rounded-2xl border border-[#FFD700]/12 bg-[linear-gradient(160deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]">
             <div className="flex items-center gap-2 mb-2">
               <Icon size={12} style={{ color }} />
               <span className="font-mono text-[10px] text-white/40 tracking-wider uppercase">{label}</span>

@@ -22,14 +22,10 @@ const router: IRouter = Router();
 const MIN_BET_TC = 50;
 const RESOLVE_TOLERANCE_SEC = 0;
 
-// Allowed round durations and their base GC payout multipliers.
-// VIP users receive a +0.1 bonus on top of the base multiplier.
+// Koinara now runs a single 60s round with a fixed 1.85x base multiplier.
+// VIP users still receive an additional +0.1 multiplier bonus.
 const DURATION_TIERS: Record<number, number> = {
-  6: 1.7,
-  15: 2.0,
-  30: 2.3,
-  60: 2.8,
-  300: 3.5,
+  60: 1.85,
 };
 const VIP_MULTIPLIER_BONUS = 0.1;
 const MULTIPLIER_TOLERANCE = 0.001;
@@ -54,7 +50,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
   const multiplierProvided = typeof rawMultiplier === "number";
 
   if (!(requestedDuration in DURATION_TIERS)) {
-    res.status(400).json({ error: "Invalid duration. Allowed: 6, 15, 30, 60, 300." });
+    res.status(400).json({ error: "Invalid duration. Allowed: 60." });
     return;
   }
 

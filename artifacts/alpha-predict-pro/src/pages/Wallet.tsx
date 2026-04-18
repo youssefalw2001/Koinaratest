@@ -15,6 +15,7 @@ import {
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+import { getVipCountdownLabel } from "@/lib/vipExpiry";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const FREE_GC_PER_USD = 4000;
@@ -41,12 +42,7 @@ function useVipCountdown(vipExpiresAt?: string | null) {
   useEffect(() => {
     if (!vipExpiresAt) return;
     const update = () => {
-      const diff = new Date(vipExpiresAt).getTime() - Date.now();
-      if (diff <= 0) { setRemaining(null); return; }
-      const d = Math.floor(diff / 86400000);
-      const h = Math.floor((diff % 86400000) / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      setRemaining(d > 0 ? `${d}d ${h}h` : `${h}h ${m}m`);
+      setRemaining(getVipCountdownLabel(vipExpiresAt));
     };
     update();
     const timer = setInterval(update, 60000);
@@ -224,11 +220,11 @@ export default function WalletPage() {
   const canWithdraw = gcAmount >= minGc && !overBalance && usdtWallet.length >= 10 && !needsVerification;
 
   return (
-    <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
+    <div className="flex flex-col min-h-screen bg-transparent p-4 pb-8">
       {/* Header */}
-      <div className="flex items-center gap-2 mb-6">
-        <Wallet size={16} className="text-[#f5c518] drop-shadow-[0_0_6px_#f5c518]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Koinara Wallet</span>
+      <div className="flex items-center gap-2 mb-5">
+        <Wallet size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
+        <span className="font-mono text-xs text-white/65 tracking-[0.16em] uppercase">Withdrawal Vault</span>
       </div>
 
       {/* VIP Activated Toast */}
@@ -238,7 +234,7 @@ export default function WalletPage() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mb-4 p-4 rounded-xl border-2 border-[#f5c518] bg-[#f5c518]/10 flex items-center gap-3"
+            className="mb-4 p-4 rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 flex items-center gap-3 app-card"
           >
             <Crown size={20} className="text-[#f5c518]" />
             <div>
@@ -252,42 +248,42 @@ export default function WalletPage() {
       {/* VIP Status Banner */}
       {vipActive && vipCountdown && (
         <div
-          className="flex items-center gap-3 p-3 rounded-xl border-2 border-[#f5c518]/60 bg-[#f5c518]/6 mb-4"
-          style={{ boxShadow: "0 0 20px rgba(245,197,24,0.15)" }}
+          className="flex items-center gap-3 p-3 rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/8 mb-4 app-card"
+          style={{ boxShadow: "0 0 20px rgba(255,215,0,0.15)" }}
         >
-          <Crown size={18} className="text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" />
+          <Crown size={18} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
           <div className="flex-1">
-            <div className="font-mono text-xs font-black text-[#f5c518]">VIP ACTIVE</div>
+            <div className="font-mono text-xs font-black text-[#FFD700]">VIP ACTIVE</div>
             <div className="font-mono text-[10px] text-white/40">Expires in {vipCountdown}</div>
           </div>
-          <Clock size={12} className="text-[#f5c518]/60" />
+          <Clock size={12} className="text-[#FFD700]/60" />
         </div>
       )}
 
       {/* Balance Cards */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="p-4 rounded-2xl border-2" style={{
-          borderColor: "#f5c518",
-          background: "rgba(245,197,24,0.05)",
-          boxShadow: "0 0 25px rgba(245,197,24,0.2)",
+        <div className="p-4 rounded-2xl border app-card" style={{
+          borderColor: "rgba(255,215,0,0.35)",
+          background: "linear-gradient(165deg, rgba(255,215,0,0.09), rgba(10,12,18,0.88))",
+          boxShadow: "0 0 25px rgba(255,215,0,0.22)",
         }}>
           <div className="font-mono text-[9px] text-white/40 tracking-widest mb-1">GOLD COINS</div>
           <div className="flex items-center gap-1 mb-1">
             <span className="text-lg">🪙</span>
-            <span className="font-mono text-2xl font-black text-[#f5c518]">{goldCoins.toLocaleString()}</span>
+            <span className="font-mono text-2xl font-black text-[#FFD700]">{goldCoins.toLocaleString()}</span>
           </div>
           <div className="font-mono text-[10px] text-white/40">≈ ${(goldCoins / gcPerUsd).toFixed(2)} USD</div>
           <div className="font-mono text-[9px] text-white/25 mt-1">Withdrawable</div>
         </div>
-        <div className="p-4 rounded-2xl border-2" style={{
-          borderColor: "#00f0ff",
-          background: "rgba(0,240,255,0.04)",
-          boxShadow: "0 0 20px rgba(0,240,255,0.15)",
+        <div className="p-4 rounded-2xl border app-card" style={{
+          borderColor: "rgba(77,163,255,0.34)",
+          background: "linear-gradient(165deg, rgba(77,163,255,0.08), rgba(10,12,18,0.88))",
+          boxShadow: "0 0 20px rgba(77,163,255,0.2)",
         }}>
           <div className="font-mono text-[9px] text-white/40 tracking-widest mb-1">TRADE CREDITS</div>
           <div className="flex items-center gap-1 mb-1">
             <span className="text-lg">🔵</span>
-            <span className="font-mono text-2xl font-black text-[#00f0ff]">{tradeCredits.toLocaleString()}</span>
+            <span className="font-mono text-2xl font-black text-[#8BC3FF]">{tradeCredits.toLocaleString()}</span>
           </div>
           <div className="font-mono text-[10px] text-white/40">Bet &amp; Earn</div>
           <div className="font-mono text-[9px] text-white/25 mt-1">Non-withdrawable</div>
@@ -295,9 +291,9 @@ export default function WalletPage() {
       </div>
 
       {/* Rate Info */}
-      <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-white/10 bg-white/[0.02] mb-4">
+      <div className="flex items-center justify-between px-3 py-2 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/6 mb-4">
         <div className="flex items-center gap-2">
-          <Coins size={13} className="text-[#f5c518]" />
+          <Coins size={13} className="text-[#FFD700]" />
           <span className="font-mono text-[10px] text-white/50">
             {vipActive ? "VIP Rate: 2,500 GC = $1" : "Free Rate: 4,000 GC = $1"}
           </span>
@@ -305,7 +301,7 @@ export default function WalletPage() {
         {!vipActive && (
           <button
             onClick={() => setShowVipModal(true)}
-            className="font-mono text-[9px] font-black text-[#f5c518] border border-[#f5c518]/40 px-2 py-1 rounded"
+            className="pressable font-mono text-[9px] font-black text-[#FFD700] border border-[#FFD700]/45 px-2 py-1 rounded-full"
           >
             UPGRADE VIP
           </button>
@@ -697,16 +693,20 @@ export default function WalletPage() {
             onClick={() => setShowVipModal(false)}
           >
             <motion.div
-              initial={{ y: 200 }}
-              animate={{ y: 0 }}
-              exit={{ y: 200 }}
-              className="w-full max-w-[420px] p-6 rounded-t-3xl border-t-2 border-[#f5c518] bg-black"
-              style={{ boxShadow: "0 -20px 60px rgba(245,197,24,0.3)" }}
+              initial={{ y: 240, opacity: 0.8 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 240, opacity: 0.8 }}
+              transition={{ type: "spring", stiffness: 260, damping: 28 }}
+              className="w-full max-w-[420px] p-6 rounded-t-3xl border-t-2 border-[#FFD700]/65"
+              style={{
+                background: "radial-gradient(120% 120% at 50% 0%, rgba(255,215,0,0.12), rgba(10,10,15,0.98) 42%, #0a0a0f 100%)",
+                boxShadow: "0 -28px 90px rgba(255,215,0,0.24)",
+              }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex flex-col items-center text-center">
-                <Crown size={36} className="text-[#f5c518] mb-2 drop-shadow-[0_0_15px_#f5c518]" />
-                <div className="font-mono text-xl font-black text-white mb-1">ACTIVATE VIP</div>
+                <Crown size={36} className="text-[#FFD700] mb-2 drop-shadow-[0_0_16px_#FFD700]" />
+                <div className="font-mono text-xl font-black text-white mb-1 tracking-[0.12em]">ACTIVATE VIP</div>
                 <div className="font-mono text-xs text-white/40 mb-4">
                   $4.99/wk · $14.99/mo · cancel anytime
                 </div>
@@ -723,8 +723,8 @@ export default function WalletPage() {
                     "6,000 GC daily cap",
                     "25 ads/day",
                   ].map(perk => (
-                    <div key={perk} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/5">
-                      <CheckCircle size={10} className="text-[#f5c518] shrink-0" />
+                    <div key={perk} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#FFD700]/25 bg-[#FFD700]/8">
+                      <CheckCircle size={10} className="text-[#FFD700] shrink-0" />
                       <span className="font-mono text-[10px] text-white text-left">{perk}</span>
                     </div>
                   ))}
@@ -734,7 +734,7 @@ export default function WalletPage() {
                 <div className="flex w-full gap-2 mb-4">
                   <button
                     onClick={() => setVipTab("tc")}
-                    className={`flex-1 py-2 rounded-lg font-mono text-xs font-bold border transition-all ${
+                    className={`flex-1 py-2 rounded-xl font-mono text-xs font-bold border transition-all ${
                       vipTab === "tc"
                         ? "border-[#00f0ff] text-[#00f0ff] bg-[#00f0ff]/15"
                         : "border-white/10 text-white/40"
@@ -744,9 +744,9 @@ export default function WalletPage() {
                   </button>
                   <button
                     onClick={() => setVipTab("ton")}
-                    className={`flex-1 py-2 rounded-lg font-mono text-xs font-bold border transition-all ${
+                    className={`flex-1 py-2 rounded-xl font-mono text-xs font-bold border transition-all ${
                       vipTab === "ton"
-                        ? "border-[#f5c518] text-[#f5c518] bg-[#f5c518]/15"
+                        ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/15"
                         : "border-white/10 text-white/40"
                     }`}
                   >
@@ -757,7 +757,7 @@ export default function WalletPage() {
                 {vipTab === "tc" && (
                   <div className="w-full">
                     {tradeCredits < VIP_FEE_TC && (
-                      <div className="flex items-center gap-2 mb-3 p-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10">
+                      <div className="flex items-center gap-2 mb-3 p-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
                         <AlertTriangle size={12} className="text-yellow-500" />
                         <span className="font-mono text-[10px] text-yellow-500">
                           Need {(VIP_FEE_TC - tradeCredits).toLocaleString()} more TC
@@ -767,11 +767,11 @@ export default function WalletPage() {
                     <button
                       onClick={handleVipUpgrade}
                       disabled={tradeCredits < VIP_FEE_TC || upgradeToVip.isPending}
-                      className="w-full py-4 rounded-xl border-2 border-[#00f0ff] font-mono text-base font-black text-[#00f0ff] bg-[#00f0ff]/10 disabled:opacity-40"
+                      className="w-full py-4 rounded-2xl border-2 border-[#00f0ff] font-mono text-base font-black text-[#00f0ff] bg-[#00f0ff]/10 disabled:opacity-40 pressable"
                       style={{ boxShadow: tradeCredits >= VIP_FEE_TC ? "0 0 20px rgba(0,240,255,0.3)" : "none" }}
                       data-testid="btn-upgrade-tc"
                     >
-                      {upgradeToVip.isPending ? "ACTIVATING..." : `PAY ${VIP_FEE_TC} TC — 7 DAYS`}
+                {upgradeToVip.isPending ? "ACTIVATING..." : `PAY ${VIP_FEE_TC} TC — 7 DAYS`}
                     </button>
                   </div>
                 )}
@@ -781,8 +781,8 @@ export default function WalletPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setTonPlan("weekly")}
-                        className={`flex-1 p-3 rounded-xl border-2 text-left transition-all ${
-                          tonPlan === "weekly" ? "border-[#f5c518] bg-[#f5c518]/10" : "border-white/10 bg-white/[0.02]"
+                        className={`flex-1 p-3 rounded-2xl border-2 text-left transition-all ${
+                          tonPlan === "weekly" ? "border-[#FFD700] bg-[#FFD700]/10" : "border-white/10 bg-white/[0.02]"
                         }`}
                       >
                         <div className="font-mono text-xs font-black text-white">7 Days</div>
@@ -790,11 +790,11 @@ export default function WalletPage() {
                       </button>
                       <button
                         onClick={() => setTonPlan("monthly")}
-                        className={`flex-1 p-3 rounded-xl border-2 text-left relative transition-all ${
-                          tonPlan === "monthly" ? "border-[#f5c518] bg-[#f5c518]/10" : "border-white/10 bg-white/[0.02]"
+                        className={`flex-1 p-3 rounded-2xl border-2 text-left relative transition-all ${
+                          tonPlan === "monthly" ? "border-[#FFD700] bg-[#FFD700]/10" : "border-white/10 bg-white/[0.02]"
                         }`}
                       >
-                        <div className="absolute -top-2 right-2 bg-[#ff2d78] text-white font-mono text-[8px] px-1.5 py-0.5 rounded font-black">BEST VALUE</div>
+                        <div className="absolute -top-2 right-2 bg-[#FFD700] text-black font-mono text-[8px] px-1.5 py-0.5 rounded-full font-black">BEST VALUE</div>
                         <div className="font-mono text-xs font-black text-white">30 Days</div>
                         <div className="font-mono text-[10px] text-white/40">1.5 TON · $14.99/month</div>
                       </button>
@@ -813,8 +813,11 @@ export default function WalletPage() {
                       <button
                         onClick={handleTonVip}
                         disabled={tonPending || upgradeToVip.isPending}
-                        className="w-full py-4 rounded-xl border-2 border-[#f5c518] font-mono text-base font-black text-[#f5c518] bg-[#f5c518]/15 disabled:opacity-40"
-                        style={{ boxShadow: "0 0 20px rgba(245,197,24,0.3)" }}
+                        className="w-full py-4 rounded-2xl border-2 border-[#FFD700] font-mono text-base font-black text-black disabled:opacity-40 pressable"
+                        style={{
+                          background: "linear-gradient(135deg, #FFE88A, #FFD700 45%, #E1AF00)",
+                          boxShadow: "0 0 22px rgba(255,215,0,0.38)",
+                        }}
                         data-testid="btn-upgrade-ton"
                       >
                         {tonPending ? "WAITING FOR TX..." : `PAY ${tonPlan === "weekly" ? "0.5" : "1.5"} TON — ${tonPlan === "weekly" ? "7" : "30"} DAYS`}

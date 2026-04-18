@@ -129,17 +129,13 @@ export const CreatePredictionBodyDirection = {
 } as const;
 
 /**
- * Round duration in seconds. Allowed: 6, 15, 30, 60, 300.
+ * Round duration in seconds. Allowed: 60.
  */
 export type CreatePredictionBodyDuration =
   (typeof CreatePredictionBodyDuration)[keyof typeof CreatePredictionBodyDuration];
 
 export const CreatePredictionBodyDuration = {
-  NUMBER_6: 6,
-  NUMBER_15: 15,
-  NUMBER_30: 30,
   NUMBER_60: 60,
-  NUMBER_300: 300,
 } as const;
 
 export interface CreatePredictionBody {
@@ -147,7 +143,7 @@ export interface CreatePredictionBody {
   direction: CreatePredictionBodyDirection;
   amount: number;
   entryPrice: number;
-  /** Round duration in seconds. Allowed: 6, 15, 30, 60, 300. */
+  /** Round duration in seconds. Allowed: 60. */
   duration?: CreatePredictionBodyDuration;
   /** GC payout multiplier for the selected tier (+ optional VIP bonus). Validated server-side against the duration. */
   multiplier?: number;
@@ -375,7 +371,8 @@ export type PurchaseGemResponseMysteryReward = {
 export interface PurchaseGemResponse {
   success: boolean;
   gemType: string;
-  tcSpent: number;
+  gcSpent: number;
+  newGcBalance: number;
   newTcBalance: number;
   /** @nullable */
   mysteryReward?: PurchaseGemResponseMysteryReward;
