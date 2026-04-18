@@ -68,4 +68,4 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Show deployed URL
-        run: echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"
+        run: 'echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"'
