@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - main
+      - cursor/**
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to deploy (leave as-is for main)"
+        required: true
+        default: "main"
 
 permissions:
   contents: read
@@ -24,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,3 +66,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Show deployed URL
+        run: echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"
