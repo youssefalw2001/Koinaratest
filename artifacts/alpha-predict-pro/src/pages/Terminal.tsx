@@ -27,6 +27,9 @@ import { isVipActive } from "@/lib/vipActive";
 import { getVipCountdownLabel } from "@/lib/vipExpiry";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { formatGcUsd } from "@/lib/format";
+import { GoldCoinFlight } from "@/components/particles/GoldCoinFlight";
+import { ConfettiBurst } from "@/components/particles/ConfettiBurst";
+import { PriceRoll } from "@/components/particles/PriceRoll";
 import { useQueryClient } from "@tanstack/react-query";
 
 const MIN_BET = 50;
@@ -442,6 +445,28 @@ export default function Terminal() {
             setTimeout(() => setShowCloseCall(false), 4500);
           }
 
+          if (result.won) {
+            const source = document.getElementById("trade-result-root");
+            const target = document.getElementById("gc-balance-pill");
+            if (source && target) {
+              const s = source.getBoundingClientRect();
+              const t = target.getBoundingClientRect();
+              const startX = s.left + s.width / 2;
+              const startY = s.top + s.height / 2;
+              const endX = t.left + t.width / 2;
+              const endY = t.top + t.height / 2;
+              const idBase = `${result.id}-${Date.now()}`;
+              const spawned = Array.from({ length: 10 }, (_, i) => ({
+                id: `${idBase}-${i}`,
+                startX: startX + (Math.random() - 0.5) * 16,
+                startY: startY + (Math.random() - 0.5) * 12,
+                endX: endX + (Math.random() - 0.5) * 16,
+                endY: endY + (Math.random() - 0.5) * 14,
+              }));
+              setCoinFlights((prev) => [...prev, ...spawned]);
+            }
+          }
+
           setShowResult(result);
           setActivePrediction(null);
           queryClient.invalidateQueries({
@@ -559,11 +584,30 @@ export default function Terminal() {
 
   // Animated payout counter for the WIN overlay (0 → final over ~600ms).
   const [animatedPayout, setAnimatedPayout] = useState(0);
+  const [displayPayout, setDisplayPayout] = useState(false);
+  const [showWinBurst, setShowWinBurst] = useState(false);
+  const [lossShake, setLossShake] = useState(false);
+  const [coinFlights, setCoinFlights] = useState<
+    Array<{ id: string; startX: number; startY: number; endX: number; endY: number }>
+  >([]);
   useEffect(() => {
-    if (!showResult || !showResult.won) {
+    if (!showResult) {
       setAnimatedPayout(0);
       return;
     }
+
+    if (!showResult.won) {
+      setAnimatedPayout(0);
+      setShowWinBurst(false);
+      setLossShake(true);
+      const t = setTimeout(() => setLossShake(false), 420);
+      return () => clearTimeout(t);
+    }
+
+    setShowWinBurst(true);
+    setDisplayPayout(false);
+    const burstTimer = setTimeout(() => setShowWinBurst(false), 620);
+    const revealTimer = setTimeout(() => setDisplayPayout(true), 460);
     const target = showResult.payout;
     const start = performance.now();
     const duration = 600;
@@ -577,7 +621,11 @@ export default function Terminal() {
       else setAnimatedPayout(target);
     };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(burstTimer);
+      clearTimeout(revealTimer);
+    };
   }, [showResult]);
 
   // Reset the micro tick-direction indicator shortly after each price update
@@ -766,17 +814,7 @@ export default function Terminal() {
           <span className="font-mono text-[10px] text-white/40 tracking-[0.22em] mb-1 label-caps">
             BTC/USDT LIVE
           </span>
-          <motion.div
-            key={Math.floor(price)}
-            initial={{ scale: 1.04 }}
-            animate={{ scale: 1 }}
-            className="font-mono text-[42px] font-black tracking-tight"
-            style={{ color: priceColor, filter: `drop-shadow(0 0 14px ${priceColor})` }}
-          >
-            {price > 0
-              ? `$${price.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
-              : "CONNECTING..."}
-          </motion.div>
+          <PriceRoll value={price} color={priceColor} />
           <AnimatePresence mode="wait">
             {tickDir && (
               <motion.div
@@ -1178,8 +1216,9 @@ export default function Terminal() {
           >
             <motion.div
               initial={{ scale: 0.88, y: 24 }}
-              animate={{ scale: 1, y: 0 }}
+              animate={lossShake && !showResult.won ? { scale: 1, y: [0, -3, 3, -2, 2, 0], x: [0, -4, 4, -3, 3, 0] } : { scale: 1, y: 0, x: 0 }}
               exit={{ scale: 0.88, y: -24 }}
+              transition={lossShake && !showResult.won ? { duration: 0.36, ease: "easeInOut" } : undefined}
               className="relative w-full max-w-xs rounded-2xl border-2 overflow-hidden"
               style={{
                 borderColor: showResult.won ? "#00f0ff" : "#ff2d78",
@@ -1199,6 +1238,7 @@ export default function Terminal() {
               </button>
 
               <div className="p-6 text-center">
+                <ConfettiBurst active={showResult.won && showWinBurst} count={65} />
                 <div
                   className="font-mono text-5xl font-black mb-2"
                   style={{ color: showResult.won ? "#00f0ff" : "#ff2d78" }}
@@ -1207,17 +1247,27 @@ export default function Terminal() {
                 </div>
                 {showResult.won ? (
                   <>
-                    <motion.div
-                      key={showResult.id}
-                      animate={{ filter: ["blur(0px)", "blur(0.6px)", "blur(0px)"] }}
-                      transition={{ duration: 0.35, times: [0, 0.5, 1] }}
-                      className="font-mono text-2xl font-bold text-[#f5c518]"
-                    >
-                      +{animatedPayout.toLocaleString()} 🪙 GC
-                    </motion.div>
-                    <div className="font-mono text-[10px] text-white/40 mt-1">
-                      ≈ {formatGcUsd(showResult.payout)} · Gold Coins added to balance
-                    </div>
+                    {displayPayout && (
+                      <motion.div
+                        key={showResult.id}
+                        animate={{ filter: ["blur(0px)", "blur(0.6px)", "blur(0px)"] }}
+                        transition={{ duration: 0.35, times: [0, 0.5, 1] }}
+                        className="font-mono text-2xl font-bold text-[#f5c518]"
+                        id="trade-result-gc-source"
+                      >
+                        +{animatedPayout.toLocaleString()} 🪙 GC
+                      </motion.div>
+                    )}
+                    {displayPayout && (
+                      <div className="font-mono text-[10px] text-white/40 mt-1">
+                        ≈ {formatGcUsd(showResult.payout)} · Gold Coins added to balance
+                      </div>
+                    )}
+                    {!displayPayout && (
+                      <div className="font-mono text-[11px] text-[#FFD700]/70 mt-2">
+                        Processing payout...
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1344,6 +1394,17 @@ export default function Terminal() {
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {coinFlights.map((flight) => (
+          <GoldCoinFlight
+            key={flight.id}
+            {...flight}
+            onDone={() =>
+              setCoinFlights((prev) => prev.filter((item) => item.id !== flight.id))
+            }
+          />
+        ))}
       </AnimatePresence>
     </div>
   );

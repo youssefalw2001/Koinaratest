@@ -16,6 +16,7 @@ import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
 import { getVipCountdownLabel } from "@/lib/vipExpiry";
+import { ConfettiBurst } from "@/components/particles/ConfettiBurst";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const FREE_GC_PER_USD = 4000;
@@ -87,6 +88,7 @@ export default function WalletPage() {
   const [verifyPending, setVerifyPending]   = useState(false);
   const [verifyDone, setVerifyDone]         = useState(false);
   const [copiedTxHash, setCopiedTxHash]     = useState<number | null>(null);
+  const [showWithdrawConfetti, setShowWithdrawConfetti] = useState(false);
 
   const vipCountdown = useVipCountdown(user?.vipExpiresAt);
 
@@ -219,13 +221,37 @@ export default function WalletPage() {
 
   const canWithdraw = gcAmount >= minGc && !overBalance && usdtWallet.length >= 10 && !needsVerification;
 
+  useEffect(() => {
+    if (!withdrawSuccess || !user) return;
+    const key = `koinara:firstWithdrawalCelebrated:${user.telegramId}`;
+    let alreadyCelebrated = false;
+    try {
+      alreadyCelebrated = localStorage.getItem(key) === "1";
+    } catch {
+      alreadyCelebrated = false;
+    }
+    if (!alreadyCelebrated) {
+      setShowWithdrawConfetti(true);
+      try {
+        localStorage.setItem(key, "1");
+      } catch {
+        // ignore storage failures
+      }
+      const timer = setTimeout(() => setShowWithdrawConfetti(false), 1200);
+      return () => clearTimeout(timer);
+    }
+    return;
+  }, [withdrawSuccess, user]);
+
   return (
-    <div className="flex flex-col min-h-screen bg-transparent p-4 pb-8">
+    <div className="relative flex flex-col min-h-screen bg-transparent p-4 pb-8">
       {/* Header */}
       <div className="flex items-center gap-2 mb-5">
         <Wallet size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
         <span className="font-mono text-xs text-white/65 tracking-[0.16em] uppercase">Withdrawal Vault</span>
       </div>
+
+      <ConfettiBurst active={showWithdrawConfetti} onComplete={() => setShowWithdrawConfetti(false)} />
 
       {/* VIP Activated Toast */}
       <AnimatePresence>

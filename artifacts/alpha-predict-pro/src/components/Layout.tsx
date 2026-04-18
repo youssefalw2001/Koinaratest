@@ -115,7 +115,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </span>
               <span className="font-mono text-[8px] text-[#8BC3FF]/70">TC</span>
             </div>
-            <div className="inline-flex items-center gap-1 rounded-full border border-[#FFD700]/35 bg-[#FFD700]/10 px-2.5 py-1">
+            <div
+              id="gc-balance-pill"
+              className="inline-flex items-center gap-1 rounded-full border border-[#FFD700]/35 bg-[#FFD700]/10 px-2.5 py-1"
+            >
               <span className="text-[10px]">🟡</span>
               <span className="font-mono text-[10px] font-bold text-[#FFD700] tabular-nums">
                 {(user.goldCoins ?? 0).toLocaleString()}
