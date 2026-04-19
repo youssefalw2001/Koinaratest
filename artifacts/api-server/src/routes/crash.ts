@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, crashBetsTable, crashRoundsTable, usersTable } from "@workspace/db";
 import {
@@ -15,8 +15,70 @@ const router: IRouter = Router();
 
 const MIN_BET_TC = 25;
 const MAX_BET_TC = 5000;
+const STREAM_TICK_MS = 750;
 
 type CrashRoundRow = typeof crashRoundsTable.$inferSelect;
+type CrashStatePayload = {
+  houseEdge: number;
+  cycleMs: number;
+  round: {
+    id: number;
+    phase: "betting" | "running" | "crashed";
+    bettingOpensAt: string;
+    bettingClosesAt: string;
+    runningStartedAt: string;
+    crashAt: string;
+    crashMultiplier: number;
+    seedHash: string;
+    revealedSeed: string | null;
+  };
+  live: {
+    elapsedSec: number;
+    multiplier: number;
+    crashed: boolean;
+  };
+};
+
+type SlidingWindowEntry = { count: number; resetAt: number };
+
+const streamSubscribers = new Set<Response>();
+let streamLoop: NodeJS.Timeout | null = null;
+let streamTickInFlight = false;
+
+function getClientKey(req: Request): string {
+  const forwardedRaw = req.headers["x-forwarded-for"];
+  const forwarded = Array.isArray(forwardedRaw)
+    ? forwardedRaw[0]
+    : forwardedRaw?.split(",")[0]?.trim();
+  return forwarded || req.ip || "unknown";
+}
+
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  const windows = new Map<string, SlidingWindowEntry>();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const now = Date.now();
+    const key = `${getClientKey(req)}:${req.path}`;
+    const current = windows.get(key);
+    if (!current || now > current.resetAt) {
+      windows.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    if (current.count >= maxRequests) {
+      const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+      res.setHeader("retry-after", retryAfter.toString());
+      res.status(429).json({ error: "Too many requests. Please slow down." });
+      return;
+    }
+
+    current.count += 1;
+    windows.set(key, current);
+    next();
+  };
+}
+
+const crashActionRateLimiter = createRateLimiter(10_000, 12);
 
 function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "running" | "crashed" {
   const bettingClosesAtMs = new Date(round.bettingClosesAt).getTime();
@@ -88,7 +150,7 @@ async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow>
   return updated ?? round;
 }
 
-router.get("/crash/state", async (_req, res): Promise<void> => {
+async function buildCrashStatePayload(): Promise<CrashStatePayload> {
   const round = await ensureRoundForNow();
   const settledRound = await settleRoundIfNeeded(round);
 
@@ -102,7 +164,7 @@ router.get("/crash/state", async (_req, res): Promise<void> => {
     await db.update(crashRoundsTable).set({ phase }).where(eq(crashRoundsTable.id, settledRound.id));
   }
 
-  res.json({
+  return {
     houseEdge: CRASH_HOUSE_EDGE,
     cycleMs: getRoundCycleMs(),
     round: {
@@ -121,10 +183,72 @@ router.get("/crash/state", async (_req, res): Promise<void> => {
       multiplier: liveMultiplier,
       crashed: phase === "crashed",
     },
+  };
+}
+
+function ensureStreamLoop(): void {
+  if (streamLoop) return;
+  streamLoop = setInterval(() => {
+    void broadcastCrashState();
+  }, STREAM_TICK_MS);
+}
+
+function stopStreamLoopIfIdle(): void {
+  if (streamSubscribers.size > 0) return;
+  if (!streamLoop) return;
+  clearInterval(streamLoop);
+  streamLoop = null;
+}
+
+async function broadcastCrashState(): Promise<void> {
+  if (streamTickInFlight) return;
+  if (streamSubscribers.size === 0) {
+    stopStreamLoopIfIdle();
+    return;
+  }
+  streamTickInFlight = true;
+  try {
+    const payload = await buildCrashStatePayload();
+    const frame = `event: state\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const res of [...streamSubscribers]) {
+      try {
+        res.write(frame);
+      } catch {
+        streamSubscribers.delete(res);
+      }
+    }
+  } finally {
+    streamTickInFlight = false;
+    stopStreamLoopIfIdle();
+  }
+}
+
+router.get("/crash/state", async (_req, res): Promise<void> => {
+  const payload = await buildCrashStatePayload();
+  res.json(payload);
+});
+
+router.get("/crash/stream", async (req, res): Promise<void> => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  streamSubscribers.add(res);
+  res.write("retry: 1500\n\n");
+  void broadcastCrashState();
+  ensureStreamLoop();
+
+  req.on("close", () => {
+    streamSubscribers.delete(res);
+    stopStreamLoopIfIdle();
   });
 });
 
-router.post("/crash/bet", async (req, res): Promise<void> => {
+router.post("/crash/bet", crashActionRateLimiter, async (req, res): Promise<void> => {
   const telegramId = String(req.body?.telegramId ?? "").trim();
   const amountTc = Number(req.body?.amountTc);
 
@@ -187,7 +311,7 @@ router.post("/crash/bet", async (req, res): Promise<void> => {
   res.status(201).json(serializeRow(bet as unknown as Record<string, unknown>));
 });
 
-router.post("/crash/cashout", async (req, res): Promise<void> => {
+router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<void> => {
   const telegramId = String(req.body?.telegramId ?? "").trim();
   const roundId = Number(req.body?.roundId);
 

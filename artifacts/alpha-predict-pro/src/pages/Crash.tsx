@@ -112,6 +112,10 @@ export default function Crash() {
   const [notice, setNotice] = useState<string | null>(null);
   const [liveNow, setLiveNow] = useState(() => Date.now());
 
+  const applyStatePayload = useCallback((stateJson: CrashStateResponse) => {
+    setState({ ...stateJson, round: normalizeRound(stateJson.round) });
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       const [stateRes, historyRes, betsRes] = await Promise.all([
@@ -126,7 +130,7 @@ export default function Crash() {
       }
 
       const stateJson = (await stateRes.json()) as CrashStateResponse;
-      setState({ ...stateJson, round: normalizeRound(stateJson.round) });
+      applyStatePayload(stateJson);
 
       if (historyRes.ok) {
         const historyJson = (await historyRes.json()) as CrashHistoryRow[];
@@ -148,14 +152,57 @@ export default function Crash() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [applyStatePayload, user]);
 
   useEffect(() => {
     void loadData();
-    const id = setInterval(() => {
-      void loadData();
-    }, 1000);
-    return () => clearInterval(id);
+    const streamUrl = `${apiUrl("/api/crash/stream")}${user ? `?telegramId=${encodeURIComponent(user.telegramId)}` : ""}`;
+    const eventSource = new EventSource(streamUrl);
+    let streamActive = false;
+
+    eventSource.onopen = () => {
+      streamActive = true;
+      setError(null);
+    };
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          state: CrashStateResponse;
+          history?: CrashHistoryRow[];
+          bets?: CrashBetRow[];
+        };
+        applyStatePayload(payload.state);
+        if (Array.isArray(payload.history)) {
+          setHistory(
+            payload.history.map((row) => ({
+              ...row,
+              status: row.status ?? row.phase ?? "crashed",
+            })),
+          );
+        }
+        if (Array.isArray(payload.bets)) {
+          setMyBets(payload.bets);
+        }
+      } catch {
+        // Ignore malformed stream chunk and keep stream alive.
+      } finally {
+        setLoading(false);
+      }
+    };
+    eventSource.onerror = () => {
+      streamActive = false;
+    };
+
+    const fallbackPoll = setInterval(() => {
+      if (!streamActive) {
+        void loadData();
+      }
+    }, 2500);
+
+    return () => {
+      clearInterval(fallbackPoll);
+      eventSource.close();
+    };
   }, [loadData]);
 
   useEffect(() => {
