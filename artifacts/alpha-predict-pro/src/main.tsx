@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import "./polyfills";
 import { setExtraHeaders } from "@workspace/api-client-react";
 import App from "./App";
 import "./index.css";

@@ -183,10 +183,10 @@ export default function Earn() {
       </AnimatePresence>
 
       <div className="flex items-center gap-2 mb-2">
-        <Gift size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Earn Center</span>
+        <Gift size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
+        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Earn Center</span>
       </div>
-      <h1 className="font-mono text-2xl font-black text-white mb-1">Koinara Quests</h1>
+      <h1 className="text-2xl font-black text-white mb-1">Koinara Quests</h1>
       <p className="font-mono text-xs text-white/40 mb-4">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
       {/* Tab switcher */}

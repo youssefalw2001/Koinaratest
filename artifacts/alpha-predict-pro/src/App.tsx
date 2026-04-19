@@ -14,6 +14,7 @@ import { useLocation } from "wouter";
 import { useClaimDailyReward, getGetUserQueryKey } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
+import { LanguageProvider } from "@/lib/language";
 
 // Pages
 import Terminal from "./pages/Terminal";
@@ -283,14 +284,16 @@ function App() {
   return (
     <TonConnectUIProvider manifestUrl={`${window.location.origin}${import.meta.env.BASE_URL}tonconnect-manifest.json`}>
       <QueryClientProvider client={queryClient}>
-        <TelegramProvider>
-          <TooltipProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
-            </WouterRouter>
-            <Toaster />
-          </TooltipProvider>
-        </TelegramProvider>
+        <LanguageProvider>
+          <TelegramProvider>
+            <TooltipProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <Router />
+              </WouterRouter>
+              <Toaster />
+            </TooltipProvider>
+          </TelegramProvider>
+        </LanguageProvider>
       </QueryClientProvider>
     </TonConnectUIProvider>
   );

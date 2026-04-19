@@ -1976,7 +1976,7 @@ export function useGetReferralStats<
 }
 
 /**
- * @summary Purchase a gem powerup with TC
+ * @summary Purchase a gem powerup with GC
  */
 export const getPurchaseGemUrl = () => {
   return `/api/gems/purchase`;
@@ -2039,7 +2039,7 @@ export type PurchaseGemMutationBody = BodyType<PurchaseGemBody>;
 export type PurchaseGemMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Purchase a gem powerup with TC
+ * @summary Purchase a gem powerup with GC
  */
 export const usePurchaseGem = <
   TError = ErrorType<ErrorResponse>,
