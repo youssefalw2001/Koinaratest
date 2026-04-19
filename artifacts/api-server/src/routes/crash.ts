@@ -21,8 +21,12 @@ type CrashRoundRow = typeof crashRoundsTable.$inferSelect;
 
 function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "running" | "crashed" {
   const bettingClosesAtMs = new Date(round.bettingClosesAt).getTime();
+  const runningStartedAtMs = new Date(round.runningStartedAt).getTime();
   const crashAtMs = new Date(round.crashAt).getTime();
+  const elapsedRunningSec = Math.max(0, (nowMs - runningStartedAtMs) / 1000);
+  const liveMultiplier = getCrashMultiplierAtElapsedSec(elapsedRunningSec);
   if (round.phase === "crashed" || nowMs >= crashAtMs) return "crashed";
+  if (liveMultiplier >= round.crashMultiplier) return "crashed";
   if (nowMs >= bettingClosesAtMs) return "running";
   return "betting";
 }
@@ -92,7 +96,8 @@ router.get("/crash/state", async (_req, res): Promise<void> => {
   const nowMs = Date.now();
   const phase = getRoundPhase(settledRound, nowMs);
   const elapsedSec = Math.max(0, (nowMs - new Date(settledRound.runningStartedAt).getTime()) / 1000);
-  const liveMultiplier = phase === "crashed" ? settledRound.crashMultiplier : getCrashMultiplierAtElapsedSec(elapsedSec);
+  const projectedMultiplier = getCrashMultiplierAtElapsedSec(elapsedSec);
+  const liveMultiplier = phase === "crashed" ? settledRound.crashMultiplier : projectedMultiplier;
 
   if (phase !== settledRound.phase) {
     await db.update(crashRoundsTable).set({ phase }).where(eq(crashRoundsTable.id, settledRound.id));

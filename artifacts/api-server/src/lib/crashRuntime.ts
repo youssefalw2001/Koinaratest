@@ -40,10 +40,14 @@ export function createRoundFromStart(start: Date) {
   const bettingOpensAt = new Date(start.getTime());
   const bettingClosesAt = new Date(start.getTime() + BETTING_PHASE_MS);
   const runningStartedAt = new Date(bettingClosesAt.getTime());
-  const crashAt = new Date(start.getTime() + roundCycleMs);
   const revealedSeed = randomSeedHex();
   const seedHash = sha256Hex(revealedSeed);
   const crashMultiplier = calculateCrashPoint(revealedSeed);
+  const crashDelaySec = getElapsedSecForMultiplier(crashMultiplier);
+  const crashAt = new Date(
+    runningStartedAt.getTime() +
+      Math.round(Math.min(crashDelaySec, CRASH_ROUND_DURATION_MS / 1000) * 1000),
+  );
 
   return {
     bettingOpensAt,
@@ -61,6 +65,18 @@ export function getCrashMultiplierAtElapsedSec(elapsedSec: number): number {
   // Fast curve to feel "godly" while still deterministic.
   const value = 1 + 0.75 * clamped + 0.06 * clamped * clamped;
   return Number(Math.min(Math.max(value, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
+}
+
+export function getElapsedSecForMultiplier(targetMultiplier: number): number {
+  if (!Number.isFinite(targetMultiplier) || targetMultiplier <= 1) return 0;
+  // Invert: m = 1 + 0.75t + 0.06t^2
+  const a = 0.06;
+  const b = 0.75;
+  const c = 1 - targetMultiplier;
+  const disc = b * b - 4 * a * c;
+  if (disc <= 0) return 0;
+  const t = (-b + Math.sqrt(disc)) / (2 * a);
+  return Math.max(0, t);
 }
 
 export function startCrashRuntimeLoop(): void {

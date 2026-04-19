@@ -5,12 +5,15 @@ import { useLanguage } from "@/lib/language";
 
 type CrashRoundState = {
   id: number;
-  status: "active" | "crashed";
-  startedAt: string;
+  status?: "active" | "crashed" | "betting" | "running";
+  phase?: "betting" | "running" | "crashed";
+  startedAt?: string;
   bettingOpensAt: string;
   bettingClosesAt: string;
-  settlesAt: string;
-  settledAt: string | null;
+  settlesAt?: string;
+  settledAt?: string | null;
+  runningStartedAt?: string;
+  crashAt?: string;
   crashMultiplier: number;
   seedHash: string;
   revealedSeed: string | null;
@@ -29,12 +32,13 @@ type CrashStateResponse = {
 
 type CrashHistoryRow = {
   id: number;
-  status: "active" | "crashed";
+  status?: "active" | "crashed" | "betting" | "running";
+  phase?: "betting" | "running" | "crashed";
   crashMultiplier: number;
-  createdAt: string;
-  startedAt: string;
-  bettingClosesAt: string;
-  settlesAt: string;
+  createdAt?: string;
+  startedAt?: string;
+  bettingClosesAt?: string;
+  settlesAt?: string;
 };
 
 type CrashBetRow = {
@@ -43,7 +47,8 @@ type CrashBetRow = {
   telegramId: string;
   amountTc: number;
   status: "active" | "cashed_out" | "lost";
-  cashoutAt: number | null;
+  cashoutAt?: number | null;
+  cashoutMultiplier?: number | null;
   payoutGc: number;
   createdAt: string;
   resolvedAt: string | null;
@@ -59,6 +64,26 @@ function secondsLeft(targetIso: string): number {
 function apiUrl(path: string): string {
   const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
   return `${base}${path}`;
+}
+
+function normalizeRound(raw: CrashStateResponse["round"]): CrashStateResponse["round"] {
+  const startedAt =
+    raw.startedAt ??
+    raw.bettingOpensAt ??
+    raw.runningStartedAt ??
+    new Date().toISOString();
+  const settlesAt =
+    raw.settlesAt ??
+    raw.crashAt ??
+    new Date(Date.now() + 10_000).toISOString();
+  const status = raw.status ?? raw.phase ?? "betting";
+
+  return {
+    ...raw,
+    status,
+    startedAt,
+    settlesAt,
+  };
 }
 
 export default function Crash() {
@@ -83,14 +108,21 @@ export default function Crash() {
       ]);
 
       if (!stateRes.ok) {
-        throw new Error("Unable to load crash state.");
+        const body = await stateRes.text();
+        throw new Error(body || `Unable to load crash state (${stateRes.status}).`);
       }
 
       const stateJson = (await stateRes.json()) as CrashStateResponse;
-      setState(stateJson);
+      setState({ ...stateJson, round: normalizeRound(stateJson.round) });
 
       if (historyRes.ok) {
-        setHistory((await historyRes.json()) as CrashHistoryRow[]);
+        const historyJson = (await historyRes.json()) as CrashHistoryRow[];
+        setHistory(
+          historyJson.map((row) => ({
+            ...row,
+            status: row.status ?? row.phase ?? "crashed",
+          })),
+        );
       }
 
       if (betsRes && betsRes.ok) {
@@ -129,10 +161,17 @@ export default function Crash() {
   const bettingOpen = !!state && !state.live.crashed && secondsLeft(state.round.bettingClosesAt) > 0;
   const runningNow =
     !!state &&
+    !!state.round.settlesAt &&
     !state.live.crashed &&
     secondsLeft(state.round.bettingClosesAt) === 0 &&
     secondsLeft(state.round.settlesAt) > 0;
   const canCashout = !!activeMyBet && runningNow;
+
+  const remainingDailyGc = useMemo(() => {
+    if (!user) return null;
+    const cap = user.isVip ? 6000 : 800;
+    return Math.max(0, cap - (user.dailyGcEarned ?? 0));
+  }, [user]);
 
   const handleBet = async () => {
     if (!user || !state || !bettingOpen || busy) return;
@@ -215,7 +254,9 @@ export default function Crash() {
           </div>
           <div className="mt-2 font-mono text-[10px] text-white/45">
             {bettingOpen && state ? `Betting closes in ${secondsLeft(state.round.bettingClosesAt)}s` : null}
-            {runningNow && state ? `Crashes in ${secondsLeft(state.round.settlesAt)}s` : null}
+            {runningNow && state && state.round.settlesAt
+              ? `Crashes in ${secondsLeft(state.round.settlesAt)}s`
+              : null}
             {state?.live.crashed ? `Round crashed at ${state.round.crashMultiplier.toFixed(2)}x` : null}
           </div>
         </div>
@@ -276,6 +317,11 @@ export default function Crash() {
             Sign in with Telegram to place crash bets.
           </div>
         )}
+        {remainingDailyGc !== null && remainingDailyGc <= 0 && (
+          <div className="mt-2 font-mono text-[10px] text-[#FF1744]/85">
+            Daily GC cap reached. Wins resolve, but payout stays 0 until reset.
+          </div>
+        )}
         {activeMyBet && (
           <div className="mt-2 font-mono text-[10px] text-white/60">
             Active bet: {activeMyBet.amountTc} TC ({activeMyBet.status})
@@ -298,7 +344,7 @@ export default function Crash() {
                   row.status === "crashed" ? "text-[#FF1744]" : "text-[#00E676]"
                 }`}
               >
-                {row.status.toUpperCase()}
+                {(row.status ?? "active").toUpperCase()}
               </span>
             </div>
           ))}
@@ -331,7 +377,9 @@ export default function Crash() {
                   {bet.status}
                 </span>
                 <span className="ml-auto font-mono text-[10px] text-white/65">
-                  {bet.status === "cashed_out" ? `+${bet.payoutGc} GC @ ${bet.cashoutAt ?? 1}x` : null}
+                  {bet.status === "cashed_out"
+                    ? `+${bet.payoutGc} GC @ ${(bet.cashoutAt ?? bet.cashoutMultiplier ?? 1).toFixed(2)}x`
+                    : null}
                   {bet.status === "lost" ? `Crashed @ ${bet.crashMultiplier ?? "?"}x` : null}
                   {bet.status === "active" ? "In play..." : null}
                 </span>

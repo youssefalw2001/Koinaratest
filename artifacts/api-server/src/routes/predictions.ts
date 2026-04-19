@@ -16,6 +16,7 @@ import {
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { isVipActive } from "../lib/vip";
 import { resolvePredictionLogic } from "../lib/resolveLogic";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -164,6 +165,13 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     autoResolved: false,
   });
   if (!result.ok || !result.prediction) {
+    logger.warn(
+      {
+        predictionId: params.data.id,
+        reason: result.reason ?? "unknown",
+      },
+      "Prediction resolve failed",
+    );
     res.status(400).json({ error: result.reason ?? "Failed to resolve" });
     return;
   }
