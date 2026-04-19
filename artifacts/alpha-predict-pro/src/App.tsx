@@ -19,6 +19,7 @@ import { LanguageProvider } from "@/lib/language";
 
 // Pages
 import Terminal from "./pages/Terminal";
+import Crash from "./pages/Crash";
 import Earn from "./pages/Earn";
 import Shop from "./pages/Shop";
 import Wallet from "./pages/Wallet";
@@ -279,6 +280,7 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
+        <Route path="/crash" component={() => <Bounded><Crash /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />

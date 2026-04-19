@@ -1,0 +1,72 @@
+import crypto from "crypto";
+
+export const CRASH_HOUSE_EDGE = 0.12;
+export const CRASH_ROUND_DURATION_MS = 10_000;
+export const BETTING_PHASE_MS = 3_000;
+const MAX_CRASH_MULTIPLIER = 100;
+
+const LOOP_STEP_MS = 100;
+const roundCycleMs = CRASH_ROUND_DURATION_MS + BETTING_PHASE_MS;
+
+let runtimeLoop: NodeJS.Timeout | null = null;
+
+function sha256Hex(input: string): string {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+function randomSeedHex(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+export function calculateCrashPoint(seed: string, edge = CRASH_HOUSE_EDGE): number {
+  const hash = sha256Hex(seed);
+  const int52 = parseInt(hash.slice(0, 13), 16);
+  const max = 0x1fffffffffffff;
+  const u = Math.min(Math.max(int52 / max, 1e-12), 0.999999999999);
+  const x = (1 - edge) / (1 - u);
+  return Number(Math.min(Math.max(x, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
+}
+
+export function getCurrentRoundStart(referenceMs = Date.now()): Date {
+  const startMs = Math.floor(referenceMs / roundCycleMs) * roundCycleMs;
+  return new Date(startMs);
+}
+
+export function getRoundCycleMs(): number {
+  return roundCycleMs;
+}
+
+export function createRoundFromStart(start: Date) {
+  const bettingOpensAt = new Date(start.getTime());
+  const bettingClosesAt = new Date(start.getTime() + BETTING_PHASE_MS);
+  const runningStartedAt = new Date(bettingClosesAt.getTime());
+  const crashAt = new Date(start.getTime() + roundCycleMs);
+  const revealedSeed = randomSeedHex();
+  const seedHash = sha256Hex(revealedSeed);
+  const crashMultiplier = calculateCrashPoint(revealedSeed);
+
+  return {
+    bettingOpensAt,
+    bettingClosesAt,
+    runningStartedAt,
+    crashAt,
+    revealedSeed,
+    seedHash,
+    crashMultiplier,
+  };
+}
+
+export function getCrashMultiplierAtElapsedSec(elapsedSec: number): number {
+  const clamped = Math.max(0, elapsedSec);
+  // Fast curve to feel "godly" while still deterministic.
+  const value = 1 + 0.75 * clamped + 0.06 * clamped * clamped;
+  return Number(Math.min(Math.max(value, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
+}
+
+export function startCrashRuntimeLoop(): void {
+  if (runtimeLoop) return;
+  runtimeLoop = setInterval(() => {
+    // The router computes and settles state on demand.
+    // This heartbeat keeps timing behavior centralized for future extensions.
+  }, LOOP_STEP_MS);
+}

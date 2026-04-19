@@ -7,6 +7,7 @@ import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
 import gemsRouter from "./gems";
 import contentRouter from "./content";
+import crashRouter from "./crash";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(rewardsRouter);
 router.use(withdrawalsRouter);
 router.use(gemsRouter);
 router.use(contentRouter);
+router.use(crashRouter);
 
 export default router;

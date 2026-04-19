@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Gift, Wallet, User, Crown, Clock, Gem, Languages, Sparkles } from "lucide-react";
+import { Zap, Gift, Wallet, User, Crown, Clock, Gem, Languages, Sparkles, Rocket } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { parseVipExpiry, getVipCountdownLabel } from "@/lib/vipExpiry";
@@ -14,6 +14,7 @@ const LOSS = "#FF1744";
 
 const tabs = [
   { path: "/", icon: Zap, labelKey: "trade" as const },
+  { path: "/crash", icon: Rocket, labelKey: "crash" as const },
   { path: "/earn", icon: Gift, labelKey: "earn" as const },
   { path: "/shop", icon: Gem, labelKey: "shop" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },

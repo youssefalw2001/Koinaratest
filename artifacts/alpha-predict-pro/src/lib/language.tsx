@@ -5,6 +5,7 @@ export type AppLanguage = "en" | "ar";
 type TranslationKey =
   | "appName"
   | "trade"
+  | "crash"
   | "earn"
   | "shop"
   | "wallet"
@@ -23,6 +24,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
   en: {
     appName: "KOINARA",
     trade: "Trade",
+    crash: "Crash",
     earn: "Earn",
     shop: "Shop",
     wallet: "Wallet",
@@ -40,6 +42,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
   ar: {
     appName: "كوينارا",
     trade: "تداول",
+    crash: "كراش",
     earn: "اكسب",
     shop: "المتجر",
     wallet: "المحفظة",
