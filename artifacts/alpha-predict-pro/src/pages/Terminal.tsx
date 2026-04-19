@@ -74,8 +74,11 @@ function makeSynth(minsAgo: number) {
   return { displayName: `${name}_${id}`, payout, resolvedAt: d.toISOString() };
 }
 
-function timeAgo(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "recently";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "recently";
+  const diff = Math.floor((Date.now() - t) / 1000);
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
@@ -185,10 +188,10 @@ function VipTicker({ items }: { items: TickerItem[] }) {
               {item.displayName}
             </span>
             <span className="font-mono text-[10px] text-[#f5c518]">
-              won {item.payout} GC
+              won {item.payout ?? 0} GC
             </span>
             <span className="font-mono text-[9px] text-white/40">
-              ≈ {formatGcUsd(item.payout)}
+              ≈ {formatGcUsd(item.payout ?? 0)}
             </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
@@ -283,7 +286,12 @@ export default function Terminal() {
   });
 
   const vipActivity: TickerItem[] = (() => {
-    const real = vipActivityRaw ?? [];
+    const raw = Array.isArray(vipActivityRaw) ? vipActivityRaw : [];
+    const real: TickerItem[] = raw.map(item => ({
+      displayName: item.displayName ?? "Trader",
+      payout: item.payout ?? 0,
+      resolvedAt: item.resolvedAt ?? new Date().toISOString(),
+    }));
     if (real.length >= 10) return real;
     const needed = 10 - real.length;
     return [...real, ...synthRef.current.slice(0, Math.max(0, needed))];

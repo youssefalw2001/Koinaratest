@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -270,16 +270,20 @@ function Day7CelebrationModal() {
   );
 }
 
+function Bounded({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>;
+}
+
 function Router() {
   return (
     <Layout>
       <Switch>
-        <Route path="/" component={Terminal} />
-        <Route path="/earn" component={Earn} />
-        <Route path="/shop" component={Shop} />
-        <Route path="/wallet" component={Wallet} />
-        <Route path="/leaderboard" component={Leaderboard} />
-        <Route path="/profile" component={Profile} />
+        <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
+        <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
+        <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
+        <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
+        <Route path="/leaderboard" component={() => <Bounded><Leaderboard /></Bounded>} />
+        <Route path="/profile" component={() => <Bounded><Profile /></Bounded>} />
         <Route component={NotFound} />
       </Switch>
       <VipPromoModal />

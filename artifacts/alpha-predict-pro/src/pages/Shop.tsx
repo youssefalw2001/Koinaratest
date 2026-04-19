@@ -90,11 +90,11 @@ export default function Shop() {
     query: { enabled: !!user, queryKey: getGetActiveGemsQueryKey(user?.telegramId ?? "") },
   });
 
-  const getActiveCount = (gemType: GemType) => {
-    if (!activeGems) return 0;
-    return activeGems.filter((g) => g.gemType === gemType && g.usesRemaining > 0)
+  const safeActiveGems = Array.isArray(activeGems) ? activeGems : [];
+
+  const getActiveCount = (gemType: GemType) =>
+    safeActiveGems.filter((g) => g.gemType === gemType && g.usesRemaining > 0)
       .reduce((sum, g) => sum + g.usesRemaining, 0);
-  };
 
   const handleBuy = async (gem: GemDef) => {
     if (!user) return;
@@ -162,11 +162,11 @@ export default function Shop() {
       )}
 
       {/* Active Gems Summary */}
-      {activeGems && activeGems.length > 0 && (
+      {safeActiveGems.length > 0 && (
         <div className="mb-5 p-3 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/5">
           <div className="font-mono text-[10px] text-[#f5c518] tracking-widest uppercase mb-2">Active Powerups</div>
           <div className="flex flex-wrap gap-2">
-            {activeGems.map((g) => (
+            {safeActiveGems.map((g) => (
               <div key={g.id} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#f5c518]/10 border border-[#f5c518]/30">
                 <Gem size={10} className="text-[#f5c518]" />
                 <span className="font-mono text-[10px] text-[#f5c518] capitalize">{g.gemType.replace(/_/g, " ")}</span>

@@ -159,8 +159,10 @@ export default function Earn() {
     }
   };
 
-  const freeQuests = quests?.filter(q => !q.isVipOnly) ?? [];
-  const vipQuests = quests?.filter(q => q.isVipOnly) ?? [];
+  const questList = Array.isArray(quests) ? quests : [];
+  const freeQuests = questList.filter(q => !q.isVipOnly);
+  const vipQuests = questList.filter(q => q.isVipOnly);
+  const safeSubmissions = Array.isArray(submissions) ? submissions : [];
 
   if (isLoading) return <PageLoader rows={4} />;
   if (questsError) return <PageError message="Could not load quests" onRetry={refetchQuests} />;
@@ -328,11 +330,11 @@ export default function Earn() {
               </div>
 
               {/* Submissions list */}
-              {submissions && submissions.length > 0 && (
+              {safeSubmissions.length > 0 && (
                 <div>
                   <div className="font-mono text-[10px] text-white/40 tracking-widest uppercase mb-2">Your Submissions</div>
                   <div className="space-y-2">
-                    {submissions.map((sub) => (
+                    {safeSubmissions.map((sub) => (
                       <div key={sub.id} className="flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-white/[0.02]">
                         <div className="flex-1 min-w-0">
                           <div className="font-mono text-[10px] text-white/60 truncate">{sub.url}</div>
