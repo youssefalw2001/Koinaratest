@@ -5,6 +5,7 @@ import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQ
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 type GemType = "starter_boost" | "big_swing" | "streak_saver" | "mystery_box" | "daily_refill" | "double_or_nothing";
 
@@ -85,7 +86,7 @@ export default function Shop() {
 
   const purchaseMutation = usePurchaseGem();
 
-  const { data: activeGems } = useGetActiveGems(user?.telegramId ?? "", {
+  const { data: activeGems, isLoading: gemsLoading, isError: gemsError, refetch: refetchGems } = useGetActiveGems(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetActiveGemsQueryKey(user?.telegramId ?? "") },
   });
 
@@ -114,6 +115,9 @@ export default function Shop() {
       // silent
     }
   };
+
+  if (gemsLoading) return <PageLoader rows={4} />;
+  if (gemsError) return <PageError message="Could not load shop items" onRetry={refetchGems} />;
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">

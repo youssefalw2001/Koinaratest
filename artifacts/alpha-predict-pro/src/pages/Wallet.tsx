@@ -5,6 +5,7 @@ import {
   Shield, Coins, Gem, Clock, History, ChevronRight, Loader2,
   XCircle, RefreshCw, Zap, Copy, Check
 } from "lucide-react";
+import { PageLoader, PageError } from "@/components/PageStatus";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { beginCell } from "@ton/core";
 import {
@@ -92,7 +93,7 @@ export default function WalletPage() {
 
   const vipCountdown = useVipCountdown(user?.vipExpiresAt);
 
-  const { data: withdrawHistory, refetch: refetchHistory } = useGetWithdrawals(
+  const { data: withdrawHistory, isLoading: historyLoading, isError: historyError, refetch: refetchHistory } = useGetWithdrawals(
     user?.telegramId ?? "",
     { query: { enabled: !!user?.telegramId, queryKey: getGetWithdrawalsQueryKey(user?.telegramId ?? "") } },
   );
@@ -242,6 +243,9 @@ export default function WalletPage() {
     }
     return;
   }, [withdrawSuccess, user]);
+
+  if (historyLoading) return <PageLoader rows={3} />;
+  if (historyError) return <PageError message="Could not load wallet data" onRetry={refetchHistory} />;
 
   return (
     <div className="relative flex flex-col min-h-screen bg-transparent p-4 pb-8">

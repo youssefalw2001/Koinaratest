@@ -4,6 +4,7 @@ import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Cop
 import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 const DAY7_MILESTONES = [
   { day: 1, label: "Welcome Pack", reward: "500 TC bonus", icon: Rocket },
@@ -19,11 +20,11 @@ export default function Profile() {
   const { user } = useTelegram();
   const [copied, setCopied] = useState(false);
 
-  const { data: stats, isLoading: statsLoading } = useGetUserStats(user?.telegramId ?? "", {
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") }
   });
 
-  const { data: referralData } = useGetReferralStats(user?.telegramId ?? "", {
+  const { data: referralData, isError: referralError } = useGetReferralStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetReferralStatsQueryKey(user?.telegramId ?? "") }
   });
 
@@ -54,6 +55,9 @@ export default function Profile() {
     : 0;
   const currentDay = Math.min(registrationDayIndex + 1, 7);
   const vip = isVipActive(user);
+
+  if (statsLoading) return <PageLoader rows={5} />;
+  if (statsError || referralError) return <PageError message="Could not load profile stats" onRetry={refetchStats} />;
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">

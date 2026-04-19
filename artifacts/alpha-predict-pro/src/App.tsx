@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
@@ -10,6 +10,7 @@ import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
 import { Layout } from "./components/Layout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useLocation } from "wouter";
 import { useClaimDailyReward, getGetUserQueryKey } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
@@ -24,7 +25,19 @@ import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      console.error(`[API Query Error] ${String(query.queryHash)}:`, error);
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      const key = mutation.options.mutationKey ? ` ${String(mutation.options.mutationKey)}` : "";
+      console.error(`[API Mutation Error]${key}:`, error);
+    },
+  }),
+});
 
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
@@ -287,10 +300,12 @@ function App() {
         <LanguageProvider>
           <TelegramProvider>
             <TooltipProvider>
-              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                <Router />
-              </WouterRouter>
-              <Toaster />
+              <ErrorBoundary>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                  <Router />
+                </WouterRouter>
+                <Toaster />
+              </ErrorBoundary>
             </TooltipProvider>
           </TelegramProvider>
         </LanguageProvider>

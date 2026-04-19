@@ -26,6 +26,7 @@ import {
 import { isVipActive } from "@/lib/vipActive";
 import { getVipCountdownLabel } from "@/lib/vipExpiry";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { PageLoader } from "@/components/PageStatus";
 import { formatGcUsd } from "@/lib/format";
 import { GoldCoinFlight } from "@/components/particles/GoldCoinFlight";
 import { ConfettiBurst } from "@/components/particles/ConfettiBurst";
@@ -670,6 +671,8 @@ export default function Terminal() {
     price > 0 &&
     ((activePrediction.direction === "long" && price > activePrediction.entryPrice) ||
       (activePrediction.direction === "short" && price < activePrediction.entryPrice));
+
+  if (!user) return <PageLoader rows={5} />;
 
   return (
     <div className="flex flex-col min-h-screen pb-8">

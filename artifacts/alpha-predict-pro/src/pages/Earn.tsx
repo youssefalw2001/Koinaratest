@@ -5,6 +5,7 @@ import { useListQuests, useClaimQuest, useWatchAd, useGetAdStatus, useSubmitCont
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
   "trending-up": TrendingUp,
@@ -48,7 +49,7 @@ const CONTENT_TIERS = [
 export default function Earn() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
-  const { data: quests, isLoading } = useListQuests();
+  const { data: quests, isLoading, isError: questsError, refetch: refetchQuests } = useListQuests();
   const claimQuest = useClaimQuest();
   const watchAdMutation = useWatchAd();
 
@@ -160,6 +161,9 @@ export default function Earn() {
 
   const freeQuests = quests?.filter(q => !q.isVipOnly) ?? [];
   const vipQuests = quests?.filter(q => q.isVipOnly) ?? [];
+
+  if (isLoading) return <PageLoader rows={4} />;
+  if (questsError) return <PageError message="Could not load quests" onRetry={refetchQuests} />;
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
