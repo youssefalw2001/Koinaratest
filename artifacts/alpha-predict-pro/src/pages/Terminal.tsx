@@ -143,7 +143,7 @@ function VipTicker({ items }: { items: TickerItem[] }) {
 }
 
 export default function Terminal() {
-  const { user } = useTelegram();
+  const { user, isLoading } = useTelegram();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
@@ -524,7 +524,7 @@ export default function Terminal() {
   const GC_TO_USD = 0.00025;
   const yesterdayMissedUsd = (yesterdayMissed * GC_TO_USD).toFixed(2);
 
-  const showFomoBanner = !vip && !fomoShownToday && !tradedToday;
+  const showFomoBanner = !!user && !vip && !fomoShownToday && !tradedToday;
 
   // Animated payout counter for the WIN overlay (0 → final over ~600ms).
   const [animatedPayout, setAnimatedPayout] = useState(0);
@@ -615,7 +615,7 @@ export default function Terminal() {
     ((activePrediction.direction === "long" && price > activePrediction.entryPrice) ||
       (activePrediction.direction === "short" && price < activePrediction.entryPrice));
 
-  if (!user) return <PageLoader rows={5} />;
+  if (isLoading) return <PageLoader rows={5} />;
 
   return (
     <div className="flex flex-col min-h-screen pb-8">
@@ -642,6 +642,14 @@ export default function Terminal() {
 
       {/* VIP Activity Ticker */}
       <VipTicker items={vipActivity} />
+
+      {!user && (
+        <div className="mx-4 mt-2 px-3 py-2 rounded-lg border border-[#FFD700]/25 bg-[#FFD700]/7">
+          <span className="font-mono text-[10px] text-[#FFD700]/80">
+            Live chart mode enabled. Connect account/API to place trades.
+          </span>
+        </div>
+      )}
 
       {/* VIP Countdown / FOMO Banner */}
       {vip && (() => {
