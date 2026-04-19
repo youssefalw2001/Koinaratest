@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Rocket, TrendingUp, Clock3, ShieldAlert } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useLanguage } from "@/lib/language";
@@ -46,7 +47,7 @@ type CrashBetRow = {
   roundId: number;
   telegramId: string;
   amountTc: number;
-  status: "active" | "cashed_out" | "lost";
+  status: "pending" | "active" | "cashed" | "cashed_out" | "lost";
   cashoutAt?: number | null;
   cashoutMultiplier?: number | null;
   payoutGc: number;
@@ -56,6 +57,7 @@ type CrashBetRow = {
 };
 
 const BET_OPTIONS = [25, 50, 100, 250, 500, 1000];
+const LOOP_FRAME_MS = 100;
 
 function secondsLeft(targetIso: string): number {
   return Math.max(0, Math.ceil((new Date(targetIso).getTime() - Date.now()) / 1000));
@@ -64,6 +66,16 @@ function secondsLeft(targetIso: string): number {
 function apiUrl(path: string): string {
   const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
   return `${base}${path}`;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function easedMultiplier(progress: number, crashMultiplier: number): number {
+  const eased = Math.pow(clamp01(progress), 1.35);
+  const value = 1 + (Math.max(1, crashMultiplier) - 1) * eased;
+  return Number(Math.min(value, Math.max(1, crashMultiplier)).toFixed(2));
 }
 
 function normalizeRound(raw: CrashStateResponse["round"]): CrashStateResponse["round"] {
@@ -98,6 +110,7 @@ export default function Crash() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [liveNow, setLiveNow] = useState(() => Date.now());
 
   const loadData = useCallback(async () => {
     try {
@@ -151,10 +164,29 @@ export default function Crash() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const liveMultiplier = state?.live.multiplier ?? 1;
+  useEffect(() => {
+    const timer = setInterval(() => setLiveNow(Date.now()), LOOP_FRAME_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const smoothLiveMultiplier = useMemo(() => {
+    if (!state) return 1;
+    const runningStartedAt = state.round.runningStartedAt
+      ? new Date(state.round.runningStartedAt).getTime()
+      : Date.now();
+    const elapsedSec = Math.max(0, (liveNow - runningStartedAt) / 1000);
+    const curve = 1 + 0.45 * elapsedSec + 0.04 * elapsedSec * elapsedSec;
+    if (state.live.crashed) return state.round.crashMultiplier;
+    return Math.min(state.round.crashMultiplier, Number(curve.toFixed(2)));
+  }, [state, liveNow]);
+
+  const liveMultiplier = smoothLiveMultiplier;
   const currentRoundId = state?.round.id ?? null;
   const activeMyBet = useMemo(
-    () => myBets.find((bet) => bet.roundId === currentRoundId && bet.status === "active") ?? null,
+    () =>
+      myBets.find(
+        (bet) => bet.roundId === currentRoundId && (bet.status === "pending" || bet.status === "active"),
+      ) ?? null,
     [myBets, currentRoundId],
   );
 
@@ -165,7 +197,7 @@ export default function Crash() {
     !state.live.crashed &&
     secondsLeft(state.round.bettingClosesAt) === 0 &&
     secondsLeft(state.round.settlesAt) > 0;
-  const canCashout = !!activeMyBet && runningNow;
+  const canCashout = !!activeMyBet && runningNow && !state?.live.crashed;
 
   const remainingDailyGc = useMemo(() => {
     if (!user) return null;
@@ -259,6 +291,20 @@ export default function Crash() {
               : null}
             {state?.live.crashed ? `Round crashed at ${state.round.crashMultiplier.toFixed(2)}x` : null}
           </div>
+          {state && (
+            <div className="mt-3 px-4">
+              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className={`h-full transition-[width] duration-100 ${
+                    state.live.crashed ? "bg-[#FF1744]" : "bg-[#00E676]"
+                  }`}
+                  style={{
+                    width: `${Math.max(0, Math.min(100, ((liveMultiplier - 1) / Math.max(0.01, state.round.crashMultiplier - 1)) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -377,11 +423,11 @@ export default function Crash() {
                   {bet.status}
                 </span>
                 <span className="ml-auto font-mono text-[10px] text-white/65">
-                  {bet.status === "cashed_out"
+                  {bet.status === "cashed_out" || bet.status === "cashed"
                     ? `+${bet.payoutGc} GC @ ${(bet.cashoutAt ?? bet.cashoutMultiplier ?? 1).toFixed(2)}x`
                     : null}
                   {bet.status === "lost" ? `Crashed @ ${bet.crashMultiplier ?? "?"}x` : null}
-                  {bet.status === "active" ? "In play..." : null}
+                  {bet.status === "active" || bet.status === "pending" ? "In play..." : null}
                 </span>
               </div>
             </div>

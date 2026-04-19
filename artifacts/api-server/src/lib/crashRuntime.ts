@@ -1,9 +1,10 @@
 import crypto from "crypto";
 
 export const CRASH_HOUSE_EDGE = 0.12;
-export const CRASH_ROUND_DURATION_MS = 10_000;
-export const BETTING_PHASE_MS = 3_000;
+export const CRASH_ROUND_DURATION_MS = 14_000;
+export const BETTING_PHASE_MS = 4_000;
 const MAX_CRASH_MULTIPLIER = 100;
+const MIN_CRASH_DURATION_MS = 2_400;
 
 const LOOP_STEP_MS = 100;
 const roundCycleMs = CRASH_ROUND_DURATION_MS + BETTING_PHASE_MS;
@@ -21,7 +22,9 @@ function randomSeedHex(): string {
 export function calculateCrashPoint(seed: string, edge = CRASH_HOUSE_EDGE): number {
   const hash = sha256Hex(seed);
   const int52 = parseInt(hash.slice(0, 13), 16);
-  const max = 0x1fffffffffffff;
+  // Use the max value representable by 13 hex chars (52 bits), not MAX_SAFE_INTEGER.
+  // This keeps the crash-point distribution in the intended playable range.
+  const max = 0xFFFFFFFFFFFFF;
   const u = Math.min(Math.max(int52 / max, 1e-12), 0.999999999999);
   const x = (1 - edge) / (1 - u);
   return Number(Math.min(Math.max(x, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
@@ -43,7 +46,7 @@ export function createRoundFromStart(start: Date) {
   const revealedSeed = randomSeedHex();
   const seedHash = sha256Hex(revealedSeed);
   const crashMultiplier = calculateCrashPoint(revealedSeed);
-  const crashDelaySec = getElapsedSecForMultiplier(crashMultiplier);
+  const crashDelaySec = getCrashDurationSec(crashMultiplier);
   const crashAt = new Date(
     runningStartedAt.getTime() +
       Math.round(Math.min(crashDelaySec, CRASH_ROUND_DURATION_MS / 1000) * 1000),
@@ -77,6 +80,30 @@ export function getElapsedSecForMultiplier(targetMultiplier: number): number {
   if (disc <= 0) return 0;
   const t = (-b + Math.sqrt(disc)) / (2 * a);
   return Math.max(0, t);
+}
+
+export function getCrashDurationSec(crashMultiplier: number): number {
+  const safe = Math.max(1, crashMultiplier);
+  const baseSec = 2.4 + Math.log2(safe) * 2.6;
+  const clampedSec = Math.min(
+    CRASH_ROUND_DURATION_MS / 1000,
+    Math.max(MIN_CRASH_DURATION_MS / 1000, baseSec),
+  );
+  return Number(clampedSec.toFixed(3));
+}
+
+export function getCrashMultiplierAtElapsedForRound(
+  elapsedSec: number,
+  crashMultiplier: number,
+  roundDurationSec: number,
+): number {
+  if (!Number.isFinite(roundDurationSec) || roundDurationSec <= 0) {
+    return Number(Math.max(1, crashMultiplier).toFixed(2));
+  }
+  const progress = Math.max(0, Math.min(1, elapsedSec / roundDurationSec));
+  const eased = Math.pow(progress, 1.35);
+  const value = 1 + (Math.max(1, crashMultiplier) - 1) * eased;
+  return Number(Math.min(value, Math.max(1, crashMultiplier)).toFixed(2));
 }
 
 export function startCrashRuntimeLoop(): void {
