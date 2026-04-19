@@ -77,6 +77,7 @@
   "dependencies": {
     "@ton/core": "^0.63.1",
     "@ton/crypto": "^3.3.0",
-    "@tonconnect/ui-react": "^2.4.4"
+    "@tonconnect/ui-react": "^2.4.4",
+    "buffer": "^6.0.3"
   }
 }
