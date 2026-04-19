@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - cursor/**
-      - claude/**
   workflow_dispatch:
     inputs:
       ref:
@@ -67,6 +65,26 @@ jobs:
         with:
           version: 10
           run_install: false
+
+      - name: Validate VITE_API_URL secret
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: |
+          if [ -z "${VITE_API_URL}" ]; then
+            echo "::error::Missing VITE_API_URL secret."
+            echo "::error::Set repo secret VITE_API_URL to your deployed API base URL (for example https://api.example.com)."
+            exit 1
+          fi
+
+          case "${VITE_API_URL}" in
+            http://*|https://*)
+              echo "Using API base URL: ${VITE_API_URL}"
+              ;;
+            *)
+              echo "::error::VITE_API_URL must start with http:// or https://"
+              exit 1
+              ;;
+          esac
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
