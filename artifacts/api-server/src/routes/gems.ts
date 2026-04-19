@@ -107,6 +107,14 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
       });
       mysteryReward = { type: "gem", gem: bonusGem };
     }
+  } else if (gemType === "daily_refill") {
+    const vip = isVipActive(user);
+    const refillTc = vip ? 1000 : 600;
+    await db
+      .update(usersTable)
+      .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${refillTc}` })
+      .where(eq(usersTable.telegramId, authedId));
+    mysteryReward = { type: "tc", amount: refillTc };
   } else {
     await db.insert(gemInventoryTable).values({
       telegramId: authedId,
