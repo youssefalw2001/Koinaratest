@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - cursor/**
+      - claude/**
   workflow_dispatch:
     inputs:
       ref:
@@ -82,6 +83,7 @@ jobs:
         env:
           PORT: "4173"
           BASE_PATH: "/${{ github.event.repository.name }}/"
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       - name: Deploy static site to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
