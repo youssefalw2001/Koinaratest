@@ -1,6 +1,11 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { db, crashBetsTable, crashRoundsTable, usersTable } from "@workspace/db";
+import {
+  db,
+  crashBetsTable,
+  crashRoundsTable,
+  usersTable,
+} from "@workspace/db";
 import {
   BETTING_PHASE_MS,
   CRASH_HOUSE_EDGE,
@@ -11,6 +16,7 @@ import {
   getRoundCycleMs,
 } from "../lib/crashRuntime";
 import { serializeRow, serializeRows } from "../lib/serialize";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -19,7 +25,10 @@ const MAX_BET_TC = 5000;
 
 type CrashRoundRow = typeof crashRoundsTable.$inferSelect;
 
-function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "running" | "crashed" {
+function getRoundPhase(
+  round: CrashRoundRow,
+  nowMs = Date.now(),
+): "betting" | "running" | "crashed" {
   const bettingClosesAtMs = new Date(round.bettingClosesAt).getTime();
   const crashAtMs = new Date(round.crashAt).getTime();
   if (round.phase === "crashed" || nowMs >= crashAtMs) return "crashed";
@@ -28,33 +37,43 @@ function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "r
 }
 
 async function ensureRoundForNow(): Promise<CrashRoundRow> {
-  const [latest] = await db.select().from(crashRoundsTable).orderBy(desc(crashRoundsTable.id)).limit(1);
-  const nowStart = getCurrentRoundStart();
+  return db.transaction(async (tx) => {
+    const nowStart = getCurrentRoundStart();
+    const lockKey = Math.floor(nowStart.getTime() / getRoundCycleMs());
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${lockKey})`);
 
-  if (latest) {
-    const latestStartMs = new Date(latest.bettingOpensAt).getTime();
-    if (latestStartMs === nowStart.getTime()) return latest;
-  }
+    const [latest] = await tx
+      .select()
+      .from(crashRoundsTable)
+      .orderBy(desc(crashRoundsTable.id))
+      .limit(1);
+    if (latest) {
+      const latestStartMs = new Date(latest.bettingOpensAt).getTime();
+      if (latestStartMs === nowStart.getTime()) return latest;
+    }
 
-  const next = createRoundFromStart(nowStart);
-  const [created] = await db
-    .insert(crashRoundsTable)
-    .values({
-      phase: "betting",
-      houseEdge: CRASH_HOUSE_EDGE,
-      seedHash: next.seedHash,
-      revealedSeed: next.revealedSeed,
-      crashMultiplier: next.crashMultiplier,
-      bettingOpensAt: next.bettingOpensAt,
-      bettingClosesAt: next.bettingClosesAt,
-      runningStartedAt: next.runningStartedAt,
-      crashAt: next.crashAt,
-    })
-    .returning();
-  return created;
+    const next = createRoundFromStart(nowStart);
+    const [created] = await tx
+      .insert(crashRoundsTable)
+      .values({
+        phase: "betting",
+        houseEdge: CRASH_HOUSE_EDGE,
+        seedHash: next.seedHash,
+        revealedSeed: next.revealedSeed,
+        crashMultiplier: next.crashMultiplier,
+        bettingOpensAt: next.bettingOpensAt,
+        bettingClosesAt: next.bettingClosesAt,
+        runningStartedAt: next.runningStartedAt,
+        crashAt: next.crashAt,
+      })
+      .returning();
+    return created;
+  });
 }
 
-async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow> {
+async function settleRoundIfNeeded(
+  round: CrashRoundRow,
+): Promise<CrashRoundRow> {
   if (getRoundPhase(round) !== "crashed") return round;
   if (round.phase === "crashed") return round;
 
@@ -62,7 +81,12 @@ async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow>
     const pendingBets = await tx
       .select()
       .from(crashBetsTable)
-      .where(and(eq(crashBetsTable.roundId, round.id), eq(crashBetsTable.status, "pending")));
+      .where(
+        and(
+          eq(crashBetsTable.roundId, round.id),
+          eq(crashBetsTable.status, "pending"),
+        ),
+      );
 
     if (pendingBets.length > 0) {
       await tx
@@ -72,7 +96,12 @@ async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow>
           payoutGc: 0,
           resolvedAt: new Date(),
         })
-        .where(inArray(crashBetsTable.id, pendingBets.map((bet) => bet.id)));
+        .where(
+          inArray(
+            crashBetsTable.id,
+            pendingBets.map((bet) => bet.id),
+          ),
+        );
     }
 
     await tx
@@ -81,7 +110,11 @@ async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow>
       .where(eq(crashRoundsTable.id, round.id));
   });
 
-  const [updated] = await db.select().from(crashRoundsTable).where(eq(crashRoundsTable.id, round.id)).limit(1);
+  const [updated] = await db
+    .select()
+    .from(crashRoundsTable)
+    .where(eq(crashRoundsTable.id, round.id))
+    .limit(1);
   return updated ?? round;
 }
 
@@ -91,11 +124,20 @@ router.get("/crash/state", async (_req, res): Promise<void> => {
 
   const nowMs = Date.now();
   const phase = getRoundPhase(settledRound, nowMs);
-  const elapsedSec = Math.max(0, (nowMs - new Date(settledRound.runningStartedAt).getTime()) / 1000);
-  const liveMultiplier = phase === "crashed" ? settledRound.crashMultiplier : getCrashMultiplierAtElapsedSec(elapsedSec);
+  const elapsedSec = Math.max(
+    0,
+    (nowMs - new Date(settledRound.runningStartedAt).getTime()) / 1000,
+  );
+  const liveMultiplier =
+    phase === "crashed"
+      ? settledRound.crashMultiplier
+      : getCrashMultiplierAtElapsedSec(elapsedSec);
 
   if (phase !== settledRound.phase) {
-    await db.update(crashRoundsTable).set({ phase }).where(eq(crashRoundsTable.id, settledRound.id));
+    await db
+      .update(crashRoundsTable)
+      .set({ phase })
+      .where(eq(crashRoundsTable.id, settledRound.id));
   }
 
   res.json({
@@ -128,10 +170,21 @@ router.post("/crash/bet", async (req, res): Promise<void> => {
     res.status(400).json({ error: "telegramId is required." });
     return;
   }
-  if (!Number.isFinite(amountTc) || amountTc % 1 !== 0 || amountTc < MIN_BET_TC || amountTc > MAX_BET_TC) {
-    res.status(400).json({ error: `amountTc must be an integer between ${MIN_BET_TC} and ${MAX_BET_TC}.` });
+  if (
+    !Number.isFinite(amountTc) ||
+    amountTc % 1 !== 0 ||
+    amountTc < MIN_BET_TC ||
+    amountTc > MAX_BET_TC
+  ) {
+    res
+      .status(400)
+      .json({
+        error: `amountTc must be an integer between ${MIN_BET_TC} and ${MAX_BET_TC}.`,
+      });
     return;
   }
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
 
   const round = await settleRoundIfNeeded(await ensureRoundForNow());
   const phase = getRoundPhase(round);
@@ -140,7 +193,11 @@ router.post("/crash/bet", async (req, res): Promise<void> => {
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, telegramId)).limit(1);
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.telegramId, authedId))
+    .limit(1);
   if (!user) {
     res.status(404).json({ error: "User not found." });
     return;
@@ -153,7 +210,12 @@ router.post("/crash/bet", async (req, res): Promise<void> => {
   const [alreadyBet] = await db
     .select({ id: crashBetsTable.id })
     .from(crashBetsTable)
-    .where(and(eq(crashBetsTable.roundId, round.id), eq(crashBetsTable.telegramId, telegramId)))
+    .where(
+      and(
+        eq(crashBetsTable.roundId, round.id),
+        eq(crashBetsTable.telegramId, authedId),
+      ),
+    )
     .limit(1);
   if (alreadyBet) {
     res.status(400).json({ error: "You already placed a bet in this round." });
@@ -166,13 +228,13 @@ router.post("/crash/bet", async (req, res): Promise<void> => {
       .set({
         tradeCredits: sql`${usersTable.tradeCredits} - ${amountTc}`,
       })
-      .where(eq(usersTable.telegramId, telegramId));
+      .where(eq(usersTable.telegramId, authedId));
 
     const [createdBet] = await tx
       .insert(crashBetsTable)
       .values({
         roundId: round.id,
-        telegramId,
+        telegramId: authedId,
         amountTc,
         status: "pending",
       })
@@ -195,8 +257,14 @@ router.post("/crash/cashout", async (req, res): Promise<void> => {
     res.status(400).json({ error: "roundId is required." });
     return;
   }
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
 
-  const [round] = await db.select().from(crashRoundsTable).where(eq(crashRoundsTable.id, roundId)).limit(1);
+  const [round] = await db
+    .select()
+    .from(crashRoundsTable)
+    .where(eq(crashRoundsTable.id, roundId))
+    .limit(1);
   if (!round) {
     res.status(404).json({ error: "Round not found." });
     return;
@@ -212,7 +280,12 @@ router.post("/crash/cashout", async (req, res): Promise<void> => {
   const [bet] = await db
     .select()
     .from(crashBetsTable)
-    .where(and(eq(crashBetsTable.roundId, roundId), eq(crashBetsTable.telegramId, telegramId)))
+    .where(
+      and(
+        eq(crashBetsTable.roundId, roundId),
+        eq(crashBetsTable.telegramId, authedId),
+      ),
+    )
     .limit(1);
   if (!bet) {
     res.status(404).json({ error: "Bet not found." });
@@ -223,7 +296,10 @@ router.post("/crash/cashout", async (req, res): Promise<void> => {
     return;
   }
 
-  const elapsedSec = Math.max(0, (Date.now() - new Date(settledRound.runningStartedAt).getTime()) / 1000);
+  const elapsedSec = Math.max(
+    0,
+    (Date.now() - new Date(settledRound.runningStartedAt).getTime()) / 1000,
+  );
   const currentMultiplier = getCrashMultiplierAtElapsedSec(elapsedSec);
   if (currentMultiplier >= settledRound.crashMultiplier) {
     await settleRoundIfNeeded(settledRound);
@@ -250,7 +326,7 @@ router.post("/crash/cashout", async (req, res): Promise<void> => {
         goldCoins: sql`${usersTable.goldCoins} + ${payoutGc}`,
         totalGcEarned: sql`${usersTable.totalGcEarned} + ${payoutGc}`,
       })
-      .where(eq(usersTable.telegramId, telegramId));
+      .where(eq(usersTable.telegramId, authedId));
 
     return [saved];
   });
@@ -265,8 +341,14 @@ router.post("/crash/cashout", async (req, res): Promise<void> => {
 
 router.get("/crash/history", async (req, res): Promise<void> => {
   const limitRaw = Number(req.query.limit ?? 30);
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 30;
-  const rows = await db.select().from(crashRoundsTable).orderBy(desc(crashRoundsTable.id)).limit(limit);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(100, Math.floor(limitRaw)))
+    : 30;
+  const rows = await db
+    .select()
+    .from(crashRoundsTable)
+    .orderBy(desc(crashRoundsTable.id))
+    .limit(limit);
   res.json(serializeRows(rows as unknown as Record<string, unknown>[]));
 });
 
@@ -277,7 +359,9 @@ router.get("/crash/bets/:telegramId", async (req, res): Promise<void> => {
     return;
   }
   const limitRaw = Number(req.query.limit ?? 30);
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 30;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(100, Math.floor(limitRaw)))
+    : 30;
 
   const bets = await db
     .select()
@@ -288,7 +372,10 @@ router.get("/crash/bets/:telegramId", async (req, res): Promise<void> => {
 
   const roundIds = [...new Set(bets.map((bet) => bet.roundId))];
   const rounds = roundIds.length
-    ? await db.select().from(crashRoundsTable).where(inArray(crashRoundsTable.id, roundIds))
+    ? await db
+        .select()
+        .from(crashRoundsTable)
+        .where(inArray(crashRoundsTable.id, roundIds))
     : [];
   const roundById = new Map(rounds.map((round) => [round.id, round]));
 
@@ -305,7 +392,11 @@ router.get("/crash/bets/:telegramId", async (req, res): Promise<void> => {
 });
 
 router.post("/crash/settle", async (_req, res): Promise<void> => {
-  const [round] = await db.select().from(crashRoundsTable).orderBy(desc(crashRoundsTable.id)).limit(1);
+  const [round] = await db
+    .select()
+    .from(crashRoundsTable)
+    .orderBy(desc(crashRoundsTable.id))
+    .limit(1);
   if (round) {
     await settleRoundIfNeeded(round);
   }

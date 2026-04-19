@@ -5,12 +5,11 @@ import { useLanguage } from "@/lib/language";
 
 type CrashRoundState = {
   id: number;
-  status: "active" | "crashed";
-  startedAt: string;
+  phase: "betting" | "running" | "crashed";
   bettingOpensAt: string;
   bettingClosesAt: string;
-  settlesAt: string;
-  settledAt: string | null;
+  runningStartedAt: string;
+  crashAt: string;
   crashMultiplier: number;
   seedHash: string;
   revealedSeed: string | null;
@@ -29,12 +28,12 @@ type CrashStateResponse = {
 
 type CrashHistoryRow = {
   id: number;
-  status: "active" | "crashed";
+  phase: "betting" | "running" | "crashed";
   crashMultiplier: number;
   createdAt: string;
-  startedAt: string;
+  runningStartedAt: string;
   bettingClosesAt: string;
-  settlesAt: string;
+  crashAt: string;
 };
 
 type CrashBetRow = {
@@ -42,8 +41,8 @@ type CrashBetRow = {
   roundId: number;
   telegramId: string;
   amountTc: number;
-  status: "active" | "cashed_out" | "lost";
-  cashoutAt: number | null;
+  status: "pending" | "cashed" | "lost";
+  cashoutMultiplier: number | null;
   payoutGc: number;
   createdAt: string;
   resolvedAt: string | null;
@@ -53,12 +52,22 @@ type CrashBetRow = {
 const BET_OPTIONS = [25, 50, 100, 250, 500, 1000];
 
 function secondsLeft(targetIso: string): number {
-  return Math.max(0, Math.ceil((new Date(targetIso).getTime() - Date.now()) / 1000));
+  return Math.max(
+    0,
+    Math.ceil((new Date(targetIso).getTime() - Date.now()) / 1000),
+  );
 }
 
 function apiUrl(path: string): string {
-  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+  const base =
+    (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ??
+    "";
   return `${base}${path}`;
+}
+
+function getTelegramAuthHeaders(): Record<string, string> {
+  const initData = window.Telegram?.WebApp?.initData?.trim();
+  return initData ? { "x-telegram-init-data": initData } : {};
 }
 
 export default function Crash() {
@@ -79,7 +88,13 @@ export default function Crash() {
       const [stateRes, historyRes, betsRes] = await Promise.all([
         fetch(apiUrl("/api/crash/state")),
         fetch(apiUrl("/api/crash/history?limit=10")),
-        user ? fetch(apiUrl(`/api/crash/bets/${encodeURIComponent(user.telegramId)}?limit=10`)) : Promise.resolve(null),
+        user
+          ? fetch(
+              apiUrl(
+                `/api/crash/bets/${encodeURIComponent(user.telegramId)}?limit=10`,
+              ),
+            )
+          : Promise.resolve(null),
       ]);
 
       if (!stateRes.ok) {
@@ -99,7 +114,9 @@ export default function Crash() {
 
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load crash data.");
+      setError(
+        err instanceof Error ? err.message : "Failed to load crash data.",
+      );
     } finally {
       setLoading(false);
     }
@@ -122,16 +139,22 @@ export default function Crash() {
   const liveMultiplier = state?.live.multiplier ?? 1;
   const currentRoundId = state?.round.id ?? null;
   const activeMyBet = useMemo(
-    () => myBets.find((bet) => bet.roundId === currentRoundId && bet.status === "active") ?? null,
+    () =>
+      myBets.find(
+        (bet) => bet.roundId === currentRoundId && bet.status === "pending",
+      ) ?? null,
     [myBets, currentRoundId],
   );
 
-  const bettingOpen = !!state && !state.live.crashed && secondsLeft(state.round.bettingClosesAt) > 0;
+  const bettingOpen =
+    !!state &&
+    !state.live.crashed &&
+    secondsLeft(state.round.bettingClosesAt) > 0;
   const runningNow =
     !!state &&
     !state.live.crashed &&
     secondsLeft(state.round.bettingClosesAt) === 0 &&
-    secondsLeft(state.round.settlesAt) > 0;
+    secondsLeft(state.round.crashAt) > 0;
   const canCashout = !!activeMyBet && runningNow;
 
   const handleBet = async () => {
@@ -140,7 +163,10 @@ export default function Crash() {
     try {
       const res = await fetch(apiUrl("/api/crash/bet"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getTelegramAuthHeaders(),
+        },
         body: JSON.stringify({
           telegramId: user.telegramId,
           amountTc: selectedBet,
@@ -166,7 +192,10 @@ export default function Crash() {
     try {
       const res = await fetch(apiUrl("/api/crash/cashout"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getTelegramAuthHeaders(),
+        },
         body: JSON.stringify({
           telegramId: user.telegramId,
           roundId: state.round.id,
@@ -176,7 +205,9 @@ export default function Crash() {
       if (!res.ok) {
         throw new Error(String(payload?.error ?? "Cashout failed."));
       }
-      setNotice(`Cashed out @ ${payload.cashoutMultiplier}x → +${payload.payoutGc} GC`);
+      setNotice(
+        `Cashed out @ ${payload.cashoutMultiplier}x → +${payload.payoutGc} GC`,
+      );
       refreshUser();
       await loadData();
     } catch (err) {
@@ -189,7 +220,9 @@ export default function Crash() {
   if (loading) {
     return (
       <div className="px-4 pt-4 pb-8">
-        <div className="app-card p-4 font-mono text-sm text-white/50">Loading crash arena...</div>
+        <div className="app-card p-4 font-mono text-sm text-white/50">
+          Loading crash arena...
+        </div>
       </div>
     );
   }
@@ -199,13 +232,17 @@ export default function Crash() {
       <div className="app-card p-4">
         <div className="flex items-center gap-2 mb-2">
           <Rocket size={16} className="text-[#FFD700]" />
-          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">{t("crash")} Arena</span>
+          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
+            {t("crash")} Arena
+          </span>
           <span className="ml-auto font-mono text-[10px] text-[#FFD700]/80">
             House Edge {(state?.houseEdge ?? 0.12) * 100}%
           </span>
         </div>
         <div className="text-center py-3 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/5">
-          <div className="font-mono text-[10px] text-white/40 tracking-[0.12em] uppercase mb-1">Live Multiplier</div>
+          <div className="font-mono text-[10px] text-white/40 tracking-[0.12em] uppercase mb-1">
+            Live Multiplier
+          </div>
           <div
             className={`font-mono text-4xl font-black ${
               state?.live.crashed ? "text-[#FF1744]" : "text-[#00E676]"
@@ -214,9 +251,15 @@ export default function Crash() {
             {liveMultiplier.toFixed(2)}x
           </div>
           <div className="mt-2 font-mono text-[10px] text-white/45">
-            {bettingOpen && state ? `Betting closes in ${secondsLeft(state.round.bettingClosesAt)}s` : null}
-            {runningNow && state ? `Crashes in ${secondsLeft(state.round.settlesAt)}s` : null}
-            {state?.live.crashed ? `Round crashed at ${state.round.crashMultiplier.toFixed(2)}x` : null}
+            {bettingOpen && state
+              ? `Betting closes in ${secondsLeft(state.round.bettingClosesAt)}s`
+              : null}
+            {runningNow && state
+              ? `Crashes in ${secondsLeft(state.round.crashAt)}s`
+              : null}
+            {state?.live.crashed
+              ? `Round crashed at ${state.round.crashMultiplier.toFixed(2)}x`
+              : null}
           </div>
         </div>
       </div>
@@ -234,7 +277,9 @@ export default function Crash() {
       )}
 
       <div className="app-card p-4">
-        <div className="font-mono text-[10px] text-white/40 tracking-[0.14em] uppercase mb-2">Bet Amount (TC)</div>
+        <div className="font-mono text-[10px] text-white/40 tracking-[0.14em] uppercase mb-2">
+          Bet Amount (TC)
+        </div>
         <div className="grid grid-cols-3 gap-2 mb-3">
           {BET_OPTIONS.map((value) => (
             <button
@@ -256,7 +301,13 @@ export default function Crash() {
           <button
             onClick={handleBet}
             type="button"
-            disabled={!user || !bettingOpen || busy || !!activeMyBet || selectedBet > (user?.tradeCredits ?? 0)}
+            disabled={
+              !user ||
+              !bettingOpen ||
+              busy ||
+              !!activeMyBet ||
+              selectedBet > (user?.tradeCredits ?? 0)
+            }
             className="pressable rounded-xl py-3 font-mono text-xs font-bold border border-[#4DA3FF]/40 bg-[#4DA3FF]/15 text-[#8BC3FF] disabled:opacity-35"
           >
             Place Bet
@@ -286,42 +337,64 @@ export default function Crash() {
       <div className="app-card p-4">
         <div className="flex items-center gap-1.5 mb-2">
           <Clock3 size={13} className="text-white/55" />
-          <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/45">Recent Crash Rounds</span>
+          <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/45">
+            Recent Crash Rounds
+          </span>
         </div>
         <div className="space-y-2">
           {history.map((row) => (
-            <div key={row.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 flex items-center">
-              <span className="font-mono text-[10px] text-white/45">#{row.id}</span>
-              <span className="ml-2 font-mono text-xs text-[#FFD700]">{row.crashMultiplier.toFixed(2)}x</span>
+            <div
+              key={row.id}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 flex items-center"
+            >
+              <span className="font-mono text-[10px] text-white/45">
+                #{row.id}
+              </span>
+              <span className="ml-2 font-mono text-xs text-[#FFD700]">
+                {row.crashMultiplier.toFixed(2)}x
+              </span>
               <span
                 className={`ml-auto font-mono text-[10px] ${
-                  row.status === "crashed" ? "text-[#FF1744]" : "text-[#00E676]"
+                  row.phase === "crashed" ? "text-[#FF1744]" : "text-[#00E676]"
                 }`}
               >
-                {row.status.toUpperCase()}
+                {row.phase.toUpperCase()}
               </span>
             </div>
           ))}
-          {!history.length && <div className="font-mono text-xs text-white/30">No rounds yet.</div>}
+          {!history.length && (
+            <div className="font-mono text-xs text-white/30">
+              No rounds yet.
+            </div>
+          )}
         </div>
       </div>
 
       <div className="app-card p-4">
         <div className="flex items-center gap-1.5 mb-2">
           <TrendingUp size={13} className="text-white/55" />
-          <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/45">My Crash Bets</span>
+          <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/45">
+            My Crash Bets
+          </span>
         </div>
         <div className="space-y-2">
           {myBets.map((bet) => (
-            <div key={bet.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+            <div
+              key={bet.id}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+            >
               <div className="flex items-center">
-                <span className="font-mono text-[10px] text-white/45">Round #{bet.roundId}</span>
-                <span className="ml-auto font-mono text-[10px] text-white/45">{bet.amountTc} TC</span>
+                <span className="font-mono text-[10px] text-white/45">
+                  Round #{bet.roundId}
+                </span>
+                <span className="ml-auto font-mono text-[10px] text-white/45">
+                  {bet.amountTc} TC
+                </span>
               </div>
               <div className="mt-1 flex items-center">
                 <span
                   className={`font-mono text-[10px] ${
-                    bet.status === "cashed_out"
+                    bet.status === "cashed"
                       ? "text-[#00E676]"
                       : bet.status === "lost"
                         ? "text-[#FF1744]"
@@ -331,14 +404,22 @@ export default function Crash() {
                   {bet.status}
                 </span>
                 <span className="ml-auto font-mono text-[10px] text-white/65">
-                  {bet.status === "cashed_out" ? `+${bet.payoutGc} GC @ ${bet.cashoutAt ?? 1}x` : null}
-                  {bet.status === "lost" ? `Crashed @ ${bet.crashMultiplier ?? "?"}x` : null}
-                  {bet.status === "active" ? "In play..." : null}
+                  {bet.status === "cashed"
+                    ? `+${bet.payoutGc} GC @ ${bet.cashoutMultiplier ?? 1}x`
+                    : null}
+                  {bet.status === "lost"
+                    ? `Crashed @ ${bet.crashMultiplier ?? "?"}x`
+                    : null}
+                  {bet.status === "pending" ? "In play..." : null}
                 </span>
               </div>
             </div>
           ))}
-          {!myBets.length && <div className="font-mono text-xs text-white/30">No crash bets yet.</div>}
+          {!myBets.length && (
+            <div className="font-mono text-xs text-white/30">
+              No crash bets yet.
+            </div>
+          )}
         </div>
       </div>
     </div>
