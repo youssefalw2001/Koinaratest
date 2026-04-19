@@ -63,6 +63,7 @@ const SYNTH_NAMES = [
   "KoinVIP", "TradePro", "MenaWhale", "GoldSeeker", "CryptoSultan",
   "WhaleMENA", "BTCLord", "GoldRush", "TradeKing", "CoinSultan",
 ];
+const LOCAL_PRICE_FALLBACK = 104000;
 
 function makeSynth(minsAgo: number) {
   const name = SYNTH_NAMES[Math.floor(Math.random() * SYNTH_NAMES.length)];
@@ -248,8 +249,6 @@ export default function Terminal() {
   useEffect(() => {
     let restInterval: NodeJS.Timeout | null = null;
     let simInterval: NodeJS.Timeout | null = null;
-    let connected = false;
-    let restWorking = false;
 
     const applyPrice = (next: number) => {
       setPrice((prev) => {
@@ -261,10 +260,10 @@ export default function Terminal() {
 
     const fetchRest = async (): Promise<boolean> => {
       try {
-        const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        const r = await fetch("/api/market/btc-price");
         if (!r.ok) return false;
         const d = await r.json();
-        const p = parseFloat(d.price);
+        const p = parseFloat(String(d.price ?? ""));
         if (!isNaN(p) && p > 0) { applyPrice(p); return true; }
         return false;
       } catch { return false; }
@@ -273,7 +272,6 @@ export default function Terminal() {
     const startRestPolling = async () => {
       if (restInterval) return;
       const ok = await fetchRest();
-      restWorking = ok;
       if (ok) {
         restInterval = setInterval(fetchRest, 2000);
       } else {
@@ -283,7 +281,7 @@ export default function Terminal() {
 
     const startSim = () => {
       if (simInterval) return;
-      let base = priceRef.current > 0 ? priceRef.current : 104000 + Math.random() * 2000;
+      let base = priceRef.current > 0 ? priceRef.current : LOCAL_PRICE_FALLBACK + Math.random() * 2000;
       applyPrice(base);
       simInterval = setInterval(() => {
         const delta = (Math.random() - 0.48) * 80;
@@ -292,42 +290,11 @@ export default function Terminal() {
       }, 800);
     };
 
-    const connect = () => {
-      const ws = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");
-      wsRef.current = ws;
-      ws.onopen = () => {
-        connected = true;
-        if (restInterval) { clearInterval(restInterval); restInterval = null; }
-        if (simInterval)  { clearInterval(simInterval);  simInterval = null;  }
-      };
-      ws.onmessage = (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          const p = parseFloat(d.p);
-          if (!isNaN(p)) applyPrice(p);
-        } catch {}
-      };
-      ws.onerror = () => ws.close();
-      ws.onclose = () => {
-        connected = false;
-        if (wsRef.current === ws) {
-          startRestPolling();
-          setTimeout(connect, 8000);
-        }
-      };
-    };
-
-    const wsTimer = setTimeout(() => {
-      if (!connected) startRestPolling();
-    }, 3000);
-
-    connect();
+    void startRestPolling();
 
     return () => {
-      clearTimeout(wsTimer);
       if (restInterval) clearInterval(restInterval);
       if (simInterval)  clearInterval(simInterval);
-      if (wsRef.current) wsRef.current.close();
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
     };
@@ -471,7 +438,7 @@ export default function Terminal() {
   }, [user, recentPredictions, resolvePrediction, queryClient, price]);
 
   const selectedTier = DURATION_TIERS[tierIndex] ?? DURATION_TIERS[DEFAULT_TIER_INDEX];
-  const vipBonus = user?.isVip ? VIP_MULTIPLIER_BONUS : 0;
+  const vipBonus = user && isVipActive(user) ? VIP_MULTIPLIER_BONUS : 0;
   const activeMultiplier = +(selectedTier.baseMultiplier + vipBonus).toFixed(2);
 
   const handlePredict = async (direction: "long" | "short") => {
@@ -499,7 +466,7 @@ export default function Terminal() {
     } catch {}
   };
 
-  const vip = isVipActive(user);
+  const vip = user ? isVipActive(user) : false;
   const priceUp = price > prevPrice;
   const priceColor = priceUp ? WIN_COLOR : LOSS_COLOR;
   const maxBet = vip ? 5000 : 1000;

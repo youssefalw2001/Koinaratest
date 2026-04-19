@@ -8,6 +8,7 @@ import withdrawalsRouter from "./withdrawals";
 import gemsRouter from "./gems";
 import contentRouter from "./content";
 import crashRouter from "./crash";
+import marketRouter from "./market";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(withdrawalsRouter);
 router.use(gemsRouter);
 router.use(contentRouter);
 router.use(crashRouter);
+router.use(marketRouter);
 
 export default router;
