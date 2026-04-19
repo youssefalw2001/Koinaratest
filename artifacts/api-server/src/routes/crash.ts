@@ -1,4 +1,4 @@
-import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, crashBetsTable, crashRoundsTable, usersTable } from "@workspace/db";
 import {
@@ -10,6 +10,8 @@ import {
   getRoundCycleMs,
 } from "../lib/crashRuntime";
 import { serializeRow, serializeRows } from "../lib/serialize";
+import { createRouteRateLimiter } from "../lib/rateLimit";
+import { beginIdempotency } from "../lib/idempotency";
 
 const router: IRouter = Router();
 
@@ -39,46 +41,14 @@ type CrashStatePayload = {
   };
 };
 
-type SlidingWindowEntry = { count: number; resetAt: number };
-
 const streamSubscribers = new Set<Response>();
 let streamLoop: NodeJS.Timeout | null = null;
 let streamTickInFlight = false;
-
-function getClientKey(req: Request): string {
-  const forwardedRaw = req.headers["x-forwarded-for"];
-  const forwarded = Array.isArray(forwardedRaw)
-    ? forwardedRaw[0]
-    : forwardedRaw?.split(",")[0]?.trim();
-  return forwarded || req.ip || "unknown";
-}
-
-function createRateLimiter(windowMs: number, maxRequests: number) {
-  const windows = new Map<string, SlidingWindowEntry>();
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const now = Date.now();
-    const key = `${getClientKey(req)}:${req.path}`;
-    const current = windows.get(key);
-    if (!current || now > current.resetAt) {
-      windows.set(key, { count: 1, resetAt: now + windowMs });
-      next();
-      return;
-    }
-
-    if (current.count >= maxRequests) {
-      const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
-      res.setHeader("retry-after", retryAfter.toString());
-      res.status(429).json({ error: "Too many requests. Please slow down." });
-      return;
-    }
-
-    current.count += 1;
-    windows.set(key, current);
-    next();
-  };
-}
-
-const crashActionRateLimiter = createRateLimiter(10_000, 12);
+const crashActionRateLimiter = createRouteRateLimiter("crash-action", {
+  limit: 12,
+  windowMs: 10_000,
+  message: "Too many crash actions. Please slow down.",
+});
 
 function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "running" | "crashed" {
   const bettingClosesAtMs = new Date(round.bettingClosesAt).getTime();
@@ -324,8 +294,42 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
     return;
   }
 
+  const idempotency = await beginIdempotency(req, {
+    scope: "crash.cashout",
+    fallbackKey: `crash-cashout:${telegramId}:${roundId}`,
+    fingerprintData: { telegramId, roundId },
+    ttlMs: 2 * 60 * 60 * 1000,
+  });
+  if (idempotency.kind === "missing") {
+    res.status(400).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind === "replay") {
+    res.status(idempotency.statusCode).json(idempotency.responseBody);
+    return;
+  }
+  if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") {
+    res.status(409).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind !== "acquired") {
+    res.status(500).json({ error: "Idempotency precondition failed." });
+    return;
+  }
+  const idempotencyHandle = idempotency;
+
+  const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
+    try {
+      await idempotencyHandle.commit(statusCode, payload);
+    } catch {
+      await idempotencyHandle.abort();
+    }
+    res.status(statusCode).json(payload);
+  };
+
   const [round] = await db.select().from(crashRoundsTable).where(eq(crashRoundsTable.id, roundId)).limit(1);
   if (!round) {
+    await idempotencyHandle.abort();
     res.status(404).json({ error: "Round not found." });
     return;
   }
@@ -333,7 +337,7 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
   const settledRound = await settleRoundIfNeeded(round);
   const phase = getRoundPhase(settledRound);
   if (phase !== "running") {
-    res.status(400).json({ error: "Round is not running." });
+    await replyWithCommit(400, { error: "Round is not running." });
     return;
   }
 
@@ -343,11 +347,12 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
     .where(and(eq(crashBetsTable.roundId, roundId), eq(crashBetsTable.telegramId, telegramId)))
     .limit(1);
   if (!bet) {
+    await idempotencyHandle.abort();
     res.status(404).json({ error: "Bet not found." });
     return;
   }
   if (bet.status !== "pending") {
-    res.status(400).json({ error: "Bet already resolved." });
+    await replyWithCommit(400, { error: "Bet already resolved." });
     return;
   }
 
@@ -355,7 +360,7 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
   const currentMultiplier = getCrashMultiplierAtElapsedSec(elapsedSec);
   if (currentMultiplier >= settledRound.crashMultiplier) {
     await settleRoundIfNeeded(settledRound);
-    res.status(400).json({ error: "Too late. Round crashed." });
+    await replyWithCommit(400, { error: "Too late. Round crashed." });
     return;
   }
 
@@ -383,7 +388,7 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
     return [saved];
   });
 
-  res.json({
+  await replyWithCommit(200, {
     roundId,
     cashoutMultiplier: currentMultiplier,
     payoutGc,

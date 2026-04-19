@@ -4,6 +4,7 @@ import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable, vipTxHas
 import { z } from "zod";
 import { serializeRow } from "../lib/serialize";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
+import { beginIdempotency } from "../lib/idempotency";
 
 const router: IRouter = Router();
 
@@ -240,9 +241,44 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   }
 
   const { telegramId, gcAmount, usdtWallet } = body.data;
+  const idempotency = await beginIdempotency(req, {
+    scope: "withdrawals.request",
+    requireHeader: true,
+    fingerprintData: {
+      telegramId,
+      gcAmount,
+      usdtWallet,
+    },
+    ttlMs: 6 * 60 * 60 * 1000,
+  });
+  if (idempotency.kind === "missing") {
+    res.status(400).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind === "replay") {
+    res.status(idempotency.statusCode).json(idempotency.responseBody);
+    return;
+  }
+  if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") {
+    res.status(409).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind !== "acquired") {
+    res.status(500).json({ error: "Idempotency precondition failed." });
+    return;
+  }
+  const idempotencyHandle = idempotency;
+
+  const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
+    await idempotencyHandle.commit(statusCode, payload);
+    res.status(statusCode).json(payload);
+  };
 
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
-  if (!authedId) return;
+  if (!authedId) {
+    await idempotencyHandle.abort();
+    return;
+  }
 
   const [user] = await db
     .select()
@@ -251,6 +287,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .limit(1);
 
   if (!user) {
+    await idempotencyHandle.abort();
     res.status(404).json({ error: "User not found" });
     return;
   }
@@ -261,7 +298,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   // Free users must complete one-time identity verification before withdrawing.
   // VIP users are exempt — their TON VIP payment serves as identity verification.
   if (!isVipUser && !user.hasVerified) {
-    res.status(403).json({
+    await replyWithCommit(403, {
       error: "Identity verification required. Pay the one-time $1.99 (0.02 TON) verification fee to unlock withdrawals.",
       code: "VERIFICATION_REQUIRED",
     });
@@ -275,14 +312,16 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   if (gcAmount < minGc) {
     const shortfall = minGc - gcAmount;
-    res.status(400).json({
+    await replyWithCommit(400, {
       error: `Minimum withdrawal is ${minGc.toLocaleString()} GC ($${(minGc / gcPerUsd).toFixed(2)}). You need ${shortfall.toLocaleString()} more GC.`,
     });
     return;
   }
 
   if (user.goldCoins < gcAmount) {
-    res.status(400).json({ error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.` });
+    await replyWithCommit(400, {
+      error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.`,
+    });
     return;
   }
 
@@ -408,20 +447,23 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   } catch (err: unknown) {
     const e = err as Error & { weeklyRemainingGc?: number; remainingUsd?: string };
     if (e.message === "INSUFFICIENT_BALANCE") {
-      res.status(400).json({ error: "Insufficient balance." });
+      await replyWithCommit(400, { error: "Insufficient balance." });
       return;
     }
     if (e.message === "WEEKLY_CAP_EXCEEDED") {
-      res.status(400).json({
+      await replyWithCommit(400, {
         error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`,
         weeklyRemainingGc: e.weeklyRemainingGc ?? 0,
       });
       return;
     }
     if (e.message === "DAILY_CAP_EXCEEDED") {
-      res.status(503).json({ error: "Daily payout limit reached. Please try again tomorrow." });
+      await replyWithCommit(503, {
+        error: "Daily payout limit reached. Please try again tomorrow.",
+      });
       return;
     }
+    await idempotencyHandle.abort();
     throw err;
   }
 
@@ -431,7 +473,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .where(eq(usersTable.telegramId, telegramId))
     .limit(1);
 
-  res.json({
+  await replyWithCommit(200, {
     success: true,
     gcDeducted: gcAmount,
     netUsd: parseFloat(netUsd.toFixed(4)),

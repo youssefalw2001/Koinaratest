@@ -9,9 +9,13 @@ import { PageLoader, PageError } from "@/components/PageStatus";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { beginCell } from "@ton/core";
 import {
-  useUpgradeToVip, useUpdateWallet,
-  useRequestWithdrawal, useGetWithdrawals, useVerifyWithdrawalFee,
-  getGetUserQueryKey, getGetWithdrawalsQueryKey,
+  requestWithdrawal,
+  useUpgradeToVip,
+  useUpdateWallet,
+  useGetWithdrawals,
+  useVerifyWithdrawalFee,
+  getGetUserQueryKey,
+  getGetWithdrawalsQueryKey,
 } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -63,6 +67,12 @@ function statusBadge(status: string) {
   return map[status] ?? map.pending;
 }
 
+function makeIdempotencyKey(prefix: string, parts: Array<string | number>): string {
+  const normalized = parts.map((part) => String(part).trim()).join(":");
+  const entropy = Math.random().toString(36).slice(2, 10);
+  return `${prefix}:${normalized}:${Date.now()}:${entropy}`;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
   const { user } = useTelegram();
@@ -72,7 +82,6 @@ export default function WalletPage() {
 
   const upgradeToVip   = useUpgradeToVip();
   const updateWallet   = useUpdateWallet();
-  const requestWithdrawal = useRequestWithdrawal();
   const verifyFee      = useVerifyWithdrawalFee();
 
   const [showVipModal, setShowVipModal] = useState(false);
@@ -86,6 +95,7 @@ export default function WalletPage() {
   const [gcInput, setGcInput]       = useState("");
   const [withdrawError, setWithdrawError]   = useState<string | null>(null);
   const [withdrawSuccess, setWithdrawSuccess] = useState<{ netUsd: number; eta: string } | null>(null);
+  const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
   const [verifyPending, setVerifyPending]   = useState(false);
   const [verifyDone, setVerifyDone]         = useState(false);
   const [copiedTxHash, setCopiedTxHash]     = useState<number | null>(null);
@@ -202,14 +212,21 @@ export default function WalletPage() {
     if (!user) return;
     setWithdrawError(null);
     setWithdrawSuccess(null);
+    setWithdrawSubmitting(true);
     try {
-      const result = await requestWithdrawal.mutateAsync({
-        data: {
+      const idempotencyKey = makeIdempotencyKey("withdraw", [user.telegramId, gcAmount, usdtWallet]);
+      const result = await requestWithdrawal(
+        {
           telegramId: user.telegramId,
           gcAmount,
           usdtWallet,
         },
-      });
+        {
+          headers: {
+            "Idempotency-Key": idempotencyKey,
+          },
+        },
+      );
       setWithdrawSuccess({ netUsd: result.netUsd, eta: result.estimatedTime });
       setGcInput("");
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
@@ -217,6 +234,8 @@ export default function WalletPage() {
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? "Withdrawal failed. Please try again.";
       setWithdrawError(msg);
+    } finally {
+      setWithdrawSubmitting(false);
     }
   };
 
@@ -568,12 +587,12 @@ export default function WalletPage() {
           {/* Submit */}
           <button
             onClick={handleWithdraw}
-            disabled={!canWithdraw || requestWithdrawal.isPending}
+            disabled={!canWithdraw || withdrawSubmitting}
             data-testid="btn-withdraw-submit"
             className="w-full py-4 rounded-xl border-2 border-[#f5c518] font-mono text-sm font-black text-[#f5c518] bg-[#f5c518]/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
             style={canWithdraw ? { boxShadow: "0 0 20px rgba(245,197,24,0.25)" } : {}}
           >
-            {requestWithdrawal.isPending ? (
+            {withdrawSubmitting ? (
               <><Loader2 size={16} className="animate-spin" /> PROCESSING...</>
             ) : (
               <><ArrowUpRight size={16} /> WITHDRAW {gcAmount > 0 ? `${gcAmount.toLocaleString()} GC` : "GC"} → USDT</>
