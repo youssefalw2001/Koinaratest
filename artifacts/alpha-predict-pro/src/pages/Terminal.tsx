@@ -3,8 +3,8 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw } from "lucide-react";
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   ReferenceLine,
@@ -53,8 +53,6 @@ const DURATION_TIERS = [
 ] satisfies readonly DurationTier[];
 const VIP_MULTIPLIER_BONUS = 0.1;
 const DEFAULT_TIER_INDEX = 0;
-const CANDLE_COUNT = 60;
-const CANDLE_BUCKET_MS = 1000;
 // Grace windows added on top of each prediction's own `duration` before the
 // UI considers it stale or auto-resolves it. Kept < the backend sweeper's
 // grace so the client usually resolves first.
@@ -94,69 +92,9 @@ interface PriceResult {
   id: number;
 }
 
-interface Candle {
+interface PricePoint {
   t: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  range: [number, number];
-  body: [number, number];
-}
-
-interface WickShapeProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: Candle;
-}
-
-function WickShape(props: WickShapeProps) {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  if (!payload) return null;
-  const isUp = payload.close >= payload.open;
-  const color = isUp ? WIN_COLOR : LOSS_COLOR;
-  const cx = x + width / 2;
-  return (
-    <line
-      x1={cx}
-      x2={cx}
-      y1={y}
-      y2={y + Math.max(1, height)}
-      stroke={color}
-      strokeWidth={1}
-      opacity={0.6}
-    />
-  );
-}
-
-interface BodyShapeProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: Candle;
-}
-
-function BodyShape(props: BodyShapeProps) {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  if (!payload) return null;
-  const isUp = payload.close >= payload.open;
-  const color = isUp ? WIN_COLOR : LOSS_COLOR;
-  const cx = x + width / 2;
-  const bodyW = Math.max(2, Math.min(width * 0.7, 8));
-  return (
-    <rect
-      x={cx - bodyW / 2}
-      y={y}
-      width={bodyW}
-      height={Math.max(1, height)}
-      fill={color}
-      opacity={0.95}
-      style={{ filter: `drop-shadow(0 0 3px ${color})` }}
-    />
-  );
+  v: number;
 }
 
 interface TickerItem {
@@ -212,8 +150,6 @@ export default function Terminal() {
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const tierIndex = DEFAULT_TIER_INDEX;
   const [tickDir, setTickDir] = useState<"up" | "down" | null>(null);
-  const candlesRef = useRef<Candle[]>([]);
-  const [candleData, setCandleData] = useState<Candle[]>([]);
   const reconcileRunRef = useRef(false);
   const [bet, setBet] = useState(DEFAULT_BET);
   const [activePrediction, setActivePrediction] = useState<{
@@ -246,6 +182,9 @@ export default function Terminal() {
   const winStreakRef = useRef(0);
   const lossStreakRef = useRef(0);
   const priceRef = useRef<number>(0);
+  const openPriceRef = useRef<number>(0);
+  const priceHistoryRef = useRef<PricePoint[]>([]);
+  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const synthRef = useRef<TickerItem[]>([]);
   if (synthRef.current.length === 0) {
     synthRef.current = Array.from({ length: 10 }, (_, i) => makeSynth(2 + i * 4));
@@ -300,59 +239,56 @@ export default function Terminal() {
   useEffect(() => {
     if (price <= 0) return;
     priceRef.current = price;
-
-    const now = Date.now();
-    const bucketStart = Math.floor(now / CANDLE_BUCKET_MS) * CANDLE_BUCKET_MS;
-    const list = candlesRef.current;
-    const last = list[list.length - 1];
-
-    if (!last || last.t !== bucketStart) {
-      const open = last ? last.close : price;
-      const o = open;
-      const c = price;
-      const h = Math.max(o, c);
-      const l = Math.min(o, c);
-      const next: Candle = {
-        t: bucketStart,
-        open: o,
-        high: h,
-        low: l,
-        close: c,
-        range: [l, h],
-        body: [Math.min(o, c), Math.max(o, c)],
-      };
-      candlesRef.current = [...list, next].slice(-CANDLE_COUNT);
-    } else {
-      const updated: Candle = {
-        ...last,
-        close: price,
-        high: Math.max(last.high, price),
-        low: Math.min(last.low, price),
-      };
-      updated.range = [updated.low, updated.high];
-      updated.body = [Math.min(updated.open, updated.close), Math.max(updated.open, updated.close)];
-      candlesRef.current = [...list.slice(0, -1), updated];
-    }
-    setCandleData([...candlesRef.current]);
+    if (!openPriceRef.current) openPriceRef.current = price;
+    const point: PricePoint = { t: Date.now(), v: price };
+    priceHistoryRef.current = [...priceHistoryRef.current, point].slice(-60);
+    setPriceHistory([...priceHistoryRef.current]);
   }, [price]);
 
   useEffect(() => {
-    let fallbackInterval: NodeJS.Timeout | null = null;
+    let restInterval: NodeJS.Timeout | null = null;
+    let simInterval: NodeJS.Timeout | null = null;
     let connected = false;
+    let restWorking = false;
 
-    const startFallback = () => {
-      if (fallbackInterval) return;
-      let base = 104000 + Math.random() * 2000;
-      setPrice(base);
-      fallbackInterval = setInterval(() => {
+    const applyPrice = (next: number) => {
+      setPrice((prev) => {
+        setPrevPrice(prev);
+        if (next !== prev) setTickDir(next > prev ? "up" : "down");
+        return next;
+      });
+    };
+
+    const fetchRest = async (): Promise<boolean> => {
+      try {
+        const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        if (!r.ok) return false;
+        const d = await r.json();
+        const p = parseFloat(d.price);
+        if (!isNaN(p) && p > 0) { applyPrice(p); return true; }
+        return false;
+      } catch { return false; }
+    };
+
+    const startRestPolling = async () => {
+      if (restInterval) return;
+      const ok = await fetchRest();
+      restWorking = ok;
+      if (ok) {
+        restInterval = setInterval(fetchRest, 2000);
+      } else {
+        startSim();
+      }
+    };
+
+    const startSim = () => {
+      if (simInterval) return;
+      let base = priceRef.current > 0 ? priceRef.current : 104000 + Math.random() * 2000;
+      applyPrice(base);
+      simInterval = setInterval(() => {
         const delta = (Math.random() - 0.48) * 80;
-        base = Math.max(95000, base + delta);
-        setPrice((prev) => {
-          setPrevPrice(prev);
-          const next = parseFloat(base.toFixed(2));
-          if (next !== prev) setTickDir(next > prev ? "up" : "down");
-          return next;
-        });
+        base = Math.max(90000, base + delta);
+        applyPrice(parseFloat(base.toFixed(2)));
       }, 800);
     };
 
@@ -361,37 +297,36 @@ export default function Terminal() {
       wsRef.current = ws;
       ws.onopen = () => {
         connected = true;
-        if (fallbackInterval) {
-          clearInterval(fallbackInterval);
-          fallbackInterval = null;
-        }
+        if (restInterval) { clearInterval(restInterval); restInterval = null; }
+        if (simInterval)  { clearInterval(simInterval);  simInterval = null;  }
       };
       ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        setPrice((prev) => {
-          setPrevPrice(prev);
-          const next = parseFloat(data.p);
-          if (next !== prev) setTickDir(next > prev ? "up" : "down");
-          return next;
-        });
+        try {
+          const d = JSON.parse(e.data);
+          const p = parseFloat(d.p);
+          if (!isNaN(p)) applyPrice(p);
+        } catch {}
       };
       ws.onerror = () => ws.close();
       ws.onclose = () => {
         connected = false;
         if (wsRef.current === ws) {
-          startFallback();
-          setTimeout(connect, 5000);
+          startRestPolling();
+          setTimeout(connect, 8000);
         }
       };
     };
 
-    const timer = setTimeout(() => {
-      if (!connected) startFallback();
-    }, 2000);
+    const wsTimer = setTimeout(() => {
+      if (!connected) startRestPolling();
+    }, 3000);
+
     connect();
+
     return () => {
-      clearTimeout(timer);
-      if (fallbackInterval) clearInterval(fallbackInterval);
+      clearTimeout(wsTimer);
+      if (restInterval) clearInterval(restInterval);
+      if (simInterval)  clearInterval(simInterval);
       if (wsRef.current) wsRef.current.close();
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
@@ -754,62 +689,64 @@ export default function Terminal() {
       )}
 
       <div className="px-4 pt-3 flex flex-col gap-3">
-        {/* Live Candlestick Chart */}
-        {candleData.length > 1 && (
-          <div
-            className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
-            style={{ height: 110 }}
-          >
-            <ResponsiveContainer width="100%" height={110}>
-              <BarChart
-                data={candleData}
-                margin={{ top: 8, right: 28, left: 8, bottom: 6 }}
-                barCategoryGap={1}
-              >
-                <XAxis dataKey="t" hide />
-                <YAxis
-                  domain={["dataMin", "dataMax"]}
-                  hide
-                  allowDecimals
-                />
-                <Bar
-                  dataKey="range"
-                  shape={WickShape as never}
-                  isAnimationActive={false}
-                />
-                <Bar
-                  dataKey="body"
-                  shape={BodyShape as never}
-                  isAnimationActive={false}
-                />
-                {activePrediction && (
-                  <ReferenceLine
-                    y={activePrediction.entryPrice}
-                    stroke="#f5c518"
-                    strokeWidth={1.2}
-                    strokeDasharray="4 3"
-                    label={{
-                      value: "ENTRY",
-                      position: "right",
-                      fill: "#f5c518",
-                      fontSize: 9,
-                      fontFamily: "monospace",
-                    }}
+        {/* Live Line Chart */}
+        {priceHistory.length > 1 && (() => {
+          const chartOpen = priceHistory[0].v;
+          const chartNow  = priceHistory[priceHistory.length - 1].v;
+          const chartUp   = chartNow >= chartOpen;
+          const lineColor = chartUp ? WIN_COLOR : LOSS_COLOR;
+          const gradId    = chartUp ? "grad-up" : "grad-dn";
+          const pad = (chartNow - chartOpen === 0) ? 50 : Math.abs(chartNow - chartOpen) * 0.5;
+          return (
+            <div
+              className="rounded-xl overflow-hidden border border-white/5"
+              style={{ height: 120, background: "rgba(255,255,255,0.01)" }}
+            >
+              <ResponsiveContainer width="100%" height={120}>
+                <AreaChart data={priceHistory} margin={{ top: 10, right: 4, left: 4, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="grad-up" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={WIN_COLOR}  stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={WIN_COLOR}  stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="grad-dn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={LOSS_COLOR} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={LOSS_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="t" hide />
+                  <YAxis domain={[`dataMin - ${pad}`, `dataMax + ${pad}`]} hide />
+                  <Area
+                    type="monotone"
+                    dataKey="v"
+                    stroke={lineColor}
+                    strokeWidth={2}
+                    fill={`url(#${gradId})`}
+                    dot={false}
+                    isAnimationActive={false}
                   />
-                )}
-                <ReferenceDot
-                  x={candleData[candleData.length - 1]?.t ?? 0}
-                  y={candleData[candleData.length - 1]?.close ?? 0}
-                  r={3}
-                  fill="#00f0ff"
-                  stroke="rgba(0,240,255,0.45)"
-                  strokeWidth={5}
-                  isFront
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+                  {activePrediction && (
+                    <ReferenceLine
+                      y={activePrediction.entryPrice}
+                      stroke="#f5c518"
+                      strokeWidth={1.2}
+                      strokeDasharray="4 3"
+                    />
+                  )}
+                  <ReferenceDot
+                    x={priceHistory[priceHistory.length - 1].t}
+                    y={priceHistory[priceHistory.length - 1].v}
+                    r={3}
+                    fill={lineColor}
+                    stroke={`${lineColor}66`}
+                    strokeWidth={6}
+                    isFront
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
 
         {/* Live Price Display */}
         <div
@@ -854,6 +791,16 @@ export default function Terminal() {
               {priceUp ? "RISING" : "FALLING"}
             </span>
           </div>
+          {openPriceRef.current > 0 && price > 0 && (() => {
+            const change = price - openPriceRef.current;
+            const pct = (change / openPriceRef.current) * 100;
+            const up = change >= 0;
+            return (
+              <span className="font-mono text-[11px] mt-0.5" style={{ color: up ? WIN_COLOR : LOSS_COLOR }}>
+                {up ? "+" : ""}{change.toFixed(2)} ({up ? "+" : ""}{pct.toFixed(2)}%)
+              </span>
+            );
+          })()}
         </div>
 
         {/* Active Trade Countdown */}
