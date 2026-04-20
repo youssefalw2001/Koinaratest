@@ -16,20 +16,19 @@ import {
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { isVipActive } from "../lib/vip";
 import { resolvePredictionLogic } from "../lib/resolveLogic";
+import { logger } from "../lib/logger";
+import { beginIdempotency } from "../lib/idempotency";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
 const MIN_BET_TC = 50;
 const RESOLVE_TOLERANCE_SEC = 0;
 
-// Allowed round durations and their base GC payout multipliers.
-// VIP users receive a +0.1 bonus on top of the base multiplier.
+// Koinara now runs a single 60s round with a fixed 1.85x base multiplier.
+// VIP users still receive an additional +0.1 multiplier bonus.
 const DURATION_TIERS: Record<number, number> = {
-  6: 1.7,
-  15: 2.0,
-  30: 2.3,
-  60: 2.8,
-  300: 3.5,
+  60: 1.85,
 };
 const VIP_MULTIPLIER_BONUS = 0.1;
 const MULTIPLIER_TOLERANCE = 0.001;
@@ -43,6 +42,9 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const { telegramId, direction, amount, entryPrice } = parsed.data;
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
   const requestedDuration =
     typeof (parsed.data as { duration?: number }).duration === "number"
       ? (parsed.data as { duration: number }).duration
@@ -54,7 +56,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
   const multiplierProvided = typeof rawMultiplier === "number";
 
   if (!(requestedDuration in DURATION_TIERS)) {
-    res.status(400).json({ error: "Invalid duration. Allowed: 6, 15, 30, 60, 300." });
+    res.status(400).json({ error: "Invalid duration. Allowed: 60." });
     return;
   }
 
@@ -136,6 +138,38 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
   }
 
   const { exitPrice } = body.data;
+  const idempotency = await beginIdempotency(req, {
+    scope: "predictions.resolve",
+    fallbackKey: `prediction:${params.data.id}`,
+    fingerprintData: { predictionId: params.data.id, exitPrice },
+    ttlMs: 2 * 60 * 60 * 1000,
+  });
+  if (idempotency.kind === "missing") {
+    res.status(400).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind === "replay") {
+    res.status(idempotency.statusCode).json(idempotency.responseBody);
+    return;
+  }
+  if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") {
+    res.status(409).json({ error: idempotency.message });
+    return;
+  }
+  if (idempotency.kind !== "acquired") {
+    res.status(500).json({ error: "Idempotency precondition failed." });
+    return;
+  }
+  const idempotencyHandle = idempotency;
+
+  const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
+    try {
+      await idempotencyHandle.commit(statusCode, payload);
+    } catch (err) {
+      logger.warn({ err, predictionId: params.data.id }, "Failed to persist idempotent response");
+    }
+    res.status(statusCode).json(payload);
+  };
 
   const [prediction] = await db
     .select()
@@ -144,12 +178,16 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     .limit(1);
 
   if (!prediction) {
+    await idempotencyHandle.abort();
     res.status(404).json({ error: "Prediction not found" });
     return;
   }
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, prediction.telegramId);
+  if (!authedId) return;
+
   if (prediction.status !== "pending") {
-    res.status(400).json({ error: "Prediction already resolved" });
+    await replyWithCommit(400, { error: "Prediction already resolved" });
     return;
   }
 
@@ -158,7 +196,7 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
   const roundDuration = prediction.duration ?? DEFAULT_DURATION_SEC;
   const elapsed = (Date.now() - new Date(prediction.createdAt).getTime()) / 1000;
   if (elapsed < roundDuration - RESOLVE_TOLERANCE_SEC) {
-    res.status(400).json({
+    await replyWithCommit(400, {
       error: `Round not complete. ${Math.ceil(roundDuration - elapsed)}s remaining.`,
     });
     return;
@@ -168,11 +206,20 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     autoResolved: false,
   });
   if (!result.ok || !result.prediction) {
+    logger.warn(
+      {
+        predictionId: params.data.id,
+        reason: result.reason ?? "unknown",
+      },
+      "Prediction resolve failed",
+    );
+    await idempotencyHandle.abort();
     res.status(400).json({ error: result.reason ?? "Failed to resolve" });
     return;
   }
 
-  res.json(
+  await replyWithCommit(
+    200,
     ResolvePredictionResponse.parse(
       serializeRow(result.prediction as unknown as Record<string, unknown>),
     ),

@@ -59,7 +59,7 @@ export const RegisterUserResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -115,7 +115,7 @@ export const GetUserResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -193,7 +193,7 @@ export const UpdateWalletResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -253,7 +253,7 @@ export const ActivateVipTrialResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -277,7 +277,7 @@ export const UpgradeToVipParams = zod.object({
 });
 
 export const UpgradeToVipBody = zod.object({
-  plan: zod.enum(["weekly", "monthly", "tc"]),
+  plan: zod.enum(["weekly", "monthly"]),
   senderAddress: zod
     .string()
     .nullish()
@@ -319,7 +319,7 @@ export const UpgradeToVipResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -339,23 +339,14 @@ export const UpgradeToVipResponse = zod.object({
  * @summary Place a trade prediction (Long or Short) — deducts Trade Credits
  */
 export const createPredictionBodyDurationDefault = 60;
-export const createPredictionBodyMultiplierDefault = 1.7;
+export const createPredictionBodyMultiplierDefault = 1.85;
 
 export const CreatePredictionBody = zod.object({
   telegramId: zod.string(),
   direction: zod.enum(["long", "short"]),
   amount: zod.number(),
   entryPrice: zod.number(),
-  duration: zod
-    .union([
-      zod.literal(6),
-      zod.literal(15),
-      zod.literal(30),
-      zod.literal(60),
-      zod.literal(300),
-    ])
-    .default(createPredictionBodyDurationDefault)
-    .describe("Round duration in seconds. Allowed: 6, 15, 30, 60, 300."),
+  duration: zod.literal(60).default(createPredictionBodyDurationDefault).describe("Round duration in seconds. Allowed: 60."),
   multiplier: zod
     .number()
     .default(createPredictionBodyMultiplierDefault)
@@ -654,7 +645,7 @@ export const GetReferralStatsResponse = zod.object({
 });
 
 /**
- * @summary Purchase a gem powerup with TC
+ * @summary Purchase a gem powerup with GC
  */
 export const PurchaseGemBody = zod.object({
   telegramId: zod.string(),

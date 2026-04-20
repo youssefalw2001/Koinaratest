@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { apiRateLimit } from "./lib/rateLimit";
 
 const app: Express = express();
 
@@ -25,9 +26,14 @@ app.use(
     },
   }),
 );
-app.use(cors());
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(",")
+  : ["http://localhost:5173", "http://localhost:4173"];
+app.use(cors({ origin: allowedOrigins, methods: ["GET", "POST", "PUT", "DELETE"] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use(apiRateLimit);
 
 app.use("/api", router);
 

@@ -2,8 +2,8 @@ import { eq, sql, and, gt } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import { isVipActive } from "./vip";
 
-export const GC_RATIO = 1.7;
-const DEFAULT_MULTIPLIER = 1.7;
+export const GC_RATIO = 1.85;
+const DEFAULT_MULTIPLIER = 1.85;
 export const DAILY_GC_CAP_FREE = 800;
 export const DAILY_GC_CAP_VIP = 6000;
 
@@ -11,6 +11,8 @@ export interface ResolveOutcome {
   ok: boolean;
   prediction?: typeof predictionsTable.$inferSelect;
   reason?: string;
+  payoutApplied?: number;
+  payoutBlockedReason?: "daily_cap_reached";
 }
 
 /**
@@ -38,7 +40,11 @@ export async function resolvePredictionLogic(
 
     if (!prediction) return { ok: false, reason: "not_found" };
     if (prediction.status !== "pending") {
-      return { ok: false, reason: "already_resolved" };
+      return {
+        ok: false,
+        reason: "already_resolved",
+        payoutApplied: prediction.payout ?? 0,
+      };
     }
 
     const priceWentUp = exitPrice > prediction.entryPrice;
@@ -160,7 +166,14 @@ export async function resolvePredictionLogic(
     const remaining = dailyCap - currentDailyGc;
     const gcPayout = Math.min(rawPayout, Math.max(0, remaining));
 
-    if (gcPayout <= 0) return { ok: true, prediction: claimed };
+    if (gcPayout <= 0) {
+      return {
+        ok: true,
+        prediction: claimed,
+        payoutApplied: 0,
+        payoutBlockedReason: "daily_cap_reached",
+      };
+    }
 
     const newDailyGc = currentDailyGc + gcPayout;
     await tx
@@ -189,6 +202,10 @@ export async function resolvePredictionLogic(
       .where(eq(predictionsTable.id, predictionId))
       .returning();
 
-    return { ok: true, prediction: patched ?? claimed };
+    return {
+      ok: true,
+      prediction: patched ?? claimed,
+      payoutApplied: gcPayout,
+    };
   });
 }

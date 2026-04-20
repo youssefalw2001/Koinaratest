@@ -135,6 +135,26 @@ router.post("/users/register", async (req, res): Promise<void> => {
   }
 
   const { telegramId, username, firstName, lastName, photoUrl, referredBy } = parsed.data;
+
+  // For register, verify the Telegram init data from the header and use the
+  // verified ID from the token (not the caller-supplied one) to prevent spoofing.
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (botToken) {
+    const initData = req.headers["x-telegram-init-data"];
+    if (typeof initData !== "string" || initData.trim() === "") {
+      res.status(401).json({ error: "Authentication required. Please reopen the app." });
+      return;
+    }
+    const { verifyTelegramInitData } = await import("../lib/telegramVerify");
+    const verifiedId = verifyTelegramInitData(initData, botToken);
+    if (!verifiedId) {
+      res.status(401).json({ error: "Invalid authentication. Please reopen the app." });
+      return;
+    }
+    // Use the verified ID from the token, ignoring the caller-supplied one
+    (parsed.data as { telegramId: string }).telegramId = verifiedId;
+  }
+
   const today = new Date().toISOString().split("T")[0];
 
   const existing = await db
@@ -208,6 +228,9 @@ router.get("/users/:telegramId", async (req, res): Promise<void> => {
     return;
   }
 
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
+
   const [user] = await db
     .select()
     .from(usersTable)
@@ -230,6 +253,8 @@ router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
   }
 
   const { telegramId } = params.data;
+  const authId = await resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authId) return;
 
   const preds = await db
     .select()
@@ -277,6 +302,9 @@ router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
 
   const body = UpdateWalletBody.safeParse(req.body);
   if (!body.success) {
@@ -416,32 +444,9 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
   }
 
   if (plan === "tc") {
-    const TC_FEE = 500;
-    if (user.tradeCredits < TC_FEE) {
-      res.status(400).json({ error: `Need ${TC_FEE} Trade Credits to activate VIP.` });
-      return;
-    }
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const [updated] = await db
-      .update(usersTable)
-      .set({
-        isVip: true,
-        vipPlan: "tc_weekly",
-        vipExpiresAt: expiresAt,
-        tradeCredits: sql`${usersTable.tradeCredits} - ${TC_FEE}`,
-      })
-      .where(eq(usersTable.telegramId, params.data.telegramId))
-      .returning();
-
-    // TC plan also triggers referral reward for the referrer
-    if (user.referredBy) {
-      await db
-        .update(usersTable)
-        .set({ referralVipRewardPending: true })
-        .where(eq(usersTable.telegramId, user.referredBy));
-    }
-
-    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
+    res.status(400).json({
+      error: "TC-based VIP plan has been removed. Please use weekly/monthly TON plans.",
+    });
     return;
   }
 

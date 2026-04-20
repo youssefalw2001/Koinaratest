@@ -1,20 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
-import { Zap, Gift, Wallet, Trophy, User, Crown, Clock, Gem } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Zap,
+  Gift,
+  Wallet,
+  User,
+  Crown,
+  Clock,
+  Gem,
+  Languages,
+  Sparkles,
+  Rocket,
+} from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
+import { parseVipExpiry, getVipCountdownLabel } from "@/lib/vipExpiry";
 import { formatGcUsd } from "@/lib/format";
-
-const CYAN = "#00f0ff";
-const GOLD = "#f5c518";
-const MAGENTA = "#ff2d78";
+import { useLanguage } from "@/lib/language";
 
 const tabs = [
-  { path: "/", icon: Zap, label: "Trade" },
-  { path: "/earn", icon: Gift, label: "Earn" },
-  { path: "/shop", icon: Gem, label: "Shop" },
-  { path: "/wallet", icon: Wallet, label: "Wallet" },
-  { path: "/profile", icon: User, label: "Profile" },
+  { path: "/", icon: Zap, labelKey: "trade" as const },
+  { path: "/crash", icon: Rocket, labelKey: "crash" as const },
+  { path: "/earn", icon: Gift, labelKey: "earn" as const },
+  { path: "/shop", icon: Gem, labelKey: "shop" as const },
+  { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
+  { path: "/profile", icon: User, labelKey: "profile" as const },
 ];
 
 function useTrialCountdown(vipTrialExpiresAt?: string | null): string | null {
@@ -22,7 +33,9 @@ function useTrialCountdown(vipTrialExpiresAt?: string | null): string | null {
   useEffect(() => {
     if (!vipTrialExpiresAt) { setRemaining(null); return; }
     const update = () => {
-      const diff = new Date(vipTrialExpiresAt).getTime() - Date.now();
+      const expiresAt = parseVipExpiry(vipTrialExpiresAt);
+      if (!expiresAt) { setRemaining(null); return; }
+      const diff = expiresAt.getTime() - Date.now();
       if (diff <= 0) { setRemaining(null); return; }
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
@@ -39,48 +52,123 @@ function useTrialCountdown(vipTrialExpiresAt?: string | null): string | null {
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user } = useTelegram();
+  const { t, toggleLanguage, language, isArabic } = useLanguage();
   const vip = isVipActive(user);
-  const hasPaidVip = user?.isVip && user?.vipExpiresAt && new Date(user.vipExpiresAt) > new Date();
-  const hasTrial = !hasPaidVip && user?.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date();
+  const hasPaidVip = !!(user?.isVip && parseVipExpiry(user?.vipExpiresAt) && parseVipExpiry(user?.vipExpiresAt)!.getTime() > Date.now());
+  const hasTrial = !!(!hasPaidVip && parseVipExpiry(user?.vipTrialExpiresAt) && parseVipExpiry(user?.vipTrialExpiresAt)!.getTime() > Date.now());
   const trialCountdown = useTrialCountdown(hasTrial ? user?.vipTrialExpiresAt : null);
+  const paidVipCountdown = getVipCountdownLabel(user?.vipExpiresAt);
+  const tickerItems = useMemo(
+    () => [
+      "Aisha withdrew 42.50 USDT",
+      "Faisal withdrew 19.80 USDT",
+      "Youssef withdrew 77.10 USDT",
+      "Mona withdrew 28.25 USDT",
+      "Noura withdrew 54.90 USDT",
+    ],
+    [],
+  );
 
   return (
-    <div className="flex flex-col min-h-screen max-w-[420px] mx-auto bg-black text-white">
+    <div className="flex flex-col min-h-screen max-w-[420px] mx-auto text-white" dir={isArabic ? "rtl" : "ltr"}>
+      <style>{`
+        @keyframes vip-pulse {
+          0%, 100% { box-shadow: 0 0 0 rgba(255, 215, 0, 0.2), 0 0 18px rgba(255, 215, 0, 0.25); }
+          50% { box-shadow: 0 0 0 rgba(255, 215, 0, 0.4), 0 0 30px rgba(255, 215, 0, 0.55); }
+        }
+        @keyframes withdraw-ticker {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
       {/* Top Header */}
-      <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-black/95 backdrop-blur-xl border-b border-white/8">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-sm flex items-center justify-center" style={{ background: "linear-gradient(135deg, #00f0ff, #f5c518)" }}>
-            <span className="font-black text-[10px] text-black">K</span>
+      <header className="sticky top-0 z-40 border-b border-[#FFD700]/15 bg-[#0a0a0f]/95 backdrop-blur-xl">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                background: "linear-gradient(135deg, #FFE88A, #FFD700)",
+                boxShadow: "0 0 18px rgba(255,215,0,0.45)",
+              }}
+            >
+              <span className="font-black text-[11px] text-black">K</span>
+            </div>
+            <span
+              className="font-black text-sm tracking-[0.22em]"
+              style={{
+                background: "linear-gradient(90deg, #FFF3B0, #FFD700 46%, #D39B00)",
+                WebkitBackgroundClip: "text",
+                color: "transparent",
+              }}
+            >
+              SOVEREIGN · {t("appName")}
+            </span>
           </div>
-          <span className="font-mono font-black text-sm tracking-widest text-white">KOINARA</span>
+          <button
+            onClick={toggleLanguage}
+            className="pressable inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/75"
+            title={t("language")}
+          >
+            <Languages size={12} />
+            {language === "en" ? "AR" : "EN"}
+          </button>
         </div>
         {user && (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-[#00f0ff]/8 border border-[#00f0ff]/20 rounded px-2 py-1">
-              <span className="text-xs">🔵</span>
-              <span className="font-mono text-xs text-[#00f0ff] font-bold">
+          <div className="px-4 pb-2 flex items-center gap-1.5">
+            <div className="inline-flex items-center gap-1 rounded-full border border-[#4DA3FF]/35 bg-[#4DA3FF]/10 px-2.5 py-1">
+              <span className="text-[10px]">🔵</span>
+              <span className="font-mono text-[10px] font-bold text-[#8BC3FF] tabular-nums">
                 {(user.tradeCredits ?? 0).toLocaleString()}
               </span>
-              <span className="font-mono text-[9px] text-[#00f0ff]/50">TC</span>
+              <span className="font-mono text-[8px] text-[#8BC3FF]/70">TC</span>
             </div>
-            <div className="flex items-center gap-1 bg-[#f5c518]/8 border border-[#f5c518]/25 rounded px-2 py-1">
-              <span className="text-xs">🪙</span>
-              <span className="font-mono text-xs font-bold" style={{ color: GOLD }}>
+            <div
+              id="gc-balance-pill"
+              className="inline-flex items-center gap-1 rounded-full border border-[#FFD700]/35 bg-[#FFD700]/10 px-2.5 py-1"
+            >
+              <span className="text-[10px]">🟡</span>
+              <span className="font-mono text-[10px] font-bold text-[#FFD700] tabular-nums">
                 {(user.goldCoins ?? 0).toLocaleString()}
               </span>
-              <span className="font-mono text-[9px]" style={{ color: GOLD + "70" }}>GC</span>
-              <span className="font-mono text-[8px] text-white/40 ml-0.5">
-                ≈ {formatGcUsd(user.goldCoins ?? 0)}
-              </span>
+              <span className="font-mono text-[8px] text-[#FFD700]/70">GC</span>
+              <span className="font-mono text-[8px] text-white/35">≈ {formatGcUsd(user.goldCoins ?? 0)}</span>
             </div>
             {vip && (
-              <div className="px-1.5 py-0.5 rounded border border-[#f5c518]/50 bg-[#f5c518]/10">
-                <span className="font-mono text-[9px] font-black text-[#f5c518] tracking-widest">VIP</span>
+              <div
+                className="ml-auto inline-flex items-center gap-1 rounded-full border border-[#FFD700]/45 bg-[#FFD700]/10 px-2.5 py-1"
+                style={{ animation: "vip-pulse 3s ease-in-out infinite" }}
+              >
+                <Crown size={10} className="text-[#FFD700]" />
+                <span className="font-mono text-[9px] font-black text-[#FFD700] tracking-[0.16em]">{t("vip")}</span>
               </div>
             )}
           </div>
         )}
+        <div
+          className="relative overflow-hidden border-t border-[#FFD700]/10"
+          style={{ height: 24, background: "rgba(255,215,0,0.04)" }}
+        >
+          <div className="absolute left-0 top-0 flex whitespace-nowrap" style={{ animation: "withdraw-ticker 34s linear infinite" }}>
+            {[...tickerItems, ...tickerItems].map((item, idx) => (
+              <span key={`${item}-${idx}`} className="inline-flex items-center gap-1.5 px-5">
+                <Sparkles size={9} className="text-[#FFD700]" />
+                <span className="font-mono text-[9px] text-white/62">{item}</span>
+              </span>
+            ))}
+          </div>
+        </div>
       </header>
+
+      {hasPaidVip && paidVipCountdown && (
+        <div className="px-4 py-1.5 border-b border-[#f5c518]/15 bg-[#f5c518]/5">
+          <div className="flex items-center gap-2">
+            <Crown size={11} className="text-[#f5c518]" />
+            <span className="font-mono text-[10px] text-[#f5c518]">VIP ACTIVE</span>
+            <span className="font-mono text-[10px] text-white/40 ml-auto">{paidVipCountdown} remaining</span>
+          </div>
+        </div>
+      )}
 
       {/* VIP Trial Countdown Banner */}
       {trialCountdown && (
@@ -104,21 +192,31 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="flex-1 overflow-y-auto pb-20">
-        {children}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location}
+            initial={{ opacity: 0, x: isArabic ? -14 : 14 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: isArabic ? 14 : -14 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-[420px] mx-auto z-50 border-t border-white/10 bg-black/95 backdrop-blur-xl">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-[420px] mx-auto z-50 border-t border-[#FFD700]/10 bg-[#0a0a0f]/95 backdrop-blur-xl">
         <div className="flex">
-          {tabs.map(({ path, icon: Icon, label }) => {
+          {tabs.map(({ path, icon: Icon, labelKey }) => {
             const active = location === path || (path !== "/" && location.startsWith(path));
             return (
               <Link key={path} href={path} className="flex-1">
-                <div className={`flex flex-col items-center py-3 gap-1 transition-all duration-200 ${active ? "text-[#00f0ff]" : "text-white/40"}`}>
-                  <Icon
-                    size={20}
-                    className={active ? "drop-shadow-[0_0_8px_#00f0ff]" : ""}
-                  />
-                  <span className="text-[9px] font-mono font-bold tracking-widest uppercase">{label}</span>
+                <div className={`relative flex flex-col items-center py-3 gap-1 transition-all duration-200 ${active ? "text-[#FFD700]" : "text-white/40"}`}>
+                  {active && (
+                    <span className="absolute top-1 h-1.5 w-1.5 rounded-full bg-[#FFD700] shadow-[0_0_10px_#FFD700]" />
+                  )}
+                  <Icon size={20} className={active ? "drop-shadow-[0_0_9px_#FFD700]" : ""} />
+                  <span className="text-[9px] font-bold tracking-[0.14em] uppercase">{t(labelKey)}</span>
                 </div>
               </Link>
             );

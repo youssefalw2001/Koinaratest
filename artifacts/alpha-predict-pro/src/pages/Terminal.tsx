@@ -3,8 +3,8 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw } from "lucide-react";
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   ReferenceLine,
@@ -24,34 +24,35 @@ import {
   getGetActiveGemsQueryKey,
 } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
+import { getVipCountdownLabel } from "@/lib/vipExpiry";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { PageLoader } from "@/components/PageStatus";
 import { formatGcUsd } from "@/lib/format";
+import { GoldCoinFlight } from "@/components/particles/GoldCoinFlight";
+import { ConfettiBurst } from "@/components/particles/ConfettiBurst";
+import { PriceRoll } from "@/components/particles/PriceRoll";
 import { useQueryClient } from "@tanstack/react-query";
 
 const MIN_BET = 50;
 const DEFAULT_BET = 100;
 const CLOSE_CALL_THRESHOLD = 5;
+const GOLD = "#FFD700";
+const WIN_COLOR = "#00E676";
+const LOSS_COLOR = "#FF1744";
+const TC_BLUE = "#4DA3FF";
 
-// Round duration tiers: (seconds, base multiplier, label). VIP users get +0.1
-// on top of the base multiplier. The server validates the multiplier against
-// the selected duration, so these values must stay in sync with
-// DURATION_TIERS in api-server/src/routes/predictions.ts.
+// Round duration tier: 60 seconds at 1.85x. VIP users get +0.1 on top.
+// Keep in sync with api-server/src/routes/predictions.ts.
 interface DurationTier {
   seconds: number;
   baseMultiplier: number;
   label: string;
 }
 const DURATION_TIERS = [
-  { seconds: 6   as const, baseMultiplier: 1.7, label: "6s"  },
-  { seconds: 15  as const, baseMultiplier: 2.0, label: "15s" },
-  { seconds: 30  as const, baseMultiplier: 2.3, label: "30s" },
-  { seconds: 60  as const, baseMultiplier: 2.8, label: "1m"  },
-  { seconds: 300 as const, baseMultiplier: 3.5, label: "5m"  },
+  { seconds: 60 as const, baseMultiplier: 1.85, label: "60s" },
 ] satisfies readonly DurationTier[];
 const VIP_MULTIPLIER_BONUS = 0.1;
-const DEFAULT_TIER_INDEX = 3; // 60s — matches the old behaviour
-const CANDLE_COUNT = 60;
-const CANDLE_BUCKET_MS = 1000;
+const DEFAULT_TIER_INDEX = 0;
 // Grace windows added on top of each prediction's own `duration` before the
 // UI considers it stale or auto-resolves it. Kept < the backend sweeper's
 // grace so the client usually resolves first.
@@ -62,6 +63,7 @@ const SYNTH_NAMES = [
   "KoinVIP", "TradePro", "MenaWhale", "GoldSeeker", "CryptoSultan",
   "WhaleMENA", "BTCLord", "GoldRush", "TradeKing", "CoinSultan",
 ];
+const LOCAL_PRICE_FALLBACK = 104000;
 
 function makeSynth(minsAgo: number) {
   const name = SYNTH_NAMES[Math.floor(Math.random() * SYNTH_NAMES.length)];
@@ -71,8 +73,11 @@ function makeSynth(minsAgo: number) {
   return { displayName: `${name}_${id}`, payout, resolvedAt: d.toISOString() };
 }
 
-function timeAgo(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "recently";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "recently";
+  const diff = Math.floor((Date.now() - t) / 1000);
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
@@ -88,69 +93,9 @@ interface PriceResult {
   id: number;
 }
 
-interface Candle {
+interface PricePoint {
   t: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  range: [number, number];
-  body: [number, number];
-}
-
-interface WickShapeProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: Candle;
-}
-
-function WickShape(props: WickShapeProps) {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  if (!payload) return null;
-  const isUp = payload.close >= payload.open;
-  const color = isUp ? "#00f0ff" : "#ff2d78";
-  const cx = x + width / 2;
-  return (
-    <line
-      x1={cx}
-      x2={cx}
-      y1={y}
-      y2={y + Math.max(1, height)}
-      stroke={color}
-      strokeWidth={1}
-      opacity={0.6}
-    />
-  );
-}
-
-interface BodyShapeProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: Candle;
-}
-
-function BodyShape(props: BodyShapeProps) {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  if (!payload) return null;
-  const isUp = payload.close >= payload.open;
-  const color = isUp ? "#00f0ff" : "#ff2d78";
-  const cx = x + width / 2;
-  const bodyW = Math.max(2, Math.min(width * 0.7, 8));
-  return (
-    <rect
-      x={cx - bodyW / 2}
-      y={y}
-      width={bodyW}
-      height={Math.max(1, height)}
-      fill={color}
-      opacity={0.95}
-      style={{ filter: `drop-shadow(0 0 3px ${color})` }}
-    />
-  );
+  v: number;
 }
 
 interface TickerItem {
@@ -182,10 +127,10 @@ function VipTicker({ items }: { items: TickerItem[] }) {
               {item.displayName}
             </span>
             <span className="font-mono text-[10px] text-[#f5c518]">
-              won {item.payout} GC
+              won {item.payout ?? 0} GC
             </span>
             <span className="font-mono text-[9px] text-white/40">
-              ≈ {formatGcUsd(item.payout)}
+              ≈ {formatGcUsd(item.payout ?? 0)}
             </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
@@ -199,15 +144,13 @@ function VipTicker({ items }: { items: TickerItem[] }) {
 }
 
 export default function Terminal() {
-  const { user } = useTelegram();
+  const { user, isLoading } = useTelegram();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const [tierIndex, setTierIndex] = useState<number>(DEFAULT_TIER_INDEX);
+  const tierIndex = DEFAULT_TIER_INDEX;
   const [tickDir, setTickDir] = useState<"up" | "down" | null>(null);
-  const candlesRef = useRef<Candle[]>([]);
-  const [candleData, setCandleData] = useState<Candle[]>([]);
   const reconcileRunRef = useRef(false);
   const [bet, setBet] = useState(DEFAULT_BET);
   const [activePrediction, setActivePrediction] = useState<{
@@ -240,6 +183,9 @@ export default function Terminal() {
   const winStreakRef = useRef(0);
   const lossStreakRef = useRef(0);
   const priceRef = useRef<number>(0);
+  const openPriceRef = useRef<number>(0);
+  const priceHistoryRef = useRef<PricePoint[]>([]);
+  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const synthRef = useRef<TickerItem[]>([]);
   if (synthRef.current.length === 0) {
     synthRef.current = Array.from({ length: 10 }, (_, i) => makeSynth(2 + i * 4));
@@ -280,7 +226,12 @@ export default function Terminal() {
   });
 
   const vipActivity: TickerItem[] = (() => {
-    const real = vipActivityRaw ?? [];
+    const raw = Array.isArray(vipActivityRaw) ? vipActivityRaw : [];
+    const real: TickerItem[] = raw.map(item => ({
+      displayName: item.displayName ?? "Trader",
+      payout: item.payout ?? 0,
+      resolvedAt: item.resolvedAt ?? new Date().toISOString(),
+    }));
     if (real.length >= 10) return real;
     const needed = 10 - real.length;
     return [...real, ...synthRef.current.slice(0, Math.max(0, needed))];
@@ -289,99 +240,61 @@ export default function Terminal() {
   useEffect(() => {
     if (price <= 0) return;
     priceRef.current = price;
-
-    const now = Date.now();
-    const bucketStart = Math.floor(now / CANDLE_BUCKET_MS) * CANDLE_BUCKET_MS;
-    const list = candlesRef.current;
-    const last = list[list.length - 1];
-
-    if (!last || last.t !== bucketStart) {
-      const open = last ? last.close : price;
-      const o = open;
-      const c = price;
-      const h = Math.max(o, c);
-      const l = Math.min(o, c);
-      const next: Candle = {
-        t: bucketStart,
-        open: o,
-        high: h,
-        low: l,
-        close: c,
-        range: [l, h],
-        body: [Math.min(o, c), Math.max(o, c)],
-      };
-      candlesRef.current = [...list, next].slice(-CANDLE_COUNT);
-    } else {
-      const updated: Candle = {
-        ...last,
-        close: price,
-        high: Math.max(last.high, price),
-        low: Math.min(last.low, price),
-      };
-      updated.range = [updated.low, updated.high];
-      updated.body = [Math.min(updated.open, updated.close), Math.max(updated.open, updated.close)];
-      candlesRef.current = [...list.slice(0, -1), updated];
-    }
-    setCandleData([...candlesRef.current]);
+    if (!openPriceRef.current) openPriceRef.current = price;
+    const point: PricePoint = { t: Date.now(), v: price };
+    priceHistoryRef.current = [...priceHistoryRef.current, point].slice(-60);
+    setPriceHistory([...priceHistoryRef.current]);
   }, [price]);
 
   useEffect(() => {
-    let fallbackInterval: NodeJS.Timeout | null = null;
-    let connected = false;
+    let restInterval: NodeJS.Timeout | null = null;
+    let simInterval: NodeJS.Timeout | null = null;
 
-    const startFallback = () => {
-      if (fallbackInterval) return;
-      let base = 104000 + Math.random() * 2000;
-      setPrice(base);
-      fallbackInterval = setInterval(() => {
+    const applyPrice = (next: number) => {
+      setPrice((prev) => {
+        setPrevPrice(prev);
+        if (next !== prev) setTickDir(next > prev ? "up" : "down");
+        return next;
+      });
+    };
+
+    const fetchRest = async (): Promise<boolean> => {
+      try {
+        const r = await fetch("/api/market/btc-price");
+        if (!r.ok) return false;
+        const d = await r.json();
+        const p = parseFloat(String(d.price ?? ""));
+        if (!isNaN(p) && p > 0) { applyPrice(p); return true; }
+        return false;
+      } catch { return false; }
+    };
+
+    const startRestPolling = async () => {
+      if (restInterval) return;
+      const ok = await fetchRest();
+      if (ok) {
+        restInterval = setInterval(fetchRest, 2000);
+      } else {
+        startSim();
+      }
+    };
+
+    const startSim = () => {
+      if (simInterval) return;
+      let base = priceRef.current > 0 ? priceRef.current : LOCAL_PRICE_FALLBACK + Math.random() * 2000;
+      applyPrice(base);
+      simInterval = setInterval(() => {
         const delta = (Math.random() - 0.48) * 80;
-        base = Math.max(95000, base + delta);
-        setPrice((prev) => {
-          setPrevPrice(prev);
-          const next = parseFloat(base.toFixed(2));
-          if (next !== prev) setTickDir(next > prev ? "up" : "down");
-          return next;
-        });
+        base = Math.max(90000, base + delta);
+        applyPrice(parseFloat(base.toFixed(2)));
       }, 800);
     };
 
-    const connect = () => {
-      const ws = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");
-      wsRef.current = ws;
-      ws.onopen = () => {
-        connected = true;
-        if (fallbackInterval) {
-          clearInterval(fallbackInterval);
-          fallbackInterval = null;
-        }
-      };
-      ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        setPrice((prev) => {
-          setPrevPrice(prev);
-          const next = parseFloat(data.p);
-          if (next !== prev) setTickDir(next > prev ? "up" : "down");
-          return next;
-        });
-      };
-      ws.onerror = () => ws.close();
-      ws.onclose = () => {
-        connected = false;
-        if (wsRef.current === ws) {
-          startFallback();
-          setTimeout(connect, 5000);
-        }
-      };
-    };
+    void startRestPolling();
 
-    const timer = setTimeout(() => {
-      if (!connected) startFallback();
-    }, 2000);
-    connect();
     return () => {
-      clearTimeout(timer);
-      if (fallbackInterval) clearInterval(fallbackInterval);
-      if (wsRef.current) wsRef.current.close();
+      if (restInterval) clearInterval(restInterval);
+      if (simInterval)  clearInterval(simInterval);
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
     };
@@ -441,6 +354,28 @@ export default function Terminal() {
           if (delta < CLOSE_CALL_THRESHOLD && !result.won) {
             setShowCloseCall(true);
             setTimeout(() => setShowCloseCall(false), 4500);
+          }
+
+          if (result.won) {
+            const source = document.getElementById("trade-result-root");
+            const target = document.getElementById("gc-balance-pill");
+            if (source && target) {
+              const s = source.getBoundingClientRect();
+              const t = target.getBoundingClientRect();
+              const startX = s.left + s.width / 2;
+              const startY = s.top + s.height / 2;
+              const endX = t.left + t.width / 2;
+              const endY = t.top + t.height / 2;
+              const idBase = `${result.id}-${Date.now()}`;
+              const spawned = Array.from({ length: 10 }, (_, i) => ({
+                id: `${idBase}-${i}`,
+                startX: startX + (Math.random() - 0.5) * 16,
+                startY: startY + (Math.random() - 0.5) * 12,
+                endX: endX + (Math.random() - 0.5) * 16,
+                endY: endY + (Math.random() - 0.5) * 14,
+              }));
+              setCoinFlights((prev) => [...prev, ...spawned]);
+            }
           }
 
           setShowResult(result);
@@ -503,7 +438,7 @@ export default function Terminal() {
   }, [user, recentPredictions, resolvePrediction, queryClient, price]);
 
   const selectedTier = DURATION_TIERS[tierIndex] ?? DURATION_TIERS[DEFAULT_TIER_INDEX];
-  const vipBonus = user?.isVip ? VIP_MULTIPLIER_BONUS : 0;
+  const vipBonus = user && isVipActive(user) ? VIP_MULTIPLIER_BONUS : 0;
   const activeMultiplier = +(selectedTier.baseMultiplier + vipBonus).toFixed(2);
 
   const handlePredict = async (direction: "long" | "short") => {
@@ -531,9 +466,9 @@ export default function Terminal() {
     } catch {}
   };
 
-  const vip = isVipActive(user);
+  const vip = user ? isVipActive(user) : false;
   const priceUp = price > prevPrice;
-  const priceColor = priceUp ? "#00f0ff" : "#ff2d78";
+  const priceColor = priceUp ? WIN_COLOR : LOSS_COLOR;
   const maxBet = vip ? 5000 : 1000;
   const betOptions = [50, 100, 250, 500, 1000];
   const expectedGc = Math.floor(bet * activeMultiplier);
@@ -556,15 +491,34 @@ export default function Terminal() {
   const GC_TO_USD = 0.00025;
   const yesterdayMissedUsd = (yesterdayMissed * GC_TO_USD).toFixed(2);
 
-  const showFomoBanner = !vip && !fomoShownToday && !tradedToday;
+  const showFomoBanner = !!user && !vip && !fomoShownToday && !tradedToday;
 
   // Animated payout counter for the WIN overlay (0 → final over ~600ms).
   const [animatedPayout, setAnimatedPayout] = useState(0);
+  const [displayPayout, setDisplayPayout] = useState(false);
+  const [showWinBurst, setShowWinBurst] = useState(false);
+  const [lossShake, setLossShake] = useState(false);
+  const [coinFlights, setCoinFlights] = useState<
+    Array<{ id: string; startX: number; startY: number; endX: number; endY: number }>
+  >([]);
   useEffect(() => {
-    if (!showResult || !showResult.won) {
+    if (!showResult) {
       setAnimatedPayout(0);
       return;
     }
+
+    if (!showResult.won) {
+      setAnimatedPayout(0);
+      setShowWinBurst(false);
+      setLossShake(true);
+      const t = setTimeout(() => setLossShake(false), 420);
+      return () => clearTimeout(t);
+    }
+
+    setShowWinBurst(true);
+    setDisplayPayout(false);
+    const burstTimer = setTimeout(() => setShowWinBurst(false), 620);
+    const revealTimer = setTimeout(() => setDisplayPayout(true), 460);
     const target = showResult.payout;
     const start = performance.now();
     const duration = 600;
@@ -578,7 +532,11 @@ export default function Terminal() {
       else setAnimatedPayout(target);
     };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(burstTimer);
+      clearTimeout(revealTimer);
+    };
   }, [showResult]);
 
   // Reset the micro tick-direction indicator shortly after each price update
@@ -616,7 +574,7 @@ export default function Terminal() {
   const ringDuration = activePrediction?.duration ?? selectedTier.seconds;
   const ringProgress = ringDuration > 0 ? countdown / ringDuration : 0;
   const ringColor =
-    ringProgress > 0.5 ? "#00f0ff" : ringProgress > 0.2 ? "#f5c518" : "#ff2d78";
+    ringProgress > 0.5 ? WIN_COLOR : ringProgress > 0.2 ? GOLD : LOSS_COLOR;
 
   const isWinningNow =
     activePrediction &&
@@ -624,8 +582,10 @@ export default function Terminal() {
     ((activePrediction.direction === "long" && price > activePrediction.entryPrice) ||
       (activePrediction.direction === "short" && price < activePrediction.entryPrice));
 
+  if (isLoading) return <PageLoader rows={5} />;
+
   return (
-    <div className="flex flex-col min-h-screen bg-black pb-8">
+    <div className="flex flex-col min-h-screen pb-8">
       <style>{`
         @keyframes koinara-ticker {
           0% { transform: translateX(0); }
@@ -650,13 +610,18 @@ export default function Terminal() {
       {/* VIP Activity Ticker */}
       <VipTicker items={vipActivity} />
 
+      {!user && (
+        <div className="mx-4 mt-2 px-3 py-2 rounded-lg border border-[#FFD700]/25 bg-[#FFD700]/7">
+          <span className="font-mono text-[10px] text-[#FFD700]/80">
+            Live chart mode enabled. Connect account/API to place trades.
+          </span>
+        </div>
+      )}
+
       {/* VIP Countdown / FOMO Banner */}
-      {vip && user?.vipExpiresAt && (() => {
-        const diff = new Date(user.vipExpiresAt).getTime() - Date.now();
-        if (diff <= 0) return null;
-        const d = Math.floor(diff / 86400000);
-        const h = Math.floor((diff % 86400000) / 3600000);
-        const label = d > 0 ? `${d}d ${h}h` : `${h}h`;
+      {vip && (() => {
+        const label = getVipCountdownLabel(user?.vipExpiresAt);
+        if (!label) return null;
         return (
           <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#f5c518]/30 bg-[#f5c518]/5">
             <Crown size={11} className="text-[#f5c518]" />
@@ -699,85 +664,80 @@ export default function Terminal() {
       )}
 
       <div className="px-4 pt-3 flex flex-col gap-3">
-        {/* Live Candlestick Chart */}
-        {candleData.length > 1 && (
-          <div
-            className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.01]"
-            style={{ height: 110 }}
-          >
-            <ResponsiveContainer width="100%" height={110}>
-              <BarChart
-                data={candleData}
-                margin={{ top: 8, right: 28, left: 8, bottom: 6 }}
-                barCategoryGap={1}
-              >
-                <XAxis dataKey="t" hide />
-                <YAxis
-                  domain={["dataMin", "dataMax"]}
-                  hide
-                  allowDecimals
-                />
-                <Bar
-                  dataKey="range"
-                  shape={WickShape as never}
-                  isAnimationActive={false}
-                />
-                <Bar
-                  dataKey="body"
-                  shape={BodyShape as never}
-                  isAnimationActive={false}
-                />
-                {activePrediction && (
-                  <ReferenceLine
-                    y={activePrediction.entryPrice}
-                    stroke="#f5c518"
-                    strokeWidth={1.2}
-                    strokeDasharray="4 3"
-                    label={{
-                      value: "ENTRY",
-                      position: "right",
-                      fill: "#f5c518",
-                      fontSize: 9,
-                      fontFamily: "monospace",
-                    }}
+        {/* Live Line Chart */}
+        {priceHistory.length > 1 && (() => {
+          const chartOpen = priceHistory[0].v;
+          const chartNow  = priceHistory[priceHistory.length - 1].v;
+          const chartUp   = chartNow >= chartOpen;
+          const lineColor = chartUp ? WIN_COLOR : LOSS_COLOR;
+          const gradId    = chartUp ? "grad-up" : "grad-dn";
+          const pad = (chartNow - chartOpen === 0) ? 50 : Math.abs(chartNow - chartOpen) * 0.5;
+          return (
+            <div
+              className="rounded-xl overflow-hidden border border-white/5"
+              style={{ height: 120, background: "rgba(255,255,255,0.01)" }}
+            >
+              <ResponsiveContainer width="100%" height={120}>
+                <AreaChart data={priceHistory} margin={{ top: 10, right: 4, left: 4, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="grad-up" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={WIN_COLOR}  stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={WIN_COLOR}  stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="grad-dn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={LOSS_COLOR} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={LOSS_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="t" hide />
+                  <YAxis domain={[`dataMin - ${pad}`, `dataMax + ${pad}`]} hide />
+                  <Area
+                    type="monotone"
+                    dataKey="v"
+                    stroke={lineColor}
+                    strokeWidth={2}
+                    fill={`url(#${gradId})`}
+                    dot={false}
+                    isAnimationActive={false}
                   />
-                )}
-                <ReferenceDot
-                  x={candleData[candleData.length - 1]?.t ?? 0}
-                  y={candleData[candleData.length - 1]?.close ?? 0}
-                  r={3}
-                  fill="#00f0ff"
-                  stroke="rgba(0,240,255,0.45)"
-                  strokeWidth={5}
-                  isFront
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+                  {activePrediction && (
+                    <ReferenceLine
+                      y={activePrediction.entryPrice}
+                      stroke="#f5c518"
+                      strokeWidth={1.2}
+                      strokeDasharray="4 3"
+                    />
+                  )}
+                  <ReferenceDot
+                    x={priceHistory[priceHistory.length - 1].t}
+                    y={priceHistory[priceHistory.length - 1].v}
+                    r={3}
+                    fill={lineColor}
+                    stroke={`${lineColor}66`}
+                    strokeWidth={6}
+                    isFront
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
 
         {/* Live Price Display */}
-        <div className="relative flex flex-col items-center justify-center py-4 border border-white/10 rounded-xl bg-white/[0.02] overflow-hidden">
+        <div
+          className="relative flex flex-col items-center justify-center py-5 px-4 rounded-2xl border overflow-hidden app-card"
+          style={{ borderColor: "rgba(255, 215, 0, 0.2)" }}
+        >
           <div
             className="absolute inset-0 opacity-10"
             style={{
               backgroundImage: `radial-gradient(circle at 50% 50%, ${priceColor}, transparent 70%)`,
             }}
           />
-          <span className="font-mono text-[10px] text-white/40 tracking-widest mb-1">
+          <span className="font-mono text-[10px] text-white/40 tracking-[0.22em] mb-1 label-caps">
             BTC/USDT LIVE
           </span>
-          <motion.div
-            key={Math.floor(price)}
-            initial={{ scale: 1.04 }}
-            animate={{ scale: 1 }}
-            className="font-mono text-4xl font-black tracking-tight"
-            style={{ color: priceColor, filter: `drop-shadow(0 0 14px ${priceColor})` }}
-          >
-            {price > 0
-              ? `$${price.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
-              : "CONNECTING..."}
-          </motion.div>
+          <PriceRoll value={price} color={priceColor} />
           <AnimatePresence mode="wait">
             {tickDir && (
               <motion.div
@@ -802,15 +762,31 @@ export default function Terminal() {
             ) : (
               <TrendingDown size={12} className="text-[#ff2d78]" />
             )}
-            <span className="font-mono text-[10px]" style={{ color: priceColor }}>
+            <span className="font-mono text-[10px] tracking-[0.16em]" style={{ color: priceColor }}>
               {priceUp ? "RISING" : "FALLING"}
             </span>
           </div>
+          {openPriceRef.current > 0 && price > 0 && (() => {
+            const change = price - openPriceRef.current;
+            const pct = (change / openPriceRef.current) * 100;
+            const up = change >= 0;
+            return (
+              <span className="font-mono text-[11px] mt-0.5" style={{ color: up ? WIN_COLOR : LOSS_COLOR }}>
+                {up ? "+" : ""}{change.toFixed(2)} ({up ? "+" : ""}{pct.toFixed(2)}%)
+              </span>
+            );
+          })()}
         </div>
 
         {/* Active Trade Countdown */}
         {activePrediction && (
-          <div className="flex flex-col items-center py-4 border border-white/10 rounded-xl bg-white/[0.02]">
+          <div
+            className="flex flex-col items-center py-4 rounded-2xl border app-card"
+            style={{
+              borderColor: "rgba(255, 215, 0, 0.4)",
+              boxShadow: "0 0 0 1px rgba(255,215,0,0.14), 0 0 26px rgba(255,215,0,0.16)",
+            }}
+          >
             <div className="relative mb-3" style={{ width: 72, height: 72 }}>
               <svg className="w-full h-full -rotate-90" viewBox="0 0 72 72">
                 <circle
@@ -818,7 +794,7 @@ export default function Terminal() {
                   cy="36"
                   r="30"
                   fill="none"
-                  stroke="rgba(255,255,255,0.08)"
+                  stroke="rgba(255,255,255,0.12)"
                   strokeWidth="5"
                 />
                 <circle
@@ -837,7 +813,7 @@ export default function Terminal() {
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-mono text-2xl font-black text-white leading-none">
+                <span className="font-mono text-2xl font-black text-white leading-none tabular-nums">
                   {countdown}
                 </span>
                 <span className="font-mono text-[8px] text-white/30">SEC</span>
@@ -849,7 +825,7 @@ export default function Terminal() {
                 <div className="font-mono text-[9px] text-white/30 mb-0.5">DIRECTION</div>
                 <span
                   className={`font-mono text-xs font-bold ${
-                    activePrediction.direction === "long" ? "text-[#00f0ff]" : "text-[#ff2d78]"
+                    activePrediction.direction === "long" ? "text-[#00E676]" : "text-[#FF1744]"
                   }`}
                 >
                   {activePrediction.direction.toUpperCase()}
@@ -865,7 +841,7 @@ export default function Terminal() {
               <div className="w-px h-6 bg-white/10" />
               <div className="text-center">
                 <div className="font-mono text-[9px] text-white/30 mb-0.5">NOW</div>
-                <span className={`font-mono text-xs font-bold ${isWinningNow ? "text-[#00f0ff]" : "text-[#ff2d78]"}`}>
+                <span className={`font-mono text-xs font-bold ${isWinningNow ? "text-[#00E676]" : "text-[#FF1744]"}`}>
                   ${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </span>
               </div>
@@ -874,7 +850,7 @@ export default function Terminal() {
                 <div className="font-mono text-[9px] text-white/30 mb-0.5">LIVE P&L</div>
                 <span
                   className={`font-mono text-sm font-bold ${
-                    isWinningNow ? "text-[#00f0ff]" : "text-[#ff2d78]"
+                    isWinningNow ? "text-[#00E676]" : "text-[#FF1744]"
                   }`}
                 >
                   {isWinningNow
@@ -964,45 +940,18 @@ export default function Terminal() {
 
         {/* Time-Limit (Round Duration) Selector */}
         {!activePrediction && (
-          <div>
+          <div className="mb-2">
             <div className="flex items-center justify-between mb-2">
-              <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">
-                Round Length
-              </span>
-              <span className="font-mono text-[10px] text-[#f5c518]">
-                {activeMultiplier.toFixed(1)}× payout
-                {vip && <span className="text-[#f5c518]/70 ml-1">(+VIP)</span>}
+              <span className="font-mono text-[10px] text-white/40 label-caps">Round Length</span>
+              <span className="font-mono text-[10px]" style={{ color: GOLD }}>
+                {activeMultiplier.toFixed(2)}× payout
+                {vip && <span className="text-[#FFD700]/70 ml-1">(+VIP)</span>}
               </span>
             </div>
-            <div className="flex gap-1.5">
-              {DURATION_TIERS.map((tier, i) => {
-                const mult = +(tier.baseMultiplier + (vip ? VIP_MULTIPLIER_BONUS : 0)).toFixed(2);
-                const selected = i === tierIndex;
-                return (
-                  <button
-                    key={tier.seconds}
-                    onClick={() => setTierIndex(i)}
-                    className={`relative flex-1 py-2 rounded font-mono font-bold border transition-all duration-150 ${
-                      selected
-                        ? "border-[#f5c518] text-[#f5c518] bg-[#f5c518]/10"
-                        : "border-white/10 text-white/40 hover:border-white/30"
-                    }`}
-                    style={
-                      selected
-                        ? {
-                            boxShadow:
-                              "0 0 14px rgba(245,197,24,0.45), inset 0 0 10px rgba(245,197,24,0.08)",
-                          }
-                        : undefined
-                    }
-                  >
-                    <div className="text-[11px] leading-tight">{tier.label}</div>
-                    <div className={`text-[9px] leading-tight ${selected ? "text-[#f5c518]/90" : "text-white/30"}`}>
-                      {mult.toFixed(1)}×
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="app-card px-3 py-2 text-center">
+              <span className="font-mono text-[10px] text-white/70">
+                Fixed 60s round for all trades
+              </span>
             </div>
           </div>
         )}
@@ -1012,10 +961,10 @@ export default function Terminal() {
           <>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">
+                <span className="font-mono text-[10px] text-white/40 label-caps">
                   Bet Amount
                 </span>
-                <span className="font-mono text-xs text-[#00f0ff]">{bet} 🔵 TC</span>
+                <span className="font-mono text-xs tabular-nums" style={{ color: TC_BLUE }}>{bet} 🔵 TC</span>
               </div>
               <div className="flex gap-1.5">
                 {betOptions
@@ -1024,9 +973,9 @@ export default function Terminal() {
                     <button
                       key={opt}
                       onClick={() => setBet(opt)}
-                      className={`flex-1 py-2 rounded font-mono text-xs font-bold border transition-all duration-150 ${
+                      className={`pressable flex-1 py-2 rounded-full font-mono text-xs font-bold border transition-all duration-150 ${
                         bet === opt
-                          ? "border-[#00f0ff] text-[#00f0ff] bg-[#00f0ff]/10"
+                          ? "border-[#4DA3FF] text-[#8BC3FF] bg-[#4DA3FF]/12"
                           : "border-white/10 text-white/40 hover:border-white/30"
                       }`}
                     >
@@ -1036,10 +985,10 @@ export default function Terminal() {
                 {vip && (
                   <button
                     onClick={() => setBet(5000)}
-                    className={`flex-1 py-2 rounded font-mono text-xs font-bold border transition-all duration-150 ${
+                    className={`pressable flex-1 py-2 rounded-full font-mono text-xs font-bold border transition-all duration-150 ${
                       bet === 5000
-                        ? "border-[#f5c518] text-[#f5c518] bg-[#f5c518]/10"
-                        : "border-[#f5c518]/30 text-[#f5c518]/50 hover:border-[#f5c518]/60"
+                        ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10"
+                        : "border-[#FFD700]/30 text-[#FFD700]/50 hover:border-[#FFD700]/60"
                     }`}
                   >
                     5K
@@ -1048,33 +997,21 @@ export default function Terminal() {
               </div>
             </div>
 
-            <input
-              type="number"
-              value={bet}
-              min={MIN_BET}
-              max={maxBet}
-              onChange={(e) =>
-                setBet(Math.max(MIN_BET, Math.min(maxBet, parseInt(e.target.value) || MIN_BET)))
-              }
-              className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 font-mono text-sm text-white focus:border-[#00f0ff] focus:outline-none"
-              placeholder="Custom amount (TC)"
-            />
-
-            <div className="flex items-center justify-between px-3 py-2 rounded border border-[#f5c518]/15 bg-[#f5c518]/5">
+            <div className="flex items-center justify-between px-3 py-2 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/6">
               <span className="font-mono text-[10px] text-white/40">WIN REWARD</span>
               {vip ? (
                 <span className="font-mono text-xs font-bold flex items-baseline gap-1">
                   <span className="text-white/40">+{expectedGc}</span>
-                  <span className="text-[#f5c518]/60">→</span>
-                  <span className="text-[#f5c518]">+{vipGc} 🪙 GC</span>
+                  <span className="text-[#FFD700]/60">→</span>
+                  <span className="text-[#FFD700]">+{vipGc} 🪙 GC</span>
                   <span className="text-white/35 text-[10px]">≈ {formatGcUsd(vipGc)}</span>
-                  <span className="text-[#f5c518]/60 ml-0.5">👑 VIP</span>
+                  <span className="text-[#FFD700]/60 ml-0.5">👑 VIP</span>
                 </span>
               ) : (
                 <span className="font-mono text-xs font-bold text-white/60 flex items-baseline gap-1">
-                  <span className="text-[#f5c518]">+{expectedGc} GC</span>
+                  <span className="text-[#FFD700]">+{expectedGc} GC</span>
                   <span className="text-white/35 text-[10px]">≈ {formatGcUsd(expectedGc)}</span>
-                  <span className="text-[#f5c518]/50">(VIP: {vipGc} GC 👑)</span>
+                  <span className="text-[#FFD700]/50">(VIP: {vipGc} GC 👑)</span>
                 </span>
               )}
             </div>
@@ -1084,8 +1021,13 @@ export default function Terminal() {
                 whileTap={{ scale: 0.96 }}
                 onClick={() => handlePredict("long")}
                 disabled={!user || !price || bet < MIN_BET || bet > (user?.tradeCredits ?? 0)}
-                className="relative flex flex-col items-center py-5 rounded-xl border-2 border-[#00f0ff] bg-[#00f0ff]/10 font-mono font-black text-[#00f0ff] text-lg disabled:opacity-30 disabled:cursor-not-allowed"
-                style={{ boxShadow: "0 0 20px rgba(0,240,255,0.3)" }}
+                className="relative flex flex-col items-center py-5 rounded-2xl border-2 font-mono font-black text-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{
+                  borderColor: WIN_COLOR,
+                  color: "#eafff1",
+                  background: "linear-gradient(160deg, rgba(0,230,118,0.42), rgba(0,152,80,0.22))",
+                  boxShadow: "0 0 24px rgba(0,230,118,0.38)",
+                }}
               >
                 <TrendingUp size={24} className="mb-1" />
                 LONG
@@ -1095,8 +1037,13 @@ export default function Terminal() {
                 whileTap={{ scale: 0.96 }}
                 onClick={() => handlePredict("short")}
                 disabled={!user || !price || bet < MIN_BET || bet > (user?.tradeCredits ?? 0)}
-                className="relative flex flex-col items-center py-5 rounded-xl border-2 border-[#ff2d78] bg-[#ff2d78]/10 font-mono font-black text-[#ff2d78] text-lg disabled:opacity-30 disabled:cursor-not-allowed"
-                style={{ boxShadow: "0 0 20px rgba(255,45,120,0.3)" }}
+                className="relative flex flex-col items-center py-5 rounded-2xl border-2 font-mono font-black text-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{
+                  borderColor: LOSS_COLOR,
+                  color: "#ffe9ef",
+                  background: "linear-gradient(160deg, rgba(255,23,68,0.4), rgba(160,0,37,0.24))",
+                  boxShadow: "0 0 24px rgba(255,23,68,0.36)",
+                }}
               >
                 <TrendingDown size={24} className="mb-1" />
                 SHORT
@@ -1106,9 +1053,9 @@ export default function Terminal() {
 
             <div className="flex items-center justify-center gap-2">
               <Clock size={10} className="text-white/30" />
-              <span className="font-mono text-[9px] text-white/30 tracking-wider">
-                {selectedTier.label.toUpperCase()} ROUND · WIN {Math.round(activeMultiplier * 100)}% AS 🪙 GOLD COINS
-                {vip && <span className="text-[#f5c518]/70 ml-1">· 👑 VIP +{VIP_MULTIPLIER_BONUS.toFixed(1)}×</span>}
+              <span className="font-mono text-[9px] text-white/42 tracking-[0.14em]">
+                {selectedTier.label.toUpperCase()} ROUND · WIN {Math.round(activeMultiplier * 100)}% AS 🟡 GOLD COINS
+                {vip && <span className="text-[#FFD700]/70 ml-1">· 👑 VIP +{VIP_MULTIPLIER_BONUS.toFixed(1)}×</span>}
               </span>
             </div>
           </>
@@ -1202,8 +1149,9 @@ export default function Terminal() {
           >
             <motion.div
               initial={{ scale: 0.88, y: 24 }}
-              animate={{ scale: 1, y: 0 }}
+              animate={lossShake && !showResult.won ? { scale: 1, y: [0, -3, 3, -2, 2, 0], x: [0, -4, 4, -3, 3, 0] } : { scale: 1, y: 0, x: 0 }}
               exit={{ scale: 0.88, y: -24 }}
+              transition={lossShake && !showResult.won ? { duration: 0.36, ease: "easeInOut" } : undefined}
               className="relative w-full max-w-xs rounded-2xl border-2 overflow-hidden"
               style={{
                 borderColor: showResult.won ? "#00f0ff" : "#ff2d78",
@@ -1223,6 +1171,7 @@ export default function Terminal() {
               </button>
 
               <div className="p-6 text-center">
+                <ConfettiBurst active={showResult.won && showWinBurst} count={65} />
                 <div
                   className="font-mono text-5xl font-black mb-2"
                   style={{ color: showResult.won ? "#00f0ff" : "#ff2d78" }}
@@ -1231,17 +1180,27 @@ export default function Terminal() {
                 </div>
                 {showResult.won ? (
                   <>
-                    <motion.div
-                      key={showResult.id}
-                      animate={{ filter: ["blur(0px)", "blur(0.6px)", "blur(0px)"] }}
-                      transition={{ duration: 0.35, times: [0, 0.5, 1] }}
-                      className="font-mono text-2xl font-bold text-[#f5c518]"
-                    >
-                      +{animatedPayout.toLocaleString()} 🪙 GC
-                    </motion.div>
-                    <div className="font-mono text-[10px] text-white/40 mt-1">
-                      ≈ {formatGcUsd(showResult.payout)} · Gold Coins added to balance
-                    </div>
+                    {displayPayout && (
+                      <motion.div
+                        key={showResult.id}
+                        animate={{ filter: ["blur(0px)", "blur(0.6px)", "blur(0px)"] }}
+                        transition={{ duration: 0.35, times: [0, 0.5, 1] }}
+                        className="font-mono text-2xl font-bold text-[#f5c518]"
+                        id="trade-result-gc-source"
+                      >
+                        +{animatedPayout.toLocaleString()} 🪙 GC
+                      </motion.div>
+                    )}
+                    {displayPayout && (
+                      <div className="font-mono text-[10px] text-white/40 mt-1">
+                        ≈ {formatGcUsd(showResult.payout)} · Gold Coins added to balance
+                      </div>
+                    )}
+                    {!displayPayout && (
+                      <div className="font-mono text-[11px] text-[#FFD700]/70 mt-2">
+                        Processing payout...
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1368,6 +1327,17 @@ export default function Terminal() {
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {coinFlights.map((flight) => (
+          <GoldCoinFlight
+            key={flight.id}
+            {...flight}
+            onDone={() =>
+              setCoinFlights((prev) => prev.filter((item) => item.id !== flight.id))
+            }
+          />
+        ))}
       </AnimatePresence>
     </div>
   );

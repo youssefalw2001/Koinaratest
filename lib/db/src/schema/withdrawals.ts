@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -19,7 +19,10 @@ export const withdrawalQueueTable = pgTable("withdrawal_queue", {
   processesAt: timestamp("processes_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => [
+  index("idx_withdrawal_queue_telegram_id").on(table.telegramId),
+  index("idx_withdrawal_queue_status").on(table.status),
+]);
 
 export const platformDailyStatsTable = pgTable("platform_daily_stats", {
   date: text("date").primaryKey(),

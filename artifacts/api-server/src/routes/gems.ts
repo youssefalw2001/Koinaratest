@@ -10,12 +10,12 @@ import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 const router: IRouter = Router();
 
 const GEM_CATALOG = {
-  starter_boost: { tcCost: 300, usesRemaining: 3, vipOnly: false },
-  big_swing: { tcCost: 750, usesRemaining: 2, vipOnly: false },
-  streak_saver: { tcCost: 400, usesRemaining: 1, vipOnly: false },
-  mystery_box: { tcCost: 200, usesRemaining: 1, vipOnly: false },
-  daily_refill: { tcCost: 500, usesRemaining: 1, vipOnly: true },
-  double_or_nothing: { tcCost: 0, usesRemaining: 1, vipOnly: false },
+  starter_boost: { gcCost: 300, usesRemaining: 3, vipOnly: false },
+  big_swing: { gcCost: 750, usesRemaining: 2, vipOnly: false },
+  streak_saver: { gcCost: 400, usesRemaining: 1, vipOnly: false },
+  mystery_box: { gcCost: 200, usesRemaining: 1, vipOnly: false },
+  daily_refill: { gcCost: 500, usesRemaining: 1, vipOnly: true },
+  double_or_nothing: { gcCost: 0, usesRemaining: 1, vipOnly: false },
 } as const;
 
 type GemType = keyof typeof GEM_CATALOG;
@@ -62,27 +62,27 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
     return;
   }
 
-  if (catalog.tcCost > 0 && user.tradeCredits < catalog.tcCost) {
-    res.status(400).json({ error: "Insufficient Trade Credits" });
+  if (catalog.gcCost > 0 && user.goldCoins < catalog.gcCost) {
+    res.status(400).json({ error: "Insufficient Gold Coins" });
     return;
   }
 
   let mysteryReward: { type: string; amount?: number; gem?: string } | undefined;
 
-  if (catalog.tcCost > 0) {
+  if (catalog.gcCost > 0) {
     const updated = await db
       .update(usersTable)
-      .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${catalog.tcCost}` })
+      .set({ goldCoins: sql`${usersTable.goldCoins} - ${catalog.gcCost}` })
       .where(
         and(
-          eq(usersTable.telegramId, telegramId),
-          gt(usersTable.tradeCredits, catalog.tcCost - 1),
+          eq(usersTable.telegramId, authedId),
+          gt(usersTable.goldCoins, catalog.gcCost - 1),
         ),
       )
-      .returning({ tradeCredits: usersTable.tradeCredits });
+      .returning({ goldCoins: usersTable.goldCoins });
 
     if (!updated.length) {
-      res.status(400).json({ error: "Insufficient Trade Credits" });
+      res.status(400).json({ error: "Insufficient Gold Coins" });
       return;
     }
   }
@@ -94,37 +94,46 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
       await db
         .update(usersTable)
         .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${amount}` })
-        .where(eq(usersTable.telegramId, telegramId));
+        .where(eq(usersTable.telegramId, authedId));
       mysteryReward = { type: "tc", amount };
     } else {
       const bonusGems: GemType[] = ["starter_boost", "streak_saver"];
       const bonusGem = bonusGems[Math.floor(Math.random() * bonusGems.length)];
       const bonusCatalog = GEM_CATALOG[bonusGem];
       await db.insert(gemInventoryTable).values({
-        telegramId,
+        telegramId: authedId,
         gemType: bonusGem,
         usesRemaining: bonusCatalog.usesRemaining,
       });
       mysteryReward = { type: "gem", gem: bonusGem };
     }
+  } else if (gemType === "daily_refill") {
+    const vip = isVipActive(user);
+    const refillTc = vip ? 1000 : 600;
+    await db
+      .update(usersTable)
+      .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${refillTc}` })
+      .where(eq(usersTable.telegramId, authedId));
+    mysteryReward = { type: "tc", amount: refillTc };
   } else {
     await db.insert(gemInventoryTable).values({
-      telegramId,
+      telegramId: authedId,
       gemType,
       usesRemaining: catalog.usesRemaining,
     });
   }
 
   const [updatedUser] = await db
-    .select({ tradeCredits: usersTable.tradeCredits })
+    .select({ goldCoins: usersTable.goldCoins, tradeCredits: usersTable.tradeCredits })
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   res.status(201).json({
     success: true,
     gemType,
-    tcSpent: catalog.tcCost,
+    gcSpent: catalog.gcCost,
+    newGcBalance: updatedUser?.goldCoins ?? user.goldCoins,
     newTcBalance: updatedUser?.tradeCredits ?? user.tradeCredits,
     mysteryReward: mysteryReward ?? null,
   });

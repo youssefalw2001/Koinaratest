@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
@@ -10,20 +10,37 @@ import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
 import { Layout } from "./components/Layout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useLocation } from "wouter";
 import { useClaimDailyReward, getGetUserQueryKey } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
+import { LanguageProvider } from "@/lib/language";
 
 // Pages
 import Terminal from "./pages/Terminal";
+import Crash from "./pages/Crash";
 import Earn from "./pages/Earn";
 import Shop from "./pages/Shop";
 import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
+import Lootbox from "./pages/Lootbox";
+import Arbitrage from "./pages/Arbitrage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      console.error(`[API Query Error] ${String(query.queryHash)}:`, error);
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      const key = mutation.options.mutationKey ? ` ${String(mutation.options.mutationKey)}` : "";
+      console.error(`[API Mutation Error]${key}:`, error);
+    },
+  }),
+});
 
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
@@ -65,7 +82,7 @@ function VipPromoModal() {
               </div>
               <div className="font-mono text-2xl font-black text-[#f5c518] mb-1">Go VIP Today</div>
               <div className="font-mono text-xs text-white/50 mb-4">
-                Protect your earnings with 2× payouts & USDT withdrawal access
+                Protect your earnings with TON subscription, 2× payouts & USDT withdrawal access
               </div>
               <div className="w-full space-y-2 mb-5">
                 {[
@@ -88,7 +105,7 @@ function VipPromoModal() {
                   boxShadow: "0 0 25px rgba(245,197,24,0.5)",
                 }}
               >
-                ACTIVATE VIP — 500 TC
+                ACTIVATE VIP — TON PLAN
               </button>
               <button
                 onClick={dismissVipPromo}
@@ -256,16 +273,66 @@ function Day7CelebrationModal() {
   );
 }
 
+function Bounded({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>;
+}
+
 function Router() {
+  const [crashMode, setCrashMode] = useState<"enabled" | "coming_soon">("enabled");
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const resp = await fetch("/api/features");
+        if (!resp.ok) throw new Error("Feature flags unavailable");
+        const json = (await resp.json()) as { crashEnabled?: boolean };
+        if (!mounted) return;
+        setCrashMode(json.crashEnabled === false ? "coming_soon" : "enabled");
+      } catch {
+        // Fail open: keep crash tab available unless backend explicitly disables it.
+        if (!mounted) return;
+        setCrashMode("enabled");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <Layout>
       <Switch>
-        <Route path="/" component={Terminal} />
-        <Route path="/earn" component={Earn} />
-        <Route path="/shop" component={Shop} />
-        <Route path="/wallet" component={Wallet} />
-        <Route path="/leaderboard" component={Leaderboard} />
-        <Route path="/profile" component={Profile} />
+        <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
+        <Route
+          path="/crash"
+          component={() =>
+            <Bounded>
+              {crashMode === "enabled" ? <Crash /> : (
+                <div className="px-4 pt-6 pb-8">
+                  <div className="app-card p-5 border border-[#FFD700]/20 bg-[#FFD700]/5 text-center">
+                    <div className="font-mono text-sm text-[#FFD700] tracking-[0.18em] uppercase mb-2">
+                      Crash Arena
+                    </div>
+                    <div className="font-mono text-xl font-black text-white mb-2">
+                      Coming Soon
+                    </div>
+                    <div className="font-mono text-xs text-white/50">
+                      We are upgrading Crash for full server-authoritative fairness and stability.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Bounded>
+          }
+        />
+        <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
+        <Route path="/arbitrage" component={() => <Bounded><Arbitrage /></Bounded>} />
+        <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
+        <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
+        <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
+        <Route path="/leaderboard" component={() => <Bounded><Leaderboard /></Bounded>} />
+        <Route path="/profile" component={() => <Bounded><Profile /></Bounded>} />
         <Route component={NotFound} />
       </Switch>
       <VipPromoModal />
@@ -283,14 +350,18 @@ function App() {
   return (
     <TonConnectUIProvider manifestUrl={`${window.location.origin}${import.meta.env.BASE_URL}tonconnect-manifest.json`}>
       <QueryClientProvider client={queryClient}>
-        <TelegramProvider>
-          <TooltipProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
-            </WouterRouter>
-            <Toaster />
-          </TooltipProvider>
-        </TelegramProvider>
+        <LanguageProvider>
+          <TelegramProvider>
+            <TooltipProvider>
+              <ErrorBoundary>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                  <Router />
+                </WouterRouter>
+                <Toaster />
+              </ErrorBoundary>
+            </TooltipProvider>
+          </TelegramProvider>
+        </LanguageProvider>
       </QueryClientProvider>
     </TonConnectUIProvider>
   );

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { isVipActive } from "../lib/vip";
 import { eq, and, sql } from "drizzle-orm";
 import { db, questsTable, questClaimsTable, usersTable } from "@workspace/db";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import {
   ClaimQuestParams,
   ClaimQuestBody,
@@ -36,6 +37,9 @@ router.post("/quests/:id/claim", async (req, res): Promise<void> => {
   const { telegramId } = body.data;
   const questId = params.data.id;
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
   const [quest] = await db
     .select()
     .from(questsTable)
@@ -47,51 +51,64 @@ router.post("/quests/:id/claim", async (req, res): Promise<void> => {
     return;
   }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
-    .limit(1);
+  let claimResult: { tcAwarded: number; newTcBalance: number } | null = null;
+  let claimError: string | null = null;
 
-  if (!user) {
-    res.status(404).json({ error: "User not found" });
+  try {
+    await db.transaction(async (tx) => {
+      const [user] = await tx
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId))
+        .limit(1)
+        .for("update");
+
+      if (!user) {
+        claimError = "User not found";
+        return;
+      }
+
+      if (quest.isVipOnly && !isVipActive(user)) {
+        claimError = "This quest is VIP-only";
+        return;
+      }
+
+      const existingClaim = await tx
+        .select()
+        .from(questClaimsTable)
+        .where(and(eq(questClaimsTable.telegramId, telegramId), eq(questClaimsTable.questId, questId)))
+        .limit(1);
+
+      if (existingClaim.length > 0) {
+        claimError = "Quest already claimed";
+        return;
+      }
+
+      await tx.insert(questClaimsTable).values({ telegramId, questId });
+
+      const [updatedUser] = await tx
+        .update(usersTable)
+        .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${quest.reward}` })
+        .where(eq(usersTable.telegramId, telegramId))
+        .returning();
+
+      claimResult = { tcAwarded: quest.reward, newTcBalance: updatedUser.tradeCredits };
+    });
+  } catch {
+    res.status(500).json({ error: "Internal server error" });
     return;
   }
 
-  if (quest.isVipOnly && !isVipActive(user)) {
-    res.status(400).json({ error: "This quest is VIP-only" });
+  if (claimError) {
+    const status = claimError === "User not found" ? 404 : 400;
+    res.status(status).json({ error: claimError });
     return;
   }
-
-  const existingClaim = await db
-    .select()
-    .from(questClaimsTable)
-    .where(
-      and(
-        eq(questClaimsTable.telegramId, telegramId),
-        eq(questClaimsTable.questId, questId)
-      )
-    )
-    .limit(1);
-
-  if (existingClaim.length > 0) {
-    res.status(400).json({ error: "Quest already claimed" });
-    return;
-  }
-
-  const tcReward = quest.reward;
-  await db.insert(questClaimsTable).values({ telegramId, questId });
-
-  const [updatedUser] = await db
-    .update(usersTable)
-    .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${tcReward}` })
-    .where(eq(usersTable.telegramId, telegramId))
-    .returning();
 
   res.json(ClaimQuestResponse.parse({
-    tcAwarded: tcReward,
-    newTcBalance: updatedUser.tradeCredits,
-    message: `You earned ${tcReward} Trade Credits!`,
+    tcAwarded: claimResult!.tcAwarded,
+    newTcBalance: claimResult!.newTcBalance,
+    message: `You earned ${claimResult!.tcAwarded} Trade Credits!`,
   }));
 });
 

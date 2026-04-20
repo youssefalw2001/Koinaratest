@@ -5,6 +5,7 @@ import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQ
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 type GemType = "starter_boost" | "big_swing" | "streak_saver" | "mystery_box" | "daily_refill" | "double_or_nothing";
 
@@ -12,7 +13,7 @@ interface GemDef {
   id: GemType;
   name: string;
   description: string;
-  tcCost: number;
+  gcCost: number;
   uses: string;
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties; className?: string }>;
   color: string;
@@ -25,7 +26,7 @@ const GEMS: GemDef[] = [
     id: "starter_boost",
     name: "Starter Boost",
     description: "2× GC multiplier on your next 3 winning trades",
-    tcCost: 300,
+    gcCost: 300,
     uses: "3 uses",
     icon: Zap,
     color: "#00f0ff",
@@ -35,7 +36,7 @@ const GEMS: GemDef[] = [
     id: "big_swing",
     name: "Big Swing",
     description: "5× GC multiplier on your next 2 winning trades",
-    tcCost: 750,
+    gcCost: 750,
     uses: "2 uses",
     icon: Gem,
     color: "#f5c518",
@@ -46,7 +47,7 @@ const GEMS: GemDef[] = [
     id: "streak_saver",
     name: "Streak Saver",
     description: "If your next trade loses, your TC bet is refunded automatically",
-    tcCost: 400,
+    gcCost: 400,
     uses: "1 use",
     icon: Shield,
     color: "#ff2d78",
@@ -56,7 +57,7 @@ const GEMS: GemDef[] = [
     id: "mystery_box",
     name: "Mystery Box",
     description: "Random reward: 50–500 TC or a surprise powerup gem",
-    tcCost: 200,
+    gcCost: 200,
     uses: "Instant",
     icon: Package,
     color: "#a855f7",
@@ -67,7 +68,7 @@ const GEMS: GemDef[] = [
     id: "daily_refill",
     name: "Daily Refill",
     description: "Reset today's ad cap + bonus 1,000 TC instantly",
-    tcCost: 500,
+    gcCost: 500,
     uses: "Instant",
     icon: RefreshCw,
     color: "#f5c518",
@@ -85,15 +86,15 @@ export default function Shop() {
 
   const purchaseMutation = usePurchaseGem();
 
-  const { data: activeGems } = useGetActiveGems(user?.telegramId ?? "", {
+  const { data: activeGems, isLoading: gemsLoading, isError: gemsError, refetch: refetchGems } = useGetActiveGems(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetActiveGemsQueryKey(user?.telegramId ?? "") },
   });
 
-  const getActiveCount = (gemType: GemType) => {
-    if (!activeGems) return 0;
-    return activeGems.filter((g) => g.gemType === gemType && g.usesRemaining > 0)
+  const safeActiveGems = Array.isArray(activeGems) ? activeGems : [];
+
+  const getActiveCount = (gemType: GemType) =>
+    safeActiveGems.filter((g) => g.gemType === gemType && g.usesRemaining > 0)
       .reduce((sum, g) => sum + g.usesRemaining, 0);
-  };
 
   const handleBuy = async (gem: GemDef) => {
     if (!user) return;
@@ -114,6 +115,9 @@ export default function Shop() {
       // silent
     }
   };
+
+  if (gemsLoading) return <PageLoader rows={4} />;
+  if (gemsError) return <PageError message="Could not load shop items" onRetry={refetchGems} />;
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
@@ -142,27 +146,27 @@ export default function Shop() {
 
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
-        <Gem size={16} className="text-[#f5c518] drop-shadow-[0_0_6px_#f5c518]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Gem Shop</span>
+        <Gem size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
+        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Gem Shop</span>
       </div>
-      <h1 className="font-mono text-2xl font-black text-white mb-1">Powerups</h1>
-      <p className="font-mono text-xs text-white/40 mb-2">Spend TC to amplify your GC gains. Active gems auto-apply to trades.</p>
+      <h1 className="text-2xl font-black text-white mb-1 tracking-[0.08em]">Powerups</h1>
+      <p className="font-mono text-xs text-white/40 mb-2">Spend Gold Coins to amplify your GC gains. Active gems auto-apply to trades.</p>
 
       {/* Balance */}
       {user && (
-        <div className="flex items-center gap-2 mb-6 p-3 rounded-xl border border-white/10 bg-white/[0.02]">
-          <span className="text-sm">🔵</span>
-          <span className="font-mono text-sm font-bold text-[#00f0ff]">{(user.tradeCredits ?? 0).toLocaleString()} TC</span>
+        <div className="app-card flex items-center gap-2 mb-6 p-3">
+          <span className="text-sm">🪙</span>
+          <span className="font-mono text-sm font-bold text-[#FFD700]">{(user.goldCoins ?? 0).toLocaleString()} GC</span>
           <span className="font-mono text-[10px] text-white/30 ml-auto">available balance</span>
         </div>
       )}
 
       {/* Active Gems Summary */}
-      {activeGems && activeGems.length > 0 && (
+      {safeActiveGems.length > 0 && (
         <div className="mb-5 p-3 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/5">
           <div className="font-mono text-[10px] text-[#f5c518] tracking-widest uppercase mb-2">Active Powerups</div>
           <div className="flex flex-wrap gap-2">
-            {activeGems.map((g) => (
+            {safeActiveGems.map((g) => (
               <div key={g.id} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#f5c518]/10 border border-[#f5c518]/30">
                 <Gem size={10} className="text-[#f5c518]" />
                 <span className="font-mono text-[10px] text-[#f5c518] capitalize">{g.gemType.replace(/_/g, " ")}</span>
@@ -178,7 +182,7 @@ export default function Shop() {
         {GEMS.map((gem) => {
           const Icon = gem.icon;
           const locked = gem.vipOnly && !vip;
-          const canAfford = (user?.tradeCredits ?? 0) >= gem.tcCost;
+          const canAfford = (user?.goldCoins ?? 0) >= gem.gcCost;
           const activeCount = getActiveCount(gem.id);
           const isConfirming = confirming === gem.id;
 
@@ -236,9 +240,9 @@ export default function Shop() {
                   </div>
                   <div className="flex items-center gap-3 mt-2">
                     <div className="flex items-center gap-1">
-                      <span className="text-[10px]">🔵</span>
-                      <span className={`font-mono text-xs font-bold ${locked ? "text-white/20" : "text-[#00f0ff]"}`}>
-                        {gem.tcCost === 0 ? "FREE" : `${gem.tcCost} TC`}
+                      <span className="text-[10px]">🪙</span>
+                      <span className={`font-mono text-xs font-bold ${locked ? "text-white/20" : "text-[#FFD700]"}`}>
+                        {gem.gcCost === 0 ? "FREE" : `${gem.gcCost} GC`}
                       </span>
                     </div>
                     <span className={`font-mono text-[9px] ${locked ? "text-white/15" : "text-white/30"}`}>{gem.uses}</span>
@@ -261,7 +265,7 @@ export default function Shop() {
                           background: gem.color,
                         }}
                       >
-                        {purchaseMutation.isPending ? "BUYING..." : `CONFIRM — ${gem.tcCost} TC`}
+                        {purchaseMutation.isPending ? "BUYING..." : `CONFIRM — ${gem.gcCost} GC`}
                       </motion.button>
                       <button
                         onClick={() => setConfirming(null)}
@@ -282,7 +286,7 @@ export default function Shop() {
                         background: canAfford ? `${gem.color}10` : "transparent",
                       }}
                     >
-                      <span>{canAfford ? "BUY POWERUP" : "NOT ENOUGH TC"}</span>
+                      <span>{canAfford ? "BUY POWERUP" : "NOT ENOUGH GC"}</span>
                       {canAfford && <ChevronRight size={12} />}
                     </motion.button>
                   )}

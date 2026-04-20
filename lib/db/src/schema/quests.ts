@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -20,7 +20,10 @@ export const questClaimsTable = pgTable("quest_claims", {
   telegramId: text("telegram_id").notNull(),
   questId: integer("quest_id").notNull(),
   claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_quest_claims_telegram_id").on(table.telegramId),
+  uniqueIndex("idx_quest_claims_unique").on(table.telegramId, table.questId),
+]);
 
 export const insertQuestSchema = createInsertSchema(questsTable).omit({ id: true, createdAt: true });
 export type InsertQuest = z.infer<typeof insertQuestSchema>;
