@@ -39,6 +39,10 @@ function secondsLeft(iso: string): number {
   return Math.max(0, Math.floor((new Date(iso).getTime() - Date.now()) / 1000));
 }
 
+function makeIdempotencyKey(prefix: string, parts: Array<string | number>): string {
+  return `${prefix}:${parts.map((entry) => String(entry)).join(":")}:${Date.now()}`;
+}
+
 export default function Arbitrage() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
@@ -90,7 +94,14 @@ export default function Arbitrage() {
     try {
       const res = await fetch(apiUrl("/api/features/arbitrage/execute"), {
         method: "POST",
-        headers: requestHeaders,
+        headers: {
+          ...requestHeaders,
+          "Idempotency-Key": makeIdempotencyKey("arbitrage", [
+            user.telegramId,
+            quote.signalId,
+            stakeTc,
+          ]),
+        },
         body: JSON.stringify({
           telegramId: user.telegramId,
           signalId: quote.signalId,

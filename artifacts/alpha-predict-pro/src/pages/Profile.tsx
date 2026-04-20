@@ -405,7 +405,7 @@ export default function Profile() {
             6,000 GC daily cap · Bet up to 5,000 TC · Withdrawals
           </div>
           <div className="font-mono text-xs text-white/40">
-            Only 500 TC — activate in Wallet
+            Activate with TON plan in Wallet
           </div>
         </div>
       )}

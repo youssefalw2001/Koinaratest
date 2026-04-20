@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Rocket, TrendingUp, Clock3, ShieldAlert } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
@@ -60,8 +60,8 @@ type CrashBetRow = {
 const BET_OPTIONS = [25, 50, 100, 250, 500, 1000];
 const CASHOUT_IDEMPOTENCY_KEY = "crash-cashout";
 
-function secondsLeft(targetIso: string): number {
-  return Math.max(0, Math.ceil((new Date(targetIso).getTime() - Date.now()) / 1000));
+function secondsLeft(targetIso: string, referenceMs = Date.now()): number {
+  return Math.max(0, Math.ceil((new Date(targetIso).getTime() - referenceMs) / 1000));
 }
 
 function apiUrl(path: string): string {
@@ -107,8 +107,26 @@ export default function Crash() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [comingSoon, setComingSoon] = useState(false);
+  const [tickNowMs, setTickNowMs] = useState(() => Date.now());
+  const hasSnapshotRef = useRef(false);
+
+  const toFriendlyError = useCallback((err: unknown, fallback: string): string => {
+    const raw = err instanceof Error ? err.message : "";
+    if (!raw) return fallback;
+    const lower = raw.toLowerCase();
+    if (
+      lower.includes("<!doctype") ||
+      lower.includes("<html") ||
+      lower.includes("<head") ||
+      lower.includes("<body")
+    ) {
+      return fallback;
+    }
+    return raw;
+  }, []);
 
   const applyStatePayload = useCallback((stateJson: CrashStateResponse) => {
+    hasSnapshotRef.current = true;
     setState({ ...stateJson, round: normalizeRound(stateJson.round) });
   }, []);
 
@@ -119,6 +137,7 @@ export default function Crash() {
       if (featureRes.ok) {
         const featurePayload = (await featureRes.json()) as { crashEnabled?: boolean };
         if (featurePayload.crashEnabled === false) {
+          hasSnapshotRef.current = false;
           setComingSoon(true);
           setError(null);
           setLoading(false);
@@ -163,12 +182,12 @@ export default function Crash() {
       setComingSoon(false);
       setError(null);
     } catch (err) {
-      setComingSoon(true);
-      setError(err instanceof Error ? err.message : "Failed to load crash data.");
+      setComingSoon(!hasSnapshotRef.current);
+      setError(toFriendlyError(err, "Crash service temporarily unavailable."));
     } finally {
       setLoading(false);
     }
-  }, [applyStatePayload, user]);
+  }, [applyStatePayload, toFriendlyError, user]);
 
   useEffect(() => {
     void loadData();
@@ -193,7 +212,7 @@ export default function Crash() {
     eventSource.onerror = () => {
       streamActive = false;
       // Keep prior state if we already have data; otherwise fallback to Coming Soon card.
-      if (!state) {
+      if (!hasSnapshotRef.current) {
         setComingSoon(true);
       }
     };
@@ -208,13 +227,18 @@ export default function Crash() {
       clearInterval(fallbackPoll);
       eventSource.close();
     };
-  }, [loadData, state]);
+  }, [loadData]);
 
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 2600);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTickNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const liveMultiplier = state?.live.multiplier ?? 1;
   const currentRoundId = state?.round.id ?? null;
@@ -309,6 +333,10 @@ export default function Crash() {
     }
   };
 
+  const bettingSecondsLeft = state ? secondsLeft(state.round.bettingClosesAt, tickNowMs) : 0;
+  const crashSecondsLeft =
+    state?.round.settlesAt ? secondsLeft(state.round.settlesAt, tickNowMs) : 0;
+
   if (loading) {
     return (
       <div className="px-4 pt-4 pb-8">
@@ -355,9 +383,9 @@ export default function Crash() {
             {liveMultiplier.toFixed(2)}x
           </div>
           <div className="mt-2 font-mono text-[10px] text-white/45">
-            {bettingOpen && state ? `Betting closes in ${secondsLeft(state.round.bettingClosesAt)}s` : null}
+            {bettingOpen && state ? `Betting closes in ${bettingSecondsLeft}s` : null}
             {runningNow && state && state.round.settlesAt
-              ? `Crashes in ${secondsLeft(state.round.settlesAt)}s`
+              ? `Crashes in ${crashSecondsLeft}s`
               : null}
             {state?.live.crashed ? `Round crashed at ${state.round.crashMultiplier.toFixed(2)}x` : null}
           </div>

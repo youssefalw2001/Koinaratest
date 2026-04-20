@@ -12,8 +12,6 @@ import {
   Languages,
   Sparkles,
   Rocket,
-  Package,
-  CandlestickChart,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -24,8 +22,6 @@ import { useLanguage } from "@/lib/language";
 const tabs = [
   { path: "/", icon: Zap, labelKey: "trade" as const },
   { path: "/crash", icon: Rocket, labelKey: "crash" as const },
-  { path: "/lootbox", icon: Package, labelKey: "shop" as const },
-  { path: "/arbitrage", icon: CandlestickChart, labelKey: "earn" as const },
   { path: "/earn", icon: Gift, labelKey: "earn" as const },
   { path: "/shop", icon: Gem, labelKey: "shop" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
