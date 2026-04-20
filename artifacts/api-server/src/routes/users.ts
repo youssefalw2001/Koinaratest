@@ -135,6 +135,9 @@ router.post("/users/register", async (req, res): Promise<void> => {
   }
 
   const { telegramId, username, firstName, lastName, photoUrl, referredBy } = parsed.data;
+  const authId = await resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authId) return;
+
   const today = new Date().toISOString().split("T")[0];
 
   const existing = await db
@@ -208,6 +211,9 @@ router.get("/users/:telegramId", async (req, res): Promise<void> => {
     return;
   }
 
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
+
   const [user] = await db
     .select()
     .from(usersTable)
@@ -230,6 +236,8 @@ router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
   }
 
   const { telegramId } = params.data;
+  const authId = await resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authId) return;
 
   const preds = await db
     .select()
@@ -277,6 +285,9 @@ router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
 
   const body = UpdateWalletBody.safeParse(req.body);
   if (!body.success) {
