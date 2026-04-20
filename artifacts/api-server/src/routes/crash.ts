@@ -2,16 +2,19 @@ import { Router, type IRouter, type Response } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, crashBetsTable, crashRoundsTable, usersTable } from "@workspace/db";
 import {
-  BETTING_PHASE_MS,
   CRASH_HOUSE_EDGE,
   createRoundFromStart,
-  getCrashMultiplierAtElapsedSec,
+  getAuthoritativeRoundLiveState,
   getCurrentRoundStart,
+  type CrashRoundPhase,
   getRoundCycleMs,
+  normalizeCrashRoundPhase,
 } from "../lib/crashRuntime";
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { beginIdempotency } from "../lib/idempotency";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -20,12 +23,14 @@ const MAX_BET_TC = 5000;
 const STREAM_TICK_MS = 750;
 
 type CrashRoundRow = typeof crashRoundsTable.$inferSelect;
+type CrashBetRow = typeof crashBetsTable.$inferSelect;
 type CrashStatePayload = {
   houseEdge: number;
   cycleMs: number;
+  serverTimeMs: number;
   round: {
     id: number;
-    phase: "betting" | "running" | "crashed";
+    phase: "betting" | "running" | "crashed" | "settled";
     bettingOpensAt: string;
     bettingClosesAt: string;
     runningStartedAt: string;
@@ -50,16 +55,11 @@ const crashActionRateLimiter = createRouteRateLimiter("crash-action", {
   message: "Too many crash actions. Please slow down.",
 });
 
-function getRoundPhase(round: CrashRoundRow, nowMs = Date.now()): "betting" | "running" | "crashed" {
-  const bettingClosesAtMs = new Date(round.bettingClosesAt).getTime();
-  const runningStartedAtMs = new Date(round.runningStartedAt).getTime();
-  const crashAtMs = new Date(round.crashAt).getTime();
-  const elapsedRunningSec = Math.max(0, (nowMs - runningStartedAtMs) / 1000);
-  const liveMultiplier = getCrashMultiplierAtElapsedSec(elapsedRunningSec);
-  if (round.phase === "crashed" || nowMs >= crashAtMs) return "crashed";
-  if (liveMultiplier >= round.crashMultiplier) return "crashed";
-  if (nowMs >= bettingClosesAtMs) return "running";
-  return "betting";
+function toClientPhase(phase: CrashRoundPhase): "betting" | "running" | "crashed" | "settled" {
+  if (phase === "pending") return "betting";
+  if (phase === "running") return "running";
+  if (phase === "settled") return "settled";
+  return "crashed";
 }
 
 async function ensureRoundForNow(): Promise<CrashRoundRow> {
@@ -75,7 +75,7 @@ async function ensureRoundForNow(): Promise<CrashRoundRow> {
   const [created] = await db
     .insert(crashRoundsTable)
     .values({
-      phase: "betting",
+      phase: "pending",
       houseEdge: CRASH_HOUSE_EDGE,
       seedHash: next.seedHash,
       revealedSeed: next.revealedSeed,
@@ -89,35 +89,72 @@ async function ensureRoundForNow(): Promise<CrashRoundRow> {
   return created;
 }
 
-async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow> {
-  if (getRoundPhase(round) !== "crashed") return round;
-  if (round.phase === "crashed") return round;
+async function settleRoundInTransaction(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  round: CrashRoundRow,
+  referenceMs = Date.now(),
+): Promise<CrashRoundRow> {
+  const initialLive = getAuthoritativeRoundLiveState(round, referenceMs);
+  if (initialLive.phase !== "crashed" && initialLive.phase !== "settled") {
+    return round;
+  }
 
-  await db.transaction(async (tx) => {
-    const pendingBets = await tx
-      .select()
-      .from(crashBetsTable)
-      .where(and(eq(crashBetsTable.roundId, round.id), eq(crashBetsTable.status, "pending")));
+  const [lockedRound] = await tx
+    .select()
+    .from(crashRoundsTable)
+    .where(eq(crashRoundsTable.id, round.id))
+    .for("update")
+    .limit(1);
 
-    if (pendingBets.length > 0) {
-      await tx
-        .update(crashBetsTable)
-        .set({
-          status: "lost",
-          payoutGc: 0,
-          resolvedAt: new Date(),
-        })
-        .where(inArray(crashBetsTable.id, pendingBets.map((bet) => bet.id)));
-    }
+  if (!lockedRound) {
+    return round;
+  }
 
+  const live = getAuthoritativeRoundLiveState(lockedRound, referenceMs);
+  if (live.phase !== "crashed" && live.phase !== "settled") {
+    return lockedRound;
+  }
+
+  const pendingBets = await tx
+    .select({ id: crashBetsTable.id })
+    .from(crashBetsTable)
+    .where(and(eq(crashBetsTable.roundId, round.id), eq(crashBetsTable.status, "pending")))
+    .for("update");
+
+  if (pendingBets.length > 0) {
     await tx
-      .update(crashRoundsTable)
-      .set({ phase: "crashed" })
-      .where(eq(crashRoundsTable.id, round.id));
-  });
+      .update(crashBetsTable)
+      .set({
+        status: "lost",
+        payoutGc: 0,
+        resolvedAt: new Date(),
+      })
+      .where(inArray(crashBetsTable.id, pendingBets.map((bet) => bet.id)));
+  }
 
-  const [updated] = await db.select().from(crashRoundsTable).where(eq(crashRoundsTable.id, round.id)).limit(1);
-  return updated ?? round;
+  const [updatedRound] = await tx
+    .update(crashRoundsTable)
+    .set({ phase: "settled" })
+    .where(eq(crashRoundsTable.id, round.id))
+    .returning();
+
+  logger.info(
+    {
+      roundId: round.id,
+      previousPhase: normalizeCrashRoundPhase(lockedRound.phase),
+      settledPhase: "settled",
+      lostBets: pendingBets.length,
+    },
+    "Crash round settled on server",
+  );
+
+  return updatedRound ?? lockedRound;
+}
+
+async function settleRoundIfNeeded(round: CrashRoundRow): Promise<CrashRoundRow> {
+  const live = getAuthoritativeRoundLiveState(round, Date.now());
+  if (live.phase !== "crashed" && live.phase !== "settled") return round;
+  return db.transaction((tx) => settleRoundInTransaction(tx, round, Date.now()));
 }
 
 async function buildCrashStatePayload(): Promise<CrashStatePayload> {
@@ -125,33 +162,34 @@ async function buildCrashStatePayload(): Promise<CrashStatePayload> {
   const settledRound = await settleRoundIfNeeded(round);
 
   const nowMs = Date.now();
-  const phase = getRoundPhase(settledRound, nowMs);
-  const elapsedSec = Math.max(0, (nowMs - new Date(settledRound.runningStartedAt).getTime()) / 1000);
-  const projectedMultiplier = getCrashMultiplierAtElapsedSec(elapsedSec);
-  const liveMultiplier = phase === "crashed" ? settledRound.crashMultiplier : projectedMultiplier;
-
-  if (phase !== settledRound.phase) {
-    await db.update(crashRoundsTable).set({ phase }).where(eq(crashRoundsTable.id, settledRound.id));
+  const live = getAuthoritativeRoundLiveState(settledRound, nowMs);
+  const phase = live.phase;
+  if (normalizeCrashRoundPhase(settledRound.phase) !== phase) {
+    await db
+      .update(crashRoundsTable)
+      .set({ phase })
+      .where(eq(crashRoundsTable.id, settledRound.id));
   }
 
   return {
     houseEdge: CRASH_HOUSE_EDGE,
     cycleMs: getRoundCycleMs(),
+    serverTimeMs: nowMs,
     round: {
       id: settledRound.id,
-      phase,
+      phase: toClientPhase(phase),
       bettingOpensAt: new Date(settledRound.bettingOpensAt).toISOString(),
       bettingClosesAt: new Date(settledRound.bettingClosesAt).toISOString(),
       runningStartedAt: new Date(settledRound.runningStartedAt).toISOString(),
       crashAt: new Date(settledRound.crashAt).toISOString(),
       crashMultiplier: settledRound.crashMultiplier,
       seedHash: settledRound.seedHash,
-      revealedSeed: phase === "crashed" ? settledRound.revealedSeed : null,
+      revealedSeed: live.crashed ? settledRound.revealedSeed : null,
     },
     live: {
-      elapsedSec: Number(elapsedSec.toFixed(3)),
-      multiplier: liveMultiplier,
-      crashed: phase === "crashed",
+      elapsedSec: live.elapsedSec,
+      multiplier: live.multiplier,
+      crashed: live.crashed,
     },
   };
 }
@@ -219,10 +257,10 @@ router.get("/crash/stream", async (req, res): Promise<void> => {
 });
 
 router.post("/crash/bet", crashActionRateLimiter, async (req, res): Promise<void> => {
-  const telegramId = String(req.body?.telegramId ?? "").trim();
+  const requestedTelegramId = String(req.body?.telegramId ?? "").trim();
   const amountTc = Number(req.body?.amountTc);
 
-  if (!telegramId) {
+  if (!requestedTelegramId) {
     res.status(400).json({ error: "telegramId is required." });
     return;
   }
@@ -231,61 +269,113 @@ router.post("/crash/bet", crashActionRateLimiter, async (req, res): Promise<void
     return;
   }
 
+  const telegramId = resolveAuthenticatedTelegramId(req, res, requestedTelegramId);
+  if (!telegramId) {
+    return;
+  }
+
   const round = await settleRoundIfNeeded(await ensureRoundForNow());
-  const phase = getRoundPhase(round);
-  if (phase !== "betting") {
+  const roundLive = getAuthoritativeRoundLiveState(round, Date.now());
+  if (roundLive.phase !== "pending") {
     res.status(400).json({ error: "Betting is closed for this round." });
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, telegramId)).limit(1);
-  if (!user) {
-    res.status(404).json({ error: "User not found." });
-    return;
+  try {
+    const [bet] = await db.transaction(async (tx) => {
+      const [lockedRound] = await tx
+        .select()
+        .from(crashRoundsTable)
+        .where(eq(crashRoundsTable.id, round.id))
+        .for("update")
+        .limit(1);
+      if (!lockedRound) {
+        throw new Error("ROUND_NOT_FOUND");
+      }
+
+      const live = getAuthoritativeRoundLiveState(lockedRound, Date.now());
+      if (live.phase !== "pending") {
+        throw new Error("BETTING_CLOSED");
+      }
+
+      const [user] = await tx
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId))
+        .for("update")
+        .limit(1);
+      if (!user) {
+        throw new Error("USER_NOT_FOUND");
+      }
+      if ((user.tradeCredits ?? 0) < amountTc) {
+        throw new Error("INSUFFICIENT_TC");
+      }
+
+      const [alreadyBet] = await tx
+        .select({ id: crashBetsTable.id })
+        .from(crashBetsTable)
+        .where(and(eq(crashBetsTable.roundId, lockedRound.id), eq(crashBetsTable.telegramId, telegramId)))
+        .limit(1);
+      if (alreadyBet) {
+        throw new Error("ALREADY_BET");
+      }
+
+      await tx
+        .update(usersTable)
+        .set({
+          tradeCredits: sql`${usersTable.tradeCredits} - ${amountTc}`,
+        })
+        .where(eq(usersTable.telegramId, telegramId));
+
+      const [createdBet] = await tx
+        .insert(crashBetsTable)
+        .values({
+          roundId: lockedRound.id,
+          telegramId,
+          amountTc,
+          status: "pending",
+        })
+        .returning();
+      return [createdBet];
+    });
+
+    logger.info(
+      { telegramId, roundId: round.id, amountTc, betId: bet.id },
+      "Crash bet placed",
+    );
+    res.status(201).json(serializeRow(bet as unknown as Record<string, unknown>));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "UNKNOWN";
+    if (message === "ROUND_NOT_FOUND") {
+      res.status(404).json({ error: "Round not found." });
+      return;
+    }
+    if (message === "BETTING_CLOSED") {
+      res.status(400).json({ error: "Betting is closed for this round." });
+      return;
+    }
+    if (message === "USER_NOT_FOUND") {
+      res.status(404).json({ error: "User not found." });
+      return;
+    }
+    if (message === "INSUFFICIENT_TC") {
+      res.status(400).json({ error: "Insufficient Trade Credits." });
+      return;
+    }
+    if (message === "ALREADY_BET") {
+      res.status(400).json({ error: "You already placed a bet in this round." });
+      return;
+    }
+    logger.error({ err, telegramId, amountTc }, "Crash bet placement failed");
+    res.status(500).json({ error: "Failed to place crash bet." });
   }
-  if ((user.tradeCredits ?? 0) < amountTc) {
-    res.status(400).json({ error: "Insufficient Trade Credits." });
-    return;
-  }
-
-  const [alreadyBet] = await db
-    .select({ id: crashBetsTable.id })
-    .from(crashBetsTable)
-    .where(and(eq(crashBetsTable.roundId, round.id), eq(crashBetsTable.telegramId, telegramId)))
-    .limit(1);
-  if (alreadyBet) {
-    res.status(400).json({ error: "You already placed a bet in this round." });
-    return;
-  }
-
-  const [bet] = await db.transaction(async (tx) => {
-    await tx
-      .update(usersTable)
-      .set({
-        tradeCredits: sql`${usersTable.tradeCredits} - ${amountTc}`,
-      })
-      .where(eq(usersTable.telegramId, telegramId));
-
-    const [createdBet] = await tx
-      .insert(crashBetsTable)
-      .values({
-        roundId: round.id,
-        telegramId,
-        amountTc,
-        status: "pending",
-      })
-      .returning();
-    return [createdBet];
-  });
-
-  res.status(201).json(serializeRow(bet as unknown as Record<string, unknown>));
 });
 
 router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<void> => {
-  const telegramId = String(req.body?.telegramId ?? "").trim();
+  const requestedTelegramId = String(req.body?.telegramId ?? "").trim();
   const roundId = Number(req.body?.roundId);
 
-  if (!telegramId) {
+  if (!requestedTelegramId) {
     res.status(400).json({ error: "telegramId is required." });
     return;
   }
@@ -294,9 +384,12 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
     return;
   }
 
+  const telegramId = resolveAuthenticatedTelegramId(req, res, requestedTelegramId);
+  if (!telegramId) return;
+
   const idempotency = await beginIdempotency(req, {
     scope: "crash.cashout",
-    fallbackKey: `crash-cashout:${telegramId}:${roundId}`,
+    requireHeader: true,
     fingerprintData: { telegramId, roundId },
     ttlMs: 2 * 60 * 60 * 1000,
   });
@@ -321,79 +414,199 @@ router.post("/crash/cashout", crashActionRateLimiter, async (req, res): Promise<
   const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
     try {
       await idempotencyHandle.commit(statusCode, payload);
-    } catch {
+    } catch (err) {
+      logger.warn({ err, telegramId, roundId }, "Failed to persist idempotent cashout response");
       await idempotencyHandle.abort();
     }
     res.status(statusCode).json(payload);
   };
 
-  const [round] = await db.select().from(crashRoundsTable).where(eq(crashRoundsTable.id, roundId)).limit(1);
-  if (!round) {
-    await idempotencyHandle.abort();
-    res.status(404).json({ error: "Round not found." });
-    return;
-  }
+  type CashoutOutcome =
+    | {
+        kind: "success";
+        roundId: number;
+        cashoutMultiplier: number;
+        payoutGc: number;
+        bet: CrashBetRow;
+      }
+    | {
+        kind: "already_resolved";
+        roundId: number;
+        bet: CrashBetRow;
+      }
+    | {
+        kind: "too_late";
+        roundId: number;
+        crashMultiplier: number;
+      }
+    | {
+        kind: "not_running";
+        roundId: number;
+        phase: "betting" | "running" | "crashed" | "settled";
+      };
 
-  const settledRound = await settleRoundIfNeeded(round);
-  const phase = getRoundPhase(settledRound);
-  if (phase !== "running") {
-    await replyWithCommit(400, { error: "Round is not running." });
-    return;
-  }
+  try {
+    const outcome = await db.transaction<CashoutOutcome>(async (tx) => {
+      const [lockedRound] = await tx
+        .select()
+        .from(crashRoundsTable)
+        .where(eq(crashRoundsTable.id, roundId))
+        .for("update")
+        .limit(1);
+      if (!lockedRound) {
+        throw new Error("ROUND_NOT_FOUND");
+      }
 
-  const [bet] = await db
-    .select()
-    .from(crashBetsTable)
-    .where(and(eq(crashBetsTable.roundId, roundId), eq(crashBetsTable.telegramId, telegramId)))
-    .limit(1);
-  if (!bet) {
-    await idempotencyHandle.abort();
-    res.status(404).json({ error: "Bet not found." });
-    return;
-  }
-  if (bet.status !== "pending") {
-    await replyWithCommit(400, { error: "Bet already resolved." });
-    return;
-  }
+      const [lockedBet] = await tx
+        .select()
+        .from(crashBetsTable)
+        .where(and(eq(crashBetsTable.roundId, roundId), eq(crashBetsTable.telegramId, telegramId)))
+        .for("update")
+        .limit(1);
+      if (!lockedBet) {
+        throw new Error("BET_NOT_FOUND");
+      }
 
-  const elapsedSec = Math.max(0, (Date.now() - new Date(settledRound.runningStartedAt).getTime()) / 1000);
-  const currentMultiplier = getCrashMultiplierAtElapsedSec(elapsedSec);
-  if (currentMultiplier >= settledRound.crashMultiplier) {
-    await settleRoundIfNeeded(settledRound);
-    await replyWithCommit(400, { error: "Too late. Round crashed." });
-    return;
-  }
+      if (lockedBet.status !== "pending") {
+        return {
+          kind: "already_resolved",
+          roundId,
+          bet: lockedBet,
+        };
+      }
 
-  const payoutGc = Math.floor((bet.amountTc ?? 0) * currentMultiplier);
-  const [updatedBet] = await db.transaction(async (tx) => {
-    const [saved] = await tx
-      .update(crashBetsTable)
-      .set({
-        status: "cashed",
-        cashoutMultiplier: currentMultiplier,
+      const nowMs = Date.now();
+      let live = getAuthoritativeRoundLiveState(lockedRound, nowMs);
+      let effectiveRound = lockedRound;
+      if (live.phase === "crashed" || live.phase === "settled") {
+        effectiveRound = await settleRoundInTransaction(tx, lockedRound, nowMs);
+        live = getAuthoritativeRoundLiveState(effectiveRound, nowMs);
+      }
+
+      if (live.phase !== "running") {
+        if (live.phase === "crashed" || live.phase === "settled") {
+          return {
+            kind: "too_late",
+            roundId,
+            crashMultiplier: Number(Math.max(1, effectiveRound.crashMultiplier).toFixed(2)),
+          };
+        }
+        return {
+          kind: "not_running",
+          roundId,
+          phase: toClientPhase(live.phase),
+        };
+      }
+
+      const [lockedUser] = await tx
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId))
+        .for("update")
+        .limit(1);
+      if (!lockedUser) {
+        throw new Error("USER_NOT_FOUND");
+      }
+
+      const payoutGc = Math.floor((lockedBet.amountTc ?? 0) * live.multiplier);
+      const [updatedBet] = await tx
+        .update(crashBetsTable)
+        .set({
+          status: "cashed",
+          cashoutMultiplier: live.multiplier,
+          payoutGc,
+          resolvedAt: new Date(),
+        })
+        .where(and(eq(crashBetsTable.id, lockedBet.id), eq(crashBetsTable.status, "pending")))
+        .returning();
+
+      if (!updatedBet) {
+        const [resolvedBet] = await tx
+          .select()
+          .from(crashBetsTable)
+          .where(eq(crashBetsTable.id, lockedBet.id))
+          .limit(1);
+        if (resolvedBet) {
+          return { kind: "already_resolved", roundId, bet: resolvedBet };
+        }
+        throw new Error("BET_RESOLUTION_FAILED");
+      }
+
+      await tx
+        .update(usersTable)
+        .set({
+          goldCoins: sql`${usersTable.goldCoins} + ${payoutGc}`,
+          totalGcEarned: sql`${usersTable.totalGcEarned} + ${payoutGc}`,
+        })
+        .where(eq(usersTable.telegramId, telegramId));
+
+      return {
+        kind: "success",
+        roundId,
+        cashoutMultiplier: live.multiplier,
         payoutGc,
-        resolvedAt: new Date(),
-      })
-      .where(eq(crashBetsTable.id, bet.id))
-      .returning();
+        bet: updatedBet,
+      };
+    });
 
-    await tx
-      .update(usersTable)
-      .set({
-        goldCoins: sql`${usersTable.goldCoins} + ${payoutGc}`,
-        totalGcEarned: sql`${usersTable.totalGcEarned} + ${payoutGc}`,
-      })
-      .where(eq(usersTable.telegramId, telegramId));
+    if (outcome.kind === "already_resolved") {
+      await replyWithCommit(200, {
+        roundId: outcome.roundId,
+        alreadyResolved: true,
+        bet: serializeRow(outcome.bet as unknown as Record<string, unknown>),
+      });
+      return;
+    }
+    if (outcome.kind === "too_late") {
+      logger.info({ telegramId, roundId }, "Crash cashout rejected: too late");
+      await replyWithCommit(400, {
+        error: "Too late. Round crashed.",
+        crashMultiplier: outcome.crashMultiplier,
+      });
+      return;
+    }
+    if (outcome.kind === "not_running") {
+      await replyWithCommit(400, {
+        error: "Round is not running.",
+        phase: outcome.phase,
+      });
+      return;
+    }
 
-    return [saved];
-  });
-
-  await replyWithCommit(200, {
-    roundId,
-    cashoutMultiplier: currentMultiplier,
-    payoutGc,
-    bet: serializeRow(updatedBet as unknown as Record<string, unknown>),
-  });
+    logger.info(
+      {
+        telegramId,
+        roundId,
+        betId: outcome.bet.id,
+        cashoutMultiplier: outcome.cashoutMultiplier,
+        payoutGc: outcome.payoutGc,
+      },
+      "Crash cashout processed",
+    );
+    await replyWithCommit(200, {
+      roundId: outcome.roundId,
+      cashoutMultiplier: outcome.cashoutMultiplier,
+      payoutGc: outcome.payoutGc,
+      bet: serializeRow(outcome.bet as unknown as Record<string, unknown>),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "UNKNOWN";
+    if (message === "ROUND_NOT_FOUND") {
+      await replyWithCommit(404, { error: "Round not found." });
+      return;
+    }
+    if (message === "BET_NOT_FOUND") {
+      await replyWithCommit(404, { error: "Bet not found." });
+      return;
+    }
+    if (message === "USER_NOT_FOUND") {
+      await replyWithCommit(404, { error: "User not found." });
+      return;
+    }
+    logger.error({ err, telegramId, roundId }, "Crash cashout failed");
+    await idempotencyHandle.abort();
+    res.status(500).json({ error: "Crash cashout failed." });
+  }
 });
 
 router.get("/crash/history", async (req, res): Promise<void> => {
@@ -404,11 +617,14 @@ router.get("/crash/history", async (req, res): Promise<void> => {
 });
 
 router.get("/crash/bets/:telegramId", async (req, res): Promise<void> => {
-  const telegramId = String(req.params.telegramId ?? "").trim();
-  if (!telegramId) {
+  const requestedTelegramId = String(req.params.telegramId ?? "").trim();
+  if (!requestedTelegramId) {
     res.status(400).json({ error: "telegramId is required." });
     return;
   }
+  const telegramId = resolveAuthenticatedTelegramId(req, res, requestedTelegramId);
+  if (!telegramId) return;
+
   const limitRaw = Number(req.query.limit ?? 30);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 30;
 
@@ -427,10 +643,11 @@ router.get("/crash/bets/:telegramId", async (req, res): Promise<void> => {
 
   const rows = bets.map((bet) => {
     const round = roundById.get(bet.roundId);
+    const roundLive = round ? getAuthoritativeRoundLiveState(round) : null;
     return {
       ...bet,
       crashMultiplier: round?.crashMultiplier ?? null,
-      roundPhase: round ? getRoundPhase(round) : null,
+      roundPhase: roundLive ? toClientPhase(roundLive.phase) : null,
     };
   });
 

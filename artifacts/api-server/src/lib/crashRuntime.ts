@@ -5,11 +5,27 @@ export const CRASH_ROUND_DURATION_MS = 14_000;
 export const BETTING_PHASE_MS = 4_000;
 const MAX_CRASH_MULTIPLIER = 100;
 const MIN_CRASH_DURATION_MS = 2_400;
+const MULTIPLIER_EPSILON = 1e-9;
 
 const LOOP_STEP_MS = 100;
 const roundCycleMs = CRASH_ROUND_DURATION_MS + BETTING_PHASE_MS;
 
 let runtimeLoop: NodeJS.Timeout | null = null;
+
+export type CrashRoundPhase = "pending" | "running" | "crashed" | "settled";
+export type CrashRoundTimingInput = {
+  phase?: string | null;
+  bettingClosesAt: Date | string;
+  runningStartedAt: Date | string;
+  crashAt: Date | string;
+  crashMultiplier: number;
+};
+export type CrashRoundLiveState = {
+  phase: CrashRoundPhase;
+  elapsedSec: number;
+  multiplier: number;
+  crashed: boolean;
+};
 
 function sha256Hex(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
@@ -28,6 +44,24 @@ export function calculateCrashPoint(seed: string, edge = CRASH_HOUSE_EDGE): numb
   const u = Math.min(Math.max(int52 / max, 1e-12), 0.999999999999);
   const x = (1 - edge) / (1 - u);
   return Number(Math.min(Math.max(x, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
+}
+
+export function normalizeCrashRoundPhase(phase: string | null | undefined): CrashRoundPhase {
+  switch (phase) {
+    case "pending":
+    case "running":
+    case "crashed":
+    case "settled":
+      return phase;
+    case "betting":
+      return "pending";
+    default:
+      return "pending";
+  }
+}
+
+function toMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
 export function getCurrentRoundStart(referenceMs = Date.now()): Date {
@@ -68,6 +102,57 @@ export function getCrashMultiplierAtElapsedSec(elapsedSec: number): number {
   // Fast curve to feel "godly" while still deterministic.
   const value = 1 + 0.75 * clamped + 0.06 * clamped * clamped;
   return Number(Math.min(Math.max(value, 1), MAX_CRASH_MULTIPLIER).toFixed(2));
+}
+
+/**
+ * Server-authoritative crash state projection for a single round.
+ * This must remain the single source of truth for live multiplier and phase.
+ */
+export function getAuthoritativeRoundLiveState(
+  round: CrashRoundTimingInput,
+  referenceMs = Date.now(),
+): CrashRoundLiveState {
+  const normalizedPhase = normalizeCrashRoundPhase(round.phase);
+  const bettingClosesAtMs = toMs(round.bettingClosesAt);
+  const runningStartedAtMs = toMs(round.runningStartedAt);
+  const crashAtMs = toMs(round.crashAt);
+
+  const elapsedSec = Math.max(0, (referenceMs - runningStartedAtMs) / 1000);
+  const targetCrashMultiplier = Number(Math.max(1, round.crashMultiplier).toFixed(2));
+  const projectedMultiplier = Math.min(
+    targetCrashMultiplier,
+    getCrashMultiplierAtElapsedSec(elapsedSec),
+  );
+
+  let phase: CrashRoundPhase;
+  if (normalizedPhase === "settled") {
+    phase = "settled";
+  } else if (normalizedPhase === "crashed") {
+    phase = "crashed";
+  } else if (referenceMs < bettingClosesAtMs) {
+    phase = "pending";
+  } else if (
+    referenceMs >= crashAtMs ||
+    projectedMultiplier + MULTIPLIER_EPSILON >= targetCrashMultiplier
+  ) {
+    phase = "crashed";
+  } else {
+    phase = "running";
+  }
+
+  const multiplier =
+    phase === "pending"
+      ? 1
+      : phase === "running"
+        ? projectedMultiplier
+        : targetCrashMultiplier;
+
+  return {
+    phase,
+    elapsedSec: Number(elapsedSec.toFixed(3)),
+    multiplier: Number(multiplier.toFixed(2)),
+    crashed: phase === "crashed" || phase === "settled",
+  };
 }
 
 export function getElapsedSecForMultiplier(targetMultiplier: number): number {

@@ -6,8 +6,8 @@ import { useLanguage } from "@/lib/language";
 
 type CrashRoundState = {
   id: number;
-  status?: "active" | "crashed" | "betting" | "running";
-  phase?: "betting" | "running" | "crashed";
+  status?: "active" | "crashed" | "betting" | "running" | "settled";
+  phase?: "betting" | "running" | "crashed" | "settled";
   startedAt?: string;
   bettingOpensAt: string;
   bettingClosesAt: string;
@@ -23,6 +23,7 @@ type CrashRoundState = {
 type CrashStateResponse = {
   houseEdge: number;
   cycleMs: number;
+  serverTimeMs?: number;
   round: CrashRoundState;
   live: {
     elapsedSec: number;
@@ -33,8 +34,8 @@ type CrashStateResponse = {
 
 type CrashHistoryRow = {
   id: number;
-  status?: "active" | "crashed" | "betting" | "running";
-  phase?: "betting" | "running" | "crashed";
+  status?: "active" | "crashed" | "betting" | "running" | "settled";
+  phase?: "betting" | "running" | "crashed" | "settled";
   crashMultiplier: number;
   createdAt?: string;
   startedAt?: string;
@@ -57,7 +58,7 @@ type CrashBetRow = {
 };
 
 const BET_OPTIONS = [25, 50, 100, 250, 500, 1000];
-const LOOP_FRAME_MS = 100;
+const CASHOUT_IDEMPOTENCY_KEY = "crash-cashout";
 
 function secondsLeft(targetIso: string): number {
   return Math.max(0, Math.ceil((new Date(targetIso).getTime() - Date.now()) / 1000));
@@ -68,14 +69,8 @@ function apiUrl(path: string): string {
   return `${base}${path}`;
 }
 
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
-function easedMultiplier(progress: number, crashMultiplier: number): number {
-  const eased = Math.pow(clamp01(progress), 1.35);
-  const value = 1 + (Math.max(1, crashMultiplier) - 1) * eased;
-  return Number(Math.min(value, Math.max(1, crashMultiplier)).toFixed(2));
+function makeIdempotencyKey(prefix: string, parts: Array<string | number>): string {
+  return `${prefix}:${parts.map((entry) => String(entry)).join(":")}`;
 }
 
 function normalizeRound(raw: CrashStateResponse["round"]): CrashStateResponse["round"] {
@@ -108,20 +103,27 @@ export default function Crash() {
   const [selectedBet, setSelectedBet] = useState<number>(100);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [cashoutPending, setCashoutPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [liveNow, setLiveNow] = useState(() => Date.now());
 
   const applyStatePayload = useCallback((stateJson: CrashStateResponse) => {
     setState({ ...stateJson, round: normalizeRound(stateJson.round) });
   }, []);
 
   const loadData = useCallback(async () => {
+    const telegramInitData = window.Telegram?.WebApp?.initData;
     try {
       const [stateRes, historyRes, betsRes] = await Promise.all([
-        fetch(apiUrl("/api/crash/state")),
+        fetch(apiUrl("/api/crash/state"), {
+          headers: telegramInitData ? { "X-Telegram-Init-Data": telegramInitData } : undefined,
+        }),
         fetch(apiUrl("/api/crash/history?limit=10")),
-        user ? fetch(apiUrl(`/api/crash/bets/${encodeURIComponent(user.telegramId)}?limit=10`)) : Promise.resolve(null),
+        user
+          ? fetch(apiUrl(`/api/crash/bets/${encodeURIComponent(user.telegramId)}?limit=10`), {
+              headers: telegramInitData ? { "X-Telegram-Init-Data": telegramInitData } : undefined,
+            })
+          : Promise.resolve(null),
       ]);
 
       if (!stateRes.ok) {
@@ -164,31 +166,16 @@ export default function Crash() {
       streamActive = true;
       setError(null);
     };
-    eventSource.onmessage = (event) => {
+    eventSource.addEventListener("state", (event) => {
       try {
-        const payload = JSON.parse(event.data) as {
-          state: CrashStateResponse;
-          history?: CrashHistoryRow[];
-          bets?: CrashBetRow[];
-        };
-        applyStatePayload(payload.state);
-        if (Array.isArray(payload.history)) {
-          setHistory(
-            payload.history.map((row) => ({
-              ...row,
-              status: row.status ?? row.phase ?? "crashed",
-            })),
-          );
-        }
-        if (Array.isArray(payload.bets)) {
-          setMyBets(payload.bets);
-        }
+        const payload = JSON.parse((event as MessageEvent<string>).data) as CrashStateResponse;
+        applyStatePayload(payload);
       } catch {
         // Ignore malformed stream chunk and keep stream alive.
       } finally {
         setLoading(false);
       }
-    };
+    });
     eventSource.onerror = () => {
       streamActive = false;
     };
@@ -211,23 +198,7 @@ export default function Crash() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  useEffect(() => {
-    const timer = setInterval(() => setLiveNow(Date.now()), LOOP_FRAME_MS);
-    return () => clearInterval(timer);
-  }, []);
-
-  const smoothLiveMultiplier = useMemo(() => {
-    if (!state) return 1;
-    const runningStartedAt = state.round.runningStartedAt
-      ? new Date(state.round.runningStartedAt).getTime()
-      : Date.now();
-    const elapsedSec = Math.max(0, (liveNow - runningStartedAt) / 1000);
-    const curve = 1 + 0.45 * elapsedSec + 0.04 * elapsedSec * elapsedSec;
-    if (state.live.crashed) return state.round.crashMultiplier;
-    return Math.min(state.round.crashMultiplier, Number(curve.toFixed(2)));
-  }, [state, liveNow]);
-
-  const liveMultiplier = smoothLiveMultiplier;
+  const liveMultiplier = state?.live.multiplier ?? 1;
   const currentRoundId = state?.round.id ?? null;
   const activeMyBet = useMemo(
     () =>
@@ -237,14 +208,9 @@ export default function Crash() {
     [myBets, currentRoundId],
   );
 
-  const bettingOpen = !!state && !state.live.crashed && secondsLeft(state.round.bettingClosesAt) > 0;
-  const runningNow =
-    !!state &&
-    !!state.round.settlesAt &&
-    !state.live.crashed &&
-    secondsLeft(state.round.bettingClosesAt) === 0 &&
-    secondsLeft(state.round.settlesAt) > 0;
-  const canCashout = !!activeMyBet && runningNow && !state?.live.crashed;
+  const bettingOpen = !!state && state.round.phase === "betting";
+  const runningNow = !!state && state.round.phase === "running";
+  const canCashout = !!activeMyBet && runningNow && !state?.live.crashed && !cashoutPending;
 
   const remainingDailyGc = useMemo(() => {
     if (!user) return null;
@@ -258,7 +224,12 @@ export default function Crash() {
     try {
       const res = await fetch(apiUrl("/api/crash/bet"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(window.Telegram?.WebApp?.initData
+            ? { "X-Telegram-Init-Data": window.Telegram.WebApp.initData }
+            : {}),
+        },
         body: JSON.stringify({
           telegramId: user.telegramId,
           amountTc: selectedBet,
@@ -279,12 +250,23 @@ export default function Crash() {
   };
 
   const handleCashout = async () => {
-    if (!user || !state || !canCashout || busy) return;
+    if (!user || !state || !canCashout || busy || cashoutPending) return;
     setBusy(true);
+    setCashoutPending(true);
     try {
+      const idempotencyKey = makeIdempotencyKey(CASHOUT_IDEMPOTENCY_KEY, [
+        user.telegramId,
+        state.round.id,
+      ]);
       const res = await fetch(apiUrl("/api/crash/cashout"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+          ...(window.Telegram?.WebApp?.initData
+            ? { "X-Telegram-Init-Data": window.Telegram.WebApp.initData }
+            : {}),
+        },
         body: JSON.stringify({
           telegramId: user.telegramId,
           roundId: state.round.id,
@@ -294,12 +276,17 @@ export default function Crash() {
       if (!res.ok) {
         throw new Error(String(payload?.error ?? "Cashout failed."));
       }
-      setNotice(`Cashed out @ ${payload.cashoutMultiplier}x → +${payload.payoutGc} GC`);
+      if (payload?.alreadyResolved) {
+        setNotice("Cashout already resolved.");
+      } else {
+        setNotice(`Cashed out @ ${payload.cashoutMultiplier}x → +${payload.payoutGc} GC`);
+      }
       refreshUser();
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cashout failed.");
     } finally {
+      setCashoutPending(false);
       setBusy(false);
     }
   };
@@ -398,10 +385,10 @@ export default function Crash() {
           <button
             onClick={handleCashout}
             type="button"
-            disabled={!canCashout || busy}
+            disabled={!canCashout || busy || cashoutPending}
             className="pressable rounded-xl py-3 font-mono text-xs font-bold border border-[#00E676]/40 bg-[#00E676]/15 text-[#91ffca] disabled:opacity-35"
           >
-            Cashout Now
+            {cashoutPending ? "Cashing out..." : "Cashout Now"}
           </button>
         </div>
 
