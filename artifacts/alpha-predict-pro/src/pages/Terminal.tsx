@@ -390,7 +390,7 @@ export default function Terminal() {
           }
 
           if (result.won) {
-            const source = document.getElementById("trade-result-root");
+            const source = document.getElementById("trade-result-gc-source");
             const target = document.getElementById("gc-balance-pill");
             if (source && target) {
               const s = source.getBoundingClientRect();

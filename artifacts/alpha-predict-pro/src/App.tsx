@@ -274,16 +274,40 @@ function Bounded({ children }: { children: React.ReactNode }) {
   return <ErrorBoundary>{children}</ErrorBoundary>;
 }
 
+function BoundedTerminal() {
+  return <Bounded><Terminal /></Bounded>;
+}
+
+function BoundedEarn() {
+  return <Bounded><Earn /></Bounded>;
+}
+
+function BoundedShop() {
+  return <Bounded><Shop /></Bounded>;
+}
+
+function BoundedWallet() {
+  return <Bounded><Wallet /></Bounded>;
+}
+
+function BoundedLeaderboard() {
+  return <Bounded><Leaderboard /></Bounded>;
+}
+
+function BoundedProfile() {
+  return <Bounded><Profile /></Bounded>;
+}
+
 function Router() {
   return (
     <Layout>
       <Switch>
-        <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
-        <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
-        <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
-        <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
-        <Route path="/leaderboard" component={() => <Bounded><Leaderboard /></Bounded>} />
-        <Route path="/profile" component={() => <Bounded><Profile /></Bounded>} />
+        <Route path="/" component={BoundedTerminal} />
+        <Route path="/earn" component={BoundedEarn} />
+        <Route path="/shop" component={BoundedShop} />
+        <Route path="/wallet" component={BoundedWallet} />
+        <Route path="/leaderboard" component={BoundedLeaderboard} />
+        <Route path="/profile" component={BoundedProfile} />
         <Route component={NotFound} />
       </Switch>
       <VipPromoModal />
