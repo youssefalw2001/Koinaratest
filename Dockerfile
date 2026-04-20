@@ -19,9 +19,9 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 # Build the API server (compiles TypeScript -> dist/index.mjs)
 RUN pnpm --filter @workspace/api-server run build
 
-EXPOSE 3003
+EXPOSE 8080
 
-ENV PORT=3003
+ENV PORT=8080
 ENV NODE_ENV=production
 
 CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
