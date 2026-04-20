@@ -8,6 +8,7 @@ import {
   WatchAdBody,
   WatchAdResponse,
 } from "@workspace/api-zod";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,9 @@ router.post("/rewards/daily", async (req, res): Promise<void> => {
   }
 
   const { telegramId } = parsed.data;
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
 
   const [user] = await db
     .select()
@@ -88,6 +92,9 @@ router.post("/rewards/ad", async (req, res): Promise<void> => {
   }
 
   const { telegramId } = parsed.data;
+
+  const authedAdId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedAdId) return;
 
   // Wrap in a transaction with SELECT FOR UPDATE to serialize concurrent requests
   // for the same user. This prevents the race condition where multiple parallel calls

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, real, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, real, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,7 +16,10 @@ export const predictionsTable = pgTable("predictions", {
   autoResolved: boolean("auto_resolved").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-});
+}, (table) => [
+  index("idx_predictions_telegram_id").on(table.telegramId),
+  index("idx_predictions_status").on(table.status),
+]);
 
 export const insertPredictionSchema = createInsertSchema(predictionsTable).omit({ id: true, createdAt: true });
 export type InsertPrediction = z.infer<typeof insertPredictionSchema>;
