@@ -339,23 +339,14 @@ export const UpgradeToVipResponse = zod.object({
  * @summary Place a trade prediction (Long or Short) — deducts Trade Credits
  */
 export const createPredictionBodyDurationDefault = 60;
-export const createPredictionBodyMultiplierDefault = 1.7;
+export const createPredictionBodyMultiplierDefault = 1.85;
 
 export const CreatePredictionBody = zod.object({
   telegramId: zod.string(),
   direction: zod.enum(["long", "short"]),
   amount: zod.number(),
   entryPrice: zod.number(),
-  duration: zod
-    .union([
-      zod.literal(6),
-      zod.literal(15),
-      zod.literal(30),
-      zod.literal(60),
-      zod.literal(300),
-    ])
-    .default(createPredictionBodyDurationDefault)
-    .describe("Round duration in seconds. Allowed: 6, 15, 30, 60, 300."),
+  duration: zod.literal(60).default(createPredictionBodyDurationDefault).describe("Round duration in seconds. Allowed: 60."),
   multiplier: zod
     .number()
     .default(createPredictionBodyMultiplierDefault)
@@ -654,7 +645,7 @@ export const GetReferralStatsResponse = zod.object({
 });
 
 /**
- * @summary Purchase a gem powerup with TC
+ * @summary Purchase a gem powerup with GC
  */
 export const PurchaseGemBody = zod.object({
   telegramId: zod.string(),

@@ -2,10 +2,11 @@ import { motion } from "framer-motion";
 import { Trophy, Crown } from "lucide-react";
 import { useGetLeaderboard } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 export default function Leaderboard() {
   const { user } = useTelegram();
-  const { data: board, isLoading } = useGetLeaderboard({ limit: 20 });
+  const { data: board, isLoading, isError, refetch } = useGetLeaderboard({ limit: 20 });
 
   const getRankStyle = (rank: number) => {
     if (rank === 1) return { color: "#FFD700", glow: "drop-shadow-[0_0_8px_#FFD700]" };
@@ -23,13 +24,8 @@ export default function Leaderboard() {
       <h1 className="font-mono text-2xl font-black text-white mb-1">Top Traders</h1>
       <p className="font-mono text-xs text-white/30 mb-6">Ranked by lifetime Gold Coins earned 🪙</p>
 
-      {isLoading && (
-        <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />
-          ))}
-        </div>
-      )}
+      {isLoading && <PageLoader rows={5} />}
+      {isError && <PageError message="Could not load leaderboard" onRetry={refetch} />}
 
       <div className="space-y-2">
         {(board ?? []).map((entry, idx) => {

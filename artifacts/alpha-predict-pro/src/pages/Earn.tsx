@@ -5,6 +5,7 @@ import { useListQuests, useClaimQuest, useWatchAd, useGetAdStatus, useSubmitCont
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
+import { PageLoader, PageError } from "@/components/PageStatus";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
   "trending-up": TrendingUp,
@@ -48,7 +49,7 @@ const CONTENT_TIERS = [
 export default function Earn() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
-  const { data: quests, isLoading } = useListQuests();
+  const { data: quests, isLoading, isError: questsError, refetch: refetchQuests } = useListQuests();
   const claimQuest = useClaimQuest();
   const watchAdMutation = useWatchAd();
 
@@ -158,8 +159,13 @@ export default function Earn() {
     }
   };
 
-  const freeQuests = quests?.filter(q => !q.isVipOnly) ?? [];
-  const vipQuests = quests?.filter(q => q.isVipOnly) ?? [];
+  const questList = Array.isArray(quests) ? quests : [];
+  const freeQuests = questList.filter(q => !q.isVipOnly);
+  const vipQuests = questList.filter(q => q.isVipOnly);
+  const safeSubmissions = Array.isArray(submissions) ? submissions : [];
+
+  if (isLoading) return <PageLoader rows={4} />;
+  if (questsError) return <PageError message="Could not load quests" onRetry={refetchQuests} />;
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
@@ -183,10 +189,10 @@ export default function Earn() {
       </AnimatePresence>
 
       <div className="flex items-center gap-2 mb-2">
-        <Gift size={16} className="text-[#00f0ff] drop-shadow-[0_0_6px_#00f0ff]" />
-        <span className="font-mono text-xs text-white/60 tracking-widest uppercase">Earn Center</span>
+        <Gift size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
+        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Earn Center</span>
       </div>
-      <h1 className="font-mono text-2xl font-black text-white mb-1">Koinara Quests</h1>
+      <h1 className="text-2xl font-black text-white mb-1">Koinara Quests</h1>
       <p className="font-mono text-xs text-white/40 mb-4">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
       {/* Tab switcher */}
@@ -324,11 +330,11 @@ export default function Earn() {
               </div>
 
               {/* Submissions list */}
-              {submissions && submissions.length > 0 && (
+              {safeSubmissions.length > 0 && (
                 <div>
                   <div className="font-mono text-[10px] text-white/40 tracking-widest uppercase mb-2">Your Submissions</div>
                   <div className="space-y-2">
-                    {submissions.map((sub) => (
+                    {safeSubmissions.map((sub) => (
                       <div key={sub.id} className="flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-white/[0.02]">
                         <div className="flex-1 min-w-0">
                           <div className="font-mono text-[10px] text-white/60 truncate">{sub.url}</div>

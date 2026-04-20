@@ -2,8 +2,8 @@ import { eq, sql, and, gt } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import { isVipActive } from "./vip";
 
-export const GC_RATIO = 1.7;
-const DEFAULT_MULTIPLIER = 1.7;
+export const GC_RATIO = 1.85;
+const DEFAULT_MULTIPLIER = 1.85;
 export const DAILY_GC_CAP_FREE = 800;
 export const DAILY_GC_CAP_VIP = 6000;
 
