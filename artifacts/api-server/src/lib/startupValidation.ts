@@ -13,7 +13,6 @@ export function validateStartupEnvironment(): StartupValidationResult {
 
   const requiredInProduction = [
     "DATABASE_URL",
-    "TELEGRAM_BOT_TOKEN",
     "ADMIN_SECRET",
     "CORS_ALLOWED_ORIGINS",
   ] as const;
@@ -23,6 +22,10 @@ export function validateStartupEnvironment(): StartupValidationResult {
     if (isProduction && (!value || value.trim() === "")) {
       errors.push(`Missing required env in production: ${key}`);
     }
+  }
+
+  if (isProduction && (!process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN.trim() === "")) {
+    warnings.push("TELEGRAM_BOT_TOKEN is missing. Authentication will be disabled or fail-open.");
   }
 
   if (!process.env.REDIS_URL) {
