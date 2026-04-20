@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql, desc, and, gte } from "drizzle-orm";
+import { eq, sql, desc, and, gte, gt } from "drizzle-orm";
 import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable, vipTxHashesTable } from "@workspace/db";
 import { z } from "zod";
 import { serializeRow } from "../lib/serialize";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { beginIdempotency } from "../lib/idempotency";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -21,6 +22,8 @@ const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 const FEE_PCT = 0.025;  // 2.5% fee
 
 const DAILY_PAYOUT_RATIO = 0.5;
+const WITHDRAWAL_COOLDOWN_MS = 3 * 60_000;
+const WITHDRAWAL_MAX_24H_COUNT = 6;
 
 // ─── TON verification (verify-fee endpoint) ─────────────────────────────────
 const TONAPI_BASE = "https://tonapi.io/v2";
@@ -212,6 +215,7 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     .limit(1);
 
   if (existingTx) {
+    logger.warn({ telegramId: authedId, txHash: verifiedTxHash }, "Verification tx hash replay attempt");
     res.status(409).json({ error: "This transaction has already been used for verification. Each payment can only be used once." });
     return;
   }
@@ -229,6 +233,7 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
       .where(eq(usersTable.telegramId, telegramId));
   });
 
+  logger.info({ telegramId: authedId, txHash: verifiedTxHash }, "Verification fee accepted");
   res.json({ success: true, alreadyVerified: false });
 });
 
@@ -292,12 +297,58 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     return;
   }
 
+  const recentThreshold = new Date(Date.now() - WITHDRAWAL_COOLDOWN_MS);
+  const [recent] = await db
+    .select()
+    .from(withdrawalQueueTable)
+    .where(
+      and(
+        eq(withdrawalQueueTable.telegramId, authedId),
+        gt(withdrawalQueueTable.createdAt, recentThreshold),
+      ),
+    )
+    .limit(1);
+  if (recent) {
+    logger.warn({ telegramId: authedId, gcAmount }, "Withdrawal blocked by cooldown guard");
+    await replyWithCommit(429, {
+      error: "Withdrawal cooldown active. Please wait a few minutes before requesting again.",
+      code: "WITHDRAWAL_COOLDOWN",
+    });
+    return;
+  }
+
+  const dayThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const last24hRows = await db
+    .select({ id: withdrawalQueueTable.id })
+    .from(withdrawalQueueTable)
+    .where(
+      and(
+        eq(withdrawalQueueTable.telegramId, authedId),
+        gt(withdrawalQueueTable.createdAt, dayThreshold),
+      ),
+    );
+  if (last24hRows.length >= WITHDRAWAL_MAX_24H_COUNT) {
+    logger.warn(
+      { telegramId: authedId, last24hCount: last24hRows.length },
+      "Withdrawal blocked by daily velocity guard",
+    );
+    await replyWithCommit(429, {
+      error: "Too many withdrawal requests in the last 24 hours. Please try later.",
+      code: "WITHDRAWAL_DAILY_VELOCITY",
+    });
+    return;
+  }
+
   const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
     !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
 
   // Free users must complete one-time identity verification before withdrawing.
   // VIP users are exempt — their TON VIP payment serves as identity verification.
   if (!isVipUser && !user.hasVerified) {
+    logger.warn(
+      { telegramId: authedId, gcAmount, usdtWalletSuffix: usdtWallet.slice(-6) },
+      "Withdrawal blocked: verification required",
+    );
     await replyWithCommit(403, {
       error: "Identity verification required. Pay the one-time $1.99 (0.02 TON) verification fee to unlock withdrawals.",
       code: "VERIFICATION_REQUIRED",
@@ -447,10 +498,15 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   } catch (err: unknown) {
     const e = err as Error & { weeklyRemainingGc?: number; remainingUsd?: string };
     if (e.message === "INSUFFICIENT_BALANCE") {
+      logger.info({ telegramId: authedId, gcAmount }, "Withdrawal rejected: insufficient balance");
       await replyWithCommit(400, { error: "Insufficient balance." });
       return;
     }
     if (e.message === "WEEKLY_CAP_EXCEEDED") {
+      logger.info(
+        { telegramId: authedId, gcAmount, weeklyRemainingGc: e.weeklyRemainingGc ?? 0 },
+        "Withdrawal rejected: weekly cap exceeded",
+      );
       await replyWithCommit(400, {
         error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`,
         weeklyRemainingGc: e.weeklyRemainingGc ?? 0,
@@ -458,6 +514,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
       return;
     }
     if (e.message === "DAILY_CAP_EXCEEDED") {
+      logger.warn({ telegramId: authedId, gcAmount }, "Withdrawal rejected: platform daily payout cap exceeded");
       await replyWithCommit(503, {
         error: "Daily payout limit reached. Please try again tomorrow.",
       });
@@ -472,6 +529,18 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     .from(usersTable)
     .where(eq(usersTable.telegramId, telegramId))
     .limit(1);
+
+  logger.info(
+    {
+      telegramId: authedId,
+      gcAmount,
+      feeGc,
+      netUsd: Number(netUsd.toFixed(4)),
+      weeklyRemainingGc,
+      tier,
+    },
+    "Withdrawal queued successfully",
+  );
 
   await replyWithCommit(200, {
     success: true,
@@ -594,6 +663,16 @@ router.patch("/withdrawals/:id/status", async (req, res): Promise<void> => {
     return;
   }
 
+  logger.info(
+    {
+      withdrawalId: updated.id,
+      telegramId: updated.telegramId,
+      statusFrom: "non-terminal",
+      statusTo: updated.status,
+      txHash: updated.txHash ?? null,
+    },
+    "Withdrawal status updated",
+  );
   res.json(serializeRow(updated as Record<string, unknown>));
 });
 

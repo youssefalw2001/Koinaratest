@@ -83,6 +83,10 @@ function getHeaderKey(req: Request): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export function __resetIdempotencyForTests(): void {
+  inMemoryStore.clear();
+}
+
 function getRequestHash(req: Request, fingerprintData: unknown): string {
   const payload = {
     method: req.method.toUpperCase(),
