@@ -115,6 +115,17 @@ export default function Crash() {
   const loadData = useCallback(async () => {
     const telegramInitData = window.Telegram?.WebApp?.initData;
     try {
+      const featureRes = await fetch(apiUrl("/api/features"));
+      if (featureRes.ok) {
+        const featurePayload = (await featureRes.json()) as { crashEnabled?: boolean };
+        if (featurePayload.crashEnabled === false) {
+          setComingSoon(true);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      }
+
       const [stateRes, historyRes, betsRes] = await Promise.all([
         fetch(apiUrl("/api/crash/state"), {
           headers: telegramInitData ? { "X-Telegram-Init-Data": telegramInitData } : undefined,
@@ -149,6 +160,7 @@ export default function Crash() {
         setMyBets((await betsRes.json()) as CrashBetRow[]);
       }
 
+      setComingSoon(false);
       setError(null);
     } catch (err) {
       setComingSoon(true);
@@ -180,7 +192,10 @@ export default function Crash() {
     });
     eventSource.onerror = () => {
       streamActive = false;
-      setComingSoon(true);
+      // Keep prior state if we already have data; otherwise fallback to Coming Soon card.
+      if (!state) {
+        setComingSoon(true);
+      }
     };
 
     const fallbackPoll = setInterval(() => {
@@ -193,7 +208,7 @@ export default function Crash() {
       clearInterval(fallbackPoll);
       eventSource.close();
     };
-  }, [loadData]);
+  }, [loadData, state]);
 
   useEffect(() => {
     if (!notice) return;

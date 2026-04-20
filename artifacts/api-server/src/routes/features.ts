@@ -32,6 +32,16 @@ const ArbitrageExecuteBody = z.object({
 const lootboxCooldownMemory = new Map<string, number>();
 const arbitrageCooldownMemory = new Map<string, number>();
 
+router.get("/features", (_req, res): void => {
+  const rawCrashFlag = (process.env.CRASH_FEATURE_ENABLED ?? "true").trim().toLowerCase();
+  const crashEnabled = !["0", "false", "off", "no"].includes(rawCrashFlag);
+  res.json({
+    crashEnabled,
+    lootboxEnabled: true,
+    arbitrageEnabled: true,
+  });
+});
+
 async function acquireCooldown(
   scope: "lootbox" | "arbitrage",
   telegramId: string,
