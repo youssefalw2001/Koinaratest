@@ -135,8 +135,25 @@ router.post("/users/register", async (req, res): Promise<void> => {
   }
 
   const { telegramId, username, firstName, lastName, photoUrl, referredBy } = parsed.data;
-  const authId = await resolveAuthenticatedTelegramId(req, res, telegramId);
-  if (!authId) return;
+
+  // For register, verify the Telegram init data from the header and use the
+  // verified ID from the token (not the caller-supplied one) to prevent spoofing.
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (botToken) {
+    const initData = req.headers["x-telegram-init-data"];
+    if (typeof initData !== "string" || initData.trim() === "") {
+      res.status(401).json({ error: "Authentication required. Please reopen the app." });
+      return;
+    }
+    const { verifyTelegramInitData } = await import("../lib/telegramVerify");
+    const verifiedId = verifyTelegramInitData(initData, botToken);
+    if (!verifiedId) {
+      res.status(401).json({ error: "Invalid authentication. Please reopen the app." });
+      return;
+    }
+    // Use the verified ID from the token, ignoring the caller-supplied one
+    (parsed.data as { telegramId: string }).telegramId = verifiedId;
+  }
 
   const today = new Date().toISOString().split("T")[0];
 
