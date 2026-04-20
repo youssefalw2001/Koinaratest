@@ -31,15 +31,12 @@ const VIP_MIN_GC      = 2500;
 const FREE_WEEKLY_MAX_USD = 25;
 const VIP_WEEKLY_MAX_USD  = 100;
 const FEE_PCT = 0.025;
-const VIP_FEE_TC = 500;
 const MILESTONE_GC = 10000;
 
 const TON_WEEKLY_AMOUNT  = "500000000";
 const TON_MONTHLY_AMOUNT = "1500000000";
 const TON_VERIFY_AMOUNT  = "20000000"; // 0.02 TON ≈ $1.99 verification fee
 const KOINARA_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || undefined;
-
-type VipTab = "tc" | "ton";
 type WalletTab = "withdraw" | "history";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -86,7 +83,6 @@ export default function WalletPage() {
 
   const [showVipModal, setShowVipModal] = useState(false);
   const [vipSuccess, setVipSuccess]     = useState(false);
-  const [vipTab, setVipTab]             = useState<VipTab>("tc");
   const [tonPending, setTonPending]     = useState(false);
   const [tonPlan, setTonPlan]           = useState<"weekly" | "monthly">("weekly");
 
@@ -141,30 +137,20 @@ export default function WalletPage() {
   const hasVerified   = user?.hasVerified ?? false;
   const needsVerification = !vipActive && !hasVerified && !verifyDone;
 
-  // ── VIP TC upgrade
-  const handleVipUpgrade = async () => {
-    if (!user) return;
-    try {
-      await upgradeToVip.mutateAsync({ telegramId: user.telegramId, data: { plan: "tc" } });
-      setVipSuccess(true);
-      setShowVipModal(false);
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-    } catch {}
-  };
-
   // ── VIP TON upgrade
   const handleTonVip = async () => {
     if (!user || !walletAddress || !KOINARA_TON_WALLET) return;
     setTonPending(true);
     try {
       const amount = tonPlan === "weekly" ? TON_WEEKLY_AMOUNT : TON_MONTHLY_AMOUNT;
+      const plan: "weekly" | "monthly" = tonPlan;
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 300,
         messages: [{ address: KOINARA_TON_WALLET, amount }],
       });
       await upgradeToVip.mutateAsync({
         telegramId: user.telegramId,
-        data: { plan: tonPlan, senderAddress: walletAddress },
+        data: { plan, senderAddress: walletAddress },
       });
       setVipSuccess(true);
       setShowVipModal(false);
@@ -779,54 +765,7 @@ export default function WalletPage() {
                   ))}
                 </div>
 
-                {/* Tab selector */}
-                <div className="flex w-full gap-2 mb-4">
-                  <button
-                    onClick={() => setVipTab("tc")}
-                    className={`flex-1 py-2 rounded-xl font-mono text-xs font-bold border transition-all ${
-                      vipTab === "tc"
-                        ? "border-[#00f0ff] text-[#00f0ff] bg-[#00f0ff]/15"
-                        : "border-white/10 text-white/40"
-                    }`}
-                  >
-                    🔵 Pay TC
-                  </button>
-                  <button
-                    onClick={() => setVipTab("ton")}
-                    className={`flex-1 py-2 rounded-xl font-mono text-xs font-bold border transition-all ${
-                      vipTab === "ton"
-                        ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/15"
-                        : "border-white/10 text-white/40"
-                    }`}
-                  >
-                    <Gem size={11} className="inline mr-1" />TON
-                  </button>
-                </div>
-
-                {vipTab === "tc" && (
-                  <div className="w-full">
-                    {tradeCredits < VIP_FEE_TC && (
-                      <div className="flex items-center gap-2 mb-3 p-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
-                        <AlertTriangle size={12} className="text-yellow-500" />
-                        <span className="font-mono text-[10px] text-yellow-500">
-                          Need {(VIP_FEE_TC - tradeCredits).toLocaleString()} more TC
-                        </span>
-                      </div>
-                    )}
-                    <button
-                      onClick={handleVipUpgrade}
-                      disabled={tradeCredits < VIP_FEE_TC || upgradeToVip.isPending}
-                      className="w-full py-4 rounded-2xl border-2 border-[#00f0ff] font-mono text-base font-black text-[#00f0ff] bg-[#00f0ff]/10 disabled:opacity-40 pressable"
-                      style={{ boxShadow: tradeCredits >= VIP_FEE_TC ? "0 0 20px rgba(0,240,255,0.3)" : "none" }}
-                      data-testid="btn-upgrade-tc"
-                    >
-                {upgradeToVip.isPending ? "ACTIVATING..." : `PAY ${VIP_FEE_TC} TC — 7 DAYS`}
-                    </button>
-                  </div>
-                )}
-
-                {vipTab === "ton" && (
-                  <div className="w-full space-y-3">
+                <div className="w-full space-y-3">
                     <div className="flex gap-2">
                       <button
                         onClick={() => setTonPlan("weekly")}
@@ -873,7 +812,6 @@ export default function WalletPage() {
                       </button>
                     )}
                   </div>
-                )}
 
                 {/* Milestone progress (for free users) */}
                 {!vipActive && (

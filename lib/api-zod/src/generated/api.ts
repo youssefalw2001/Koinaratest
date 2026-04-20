@@ -59,7 +59,7 @@ export const RegisterUserResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -115,7 +115,7 @@ export const GetUserResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -193,7 +193,7 @@ export const UpdateWalletResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -253,7 +253,7 @@ export const ActivateVipTrialResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
@@ -277,7 +277,7 @@ export const UpgradeToVipParams = zod.object({
 });
 
 export const UpgradeToVipBody = zod.object({
-  plan: zod.enum(["weekly", "monthly", "tc"]),
+  plan: zod.enum(["weekly", "monthly"]),
   senderAddress: zod
     .string()
     .nullish()
@@ -319,7 +319,7 @@ export const UpgradeToVipResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null",
+      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
     ),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),

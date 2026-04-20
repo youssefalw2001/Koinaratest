@@ -416,32 +416,9 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
   }
 
   if (plan === "tc") {
-    const TC_FEE = 500;
-    if (user.tradeCredits < TC_FEE) {
-      res.status(400).json({ error: `Need ${TC_FEE} Trade Credits to activate VIP.` });
-      return;
-    }
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const [updated] = await db
-      .update(usersTable)
-      .set({
-        isVip: true,
-        vipPlan: "tc_weekly",
-        vipExpiresAt: expiresAt,
-        tradeCredits: sql`${usersTable.tradeCredits} - ${TC_FEE}`,
-      })
-      .where(eq(usersTable.telegramId, params.data.telegramId))
-      .returning();
-
-    // TC plan also triggers referral reward for the referrer
-    if (user.referredBy) {
-      await db
-        .update(usersTable)
-        .set({ referralVipRewardPending: true })
-        .where(eq(usersTable.telegramId, user.referredBy));
-    }
-
-    res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
+    res.status(400).json({
+      error: "TC-based VIP plan has been removed. Please use weekly/monthly TON plans.",
+    });
     return;
   }
 

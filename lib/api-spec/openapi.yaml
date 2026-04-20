@@ -773,7 +773,7 @@ components:
           description: "Set to true when a user this person referred purchases VIP; cleared after trial is activated"
         vipPlan:
           type: ["string", "null"]
-          description: "Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null"
+          description: "Active VIP plan identifier: ton_weekly, ton_monthly, or null"
         vipExpiresAt:
           type: ["string", "null"]
         vipTrialExpiresAt:

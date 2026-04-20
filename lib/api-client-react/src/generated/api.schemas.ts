@@ -50,7 +50,6 @@ export type UpgradeToVipBodyPlan =
 export const UpgradeToVipBodyPlan = {
   weekly: "weekly",
   monthly: "monthly",
-  tc: "tc",
 } as const;
 
 export interface UpgradeToVipBody {
@@ -84,7 +83,7 @@ export interface User {
   /** Set to true when a user this person referred purchases VIP; cleared after trial is activated */
   referralVipRewardPending?: boolean;
   /**
-   * Active VIP plan identifier: ton_weekly, ton_monthly, tc_weekly, or null
+   * Active VIP plan identifier: ton_weekly, ton_monthly, or null
    * @nullable
    */
   vipPlan?: string | null;

@@ -106,6 +106,7 @@ export default function Crash() {
   const [cashoutPending, setCashoutPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [comingSoon, setComingSoon] = useState(false);
 
   const applyStatePayload = useCallback((stateJson: CrashStateResponse) => {
     setState({ ...stateJson, round: normalizeRound(stateJson.round) });
@@ -150,6 +151,7 @@ export default function Crash() {
 
       setError(null);
     } catch (err) {
+      setComingSoon(true);
       setError(err instanceof Error ? err.message : "Failed to load crash data.");
     } finally {
       setLoading(false);
@@ -178,6 +180,7 @@ export default function Crash() {
     });
     eventSource.onerror = () => {
       streamActive = false;
+      setComingSoon(true);
     };
 
     const fallbackPoll = setInterval(() => {
@@ -295,6 +298,24 @@ export default function Crash() {
     return (
       <div className="px-4 pt-4 pb-8">
         <div className="app-card p-4 font-mono text-sm text-white/50">Loading crash arena...</div>
+      </div>
+    );
+  }
+
+  if (comingSoon || !state) {
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div className="app-card p-5 rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/5">
+          <div className="flex items-center gap-2 mb-2">
+            <Rocket size={16} className="text-[#FFD700]" />
+            <span className="font-mono text-xs text-[#FFD700] tracking-[0.16em] uppercase">Crash Arena</span>
+          </div>
+          <div className="font-mono text-lg font-black text-white mb-1">Coming Soon</div>
+          <div className="font-mono text-xs text-white/50">
+            We are hardening Crash for maximum fairness and reliability.
+            Lootbox and Digital Arbitrage are live now in the navigation.
+          </div>
+        </div>
       </div>
     );
   }
