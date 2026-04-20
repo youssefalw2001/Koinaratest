@@ -16,6 +16,7 @@ import {
 import { serializeRow, serializeRows } from "../lib/serialize";
 import { isVipActive } from "../lib/vip";
 import { resolvePredictionLogic } from "../lib/resolveLogic";
+import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
@@ -39,6 +40,9 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const { telegramId, direction, amount, entryPrice } = parsed.data;
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
   const requestedDuration =
     typeof (parsed.data as { duration?: number }).duration === "number"
       ? (parsed.data as { duration: number }).duration
@@ -143,6 +147,9 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Prediction not found" });
     return;
   }
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, prediction.telegramId);
+  if (!authedId) return;
 
   if (prediction.status !== "pending") {
     res.status(400).json({ error: "Prediction already resolved" });
