@@ -25,9 +25,12 @@ const router: IRouter = Router();
 const MIN_BET_TC = 50;
 const RESOLVE_TOLERANCE_SEC = 0;
 
-// Koinara now runs a single 60s round with a fixed 1.85x base multiplier.
-// VIP users still receive an additional +0.1 multiplier bonus.
+// Binary Options duration tiers — each tier has its own fixed payout
+// multiplier. Keep in sync with Terminal.tsx DURATION_TIERS.
 const DURATION_TIERS: Record<number, number> = {
+  6: 1.5,
+  10: 1.65,
+  30: 1.75,
   60: 1.85,
 };
 const VIP_MULTIPLIER_BONUS = 0.1;
@@ -56,7 +59,9 @@ router.post("/predictions", async (req, res): Promise<void> => {
   const multiplierProvided = typeof rawMultiplier === "number";
 
   if (!(requestedDuration in DURATION_TIERS)) {
-    res.status(400).json({ error: "Invalid duration. Allowed: 60." });
+    res.status(400).json({
+      error: `Invalid duration. Allowed: ${Object.keys(DURATION_TIERS).join(", ")}.`,
+    });
     return;
   }
 

@@ -346,7 +346,10 @@ export const CreatePredictionBody = zod.object({
   direction: zod.enum(["long", "short"]),
   amount: zod.number(),
   entryPrice: zod.number(),
-  duration: zod.literal(60).default(createPredictionBodyDurationDefault).describe("Round duration in seconds. Allowed: 60."),
+  duration: zod
+    .union([zod.literal(6), zod.literal(10), zod.literal(30), zod.literal(60)])
+    .default(createPredictionBodyDurationDefault)
+    .describe("Round duration in seconds. Allowed: 6, 10, 30, 60."),
   multiplier: zod
     .number()
     .default(createPredictionBodyMultiplierDefault)
