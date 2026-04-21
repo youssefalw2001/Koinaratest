@@ -854,8 +854,8 @@ components:
           type: number
         duration:
           type: integer
-          description: "Round duration in seconds. Allowed: 60."
-          enum: [60]
+          description: "Round duration in seconds. Allowed: 6, 10, 30, 60."
+          enum: [6, 10, 30, 60]
           default: 60
         multiplier:
           type: number

@@ -3,8 +3,8 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw } from "lucide-react";
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   ReferenceLine,
@@ -41,18 +41,35 @@ const WIN_COLOR = "#00E676";
 const LOSS_COLOR = "#FF1744";
 const TC_BLUE = "#4DA3FF";
 
-// Round duration tier: 60 seconds at 1.85x. VIP users get +0.1 on top.
-// Keep in sync with api-server/src/routes/predictions.ts.
+// Binary Options duration tiers — each tier has its own fixed payout
+// multiplier. VIP users get +0.1 on top. Kept in sync with api-server.
 interface DurationTier {
-  seconds: number;
+  seconds: 6 | 10 | 30 | 60;
   baseMultiplier: number;
   label: string;
 }
 const DURATION_TIERS = [
+  { seconds: 6 as const,  baseMultiplier: 1.5,  label: "6s"  },
+  { seconds: 10 as const, baseMultiplier: 1.65, label: "10s" },
+  { seconds: 30 as const, baseMultiplier: 1.75, label: "30s" },
   { seconds: 60 as const, baseMultiplier: 1.85, label: "60s" },
 ] satisfies readonly DurationTier[];
 const VIP_MULTIPLIER_BONUS = 0.1;
-const DEFAULT_TIER_INDEX = 0;
+const DEFAULT_TIER_INDEX = 3; // 60s
+
+interface TradingPair {
+  id: "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | "BNBUSDT" | "XRPUSDT";
+  label: string;
+  short: string;
+  fallbackPrice: number;
+}
+const TRADING_PAIRS: readonly TradingPair[] = [
+  { id: "BTCUSDT", label: "BTC/USDT", short: "BTC", fallbackPrice: 104_000 },
+  { id: "ETHUSDT", label: "ETH/USDT", short: "ETH", fallbackPrice: 3_300   },
+  { id: "SOLUSDT", label: "SOL/USDT", short: "SOL", fallbackPrice: 180     },
+  { id: "BNBUSDT", label: "BNB/USDT", short: "BNB", fallbackPrice: 650     },
+  { id: "XRPUSDT", label: "XRP/USDT", short: "XRP", fallbackPrice: 2.2     },
+];
 // Grace windows added on top of each prediction's own `duration` before the
 // UI considers it stale or auto-resolves it. Kept < the backend sweeper's
 // grace so the client usually resolves first.
@@ -63,7 +80,6 @@ const SYNTH_NAMES = [
   "KoinVIP", "TradePro", "MenaWhale", "GoldSeeker", "CryptoSultan",
   "WhaleMENA", "BTCLord", "GoldRush", "TradeKing", "CoinSultan",
 ];
-const LOCAL_PRICE_FALLBACK = 104000;
 
 function makeSynth(minsAgo: number) {
   const name = SYNTH_NAMES[Math.floor(Math.random() * SYNTH_NAMES.length)];
@@ -104,9 +120,19 @@ interface TickerItem {
   resolvedAt: string;
 }
 
+function safePayout(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 function VipTicker({ items }: { items: TickerItem[] }) {
   if (!items.length) return null;
-  const doubled = [...items, ...items];
+  const cleaned = items.map((item) => ({
+    displayName: (item.displayName ?? "Trader").trim() || "Trader",
+    payout: safePayout(item.payout),
+    resolvedAt: item.resolvedAt ?? new Date().toISOString(),
+  }));
+  const doubled = [...cleaned, ...cleaned];
   return (
     <div
       className="relative overflow-hidden border-b border-white/5"
@@ -127,10 +153,10 @@ function VipTicker({ items }: { items: TickerItem[] }) {
               {item.displayName}
             </span>
             <span className="font-mono text-[10px] text-[#f5c518]">
-              won {item.payout ?? 0} GC
+              won {item.payout.toLocaleString()} GC
             </span>
             <span className="font-mono text-[9px] text-white/40">
-              ≈ {formatGcUsd(item.payout ?? 0)}
+              ≈ {formatGcUsd(item.payout)}
             </span>
             <span className="font-mono text-[9px] text-white/25">
               · {timeAgo(item.resolvedAt)}
@@ -149,7 +175,9 @@ export default function Terminal() {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const tierIndex = DEFAULT_TIER_INDEX;
+  const [tierIndex, setTierIndex] = useState<number>(DEFAULT_TIER_INDEX);
+  const [pairIndex, setPairIndex] = useState<number>(0);
+  const selectedPair = TRADING_PAIRS[pairIndex] ?? TRADING_PAIRS[0];
   const [tickDir, setTickDir] = useState<"up" | "down" | null>(null);
   const reconcileRunRef = useRef(false);
   const [bet, setBet] = useState(DEFAULT_BET);
@@ -246,11 +274,25 @@ export default function Terminal() {
     setPriceHistory([...priceHistoryRef.current]);
   }, [price]);
 
+  // Reset live state when the trading pair changes so the chart and
+  // entry-price reference aren't carrying a stale BTC value into an ETH window.
   useEffect(() => {
-    let restInterval: NodeJS.Timeout | null = null;
-    let simInterval: NodeJS.Timeout | null = null;
+    setPrice(0);
+    setPrevPrice(0);
+    priceRef.current = 0;
+    openPriceRef.current = 0;
+    priceHistoryRef.current = [];
+    setPriceHistory([]);
+  }, [pairIndex]);
+
+  useEffect(() => {
+    let restInterval: ReturnType<typeof setInterval> | null = null;
+    let simInterval: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+    const pair = selectedPair;
 
     const applyPrice = (next: number) => {
+      if (cancelled) return;
       setPrice((prev) => {
         setPrevPrice(prev);
         if (next !== prev) setTickDir(next > prev ? "up" : "down");
@@ -260,7 +302,11 @@ export default function Terminal() {
 
     const fetchRest = async (): Promise<boolean> => {
       try {
-        const r = await fetch("/api/market/btc-price");
+        const path =
+          pair.id === "BTCUSDT"
+            ? "/api/market/btc-price"
+            : `/api/market/price?symbol=${pair.id}`;
+        const r = await fetch(path);
         if (!r.ok) return false;
         const d = await r.json();
         const p = parseFloat(String(d.price ?? ""));
@@ -272,6 +318,7 @@ export default function Terminal() {
     const startRestPolling = async () => {
       if (restInterval) return;
       const ok = await fetchRest();
+      if (cancelled) return;
       if (ok) {
         restInterval = setInterval(fetchRest, 2000);
       } else {
@@ -281,24 +328,29 @@ export default function Terminal() {
 
     const startSim = () => {
       if (simInterval) return;
-      let base = priceRef.current > 0 ? priceRef.current : LOCAL_PRICE_FALLBACK + Math.random() * 2000;
+      let base =
+        priceRef.current > 0
+          ? priceRef.current
+          : pair.fallbackPrice * (1 + (Math.random() - 0.5) * 0.02);
       applyPrice(base);
+      const vol = base * 0.0004;
       simInterval = setInterval(() => {
-        const delta = (Math.random() - 0.48) * 80;
-        base = Math.max(90000, base + delta);
-        applyPrice(parseFloat(base.toFixed(2)));
+        const delta = (Math.random() - 0.48) * vol * 8;
+        base = Math.max(pair.fallbackPrice * 0.5, base + delta);
+        applyPrice(parseFloat(base.toFixed(pair.id === "XRPUSDT" ? 4 : 2)));
       }, 800);
     };
 
     void startRestPolling();
 
     return () => {
+      cancelled = true;
       if (restInterval) clearInterval(restInterval);
       if (simInterval)  clearInterval(simInterval);
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
     };
-  }, []);
+  }, [pairIndex, selectedPair]);
 
   const startCountdown = useCallback(
     (
@@ -664,13 +716,34 @@ export default function Terminal() {
       )}
 
       <div className="px-4 pt-3 flex flex-col gap-3">
-        {/* Live Line Chart */}
+        {/* Trading Pair Selector */}
+        <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
+          {TRADING_PAIRS.map((pair, idx) => {
+            const active = idx === pairIndex;
+            return (
+              <button
+                key={pair.id}
+                onClick={() => setPairIndex(idx)}
+                disabled={!!activePrediction}
+                className={`pressable shrink-0 py-1.5 px-3 rounded-full border font-mono text-[11px] font-black transition-all duration-150 ${
+                  active
+                    ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10"
+                    : "border-white/10 text-white/40"
+                } ${activePrediction ? "opacity-50 cursor-not-allowed" : ""}`}
+                data-testid={`btn-pair-${pair.id}`}
+              >
+                {pair.short}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Clean Line Chart — lightweight LineChart, no gradient fills */}
         {priceHistory.length > 1 && (() => {
           const chartOpen = priceHistory[0].v;
           const chartNow  = priceHistory[priceHistory.length - 1].v;
           const chartUp   = chartNow >= chartOpen;
           const lineColor = chartUp ? WIN_COLOR : LOSS_COLOR;
-          const gradId    = chartUp ? "grad-up" : "grad-dn";
           const pad = (chartNow - chartOpen === 0) ? 50 : Math.abs(chartNow - chartOpen) * 0.5;
           return (
             <div
@@ -678,25 +751,14 @@ export default function Terminal() {
               style={{ height: 120, background: "rgba(255,255,255,0.01)" }}
             >
               <ResponsiveContainer width="100%" height={120}>
-                <AreaChart data={priceHistory} margin={{ top: 10, right: 4, left: 4, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="grad-up" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={WIN_COLOR}  stopOpacity={0.28} />
-                      <stop offset="95%" stopColor={WIN_COLOR}  stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="grad-dn" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={LOSS_COLOR} stopOpacity={0.28} />
-                      <stop offset="95%" stopColor={LOSS_COLOR} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <LineChart data={priceHistory} margin={{ top: 10, right: 4, left: 4, bottom: 0 }}>
                   <XAxis dataKey="t" hide />
                   <YAxis domain={[`dataMin - ${pad}`, `dataMax + ${pad}`]} hide />
-                  <Area
+                  <Line
                     type="monotone"
                     dataKey="v"
                     stroke={lineColor}
                     strokeWidth={2}
-                    fill={`url(#${gradId})`}
                     dot={false}
                     isAnimationActive={false}
                   />
@@ -717,7 +779,7 @@ export default function Terminal() {
                     strokeWidth={6}
                     isFront
                   />
-                </AreaChart>
+                </LineChart>
               </ResponsiveContainer>
             </div>
           );
@@ -735,7 +797,7 @@ export default function Terminal() {
             }}
           />
           <span className="font-mono text-[10px] text-white/40 tracking-[0.22em] mb-1 label-caps">
-            BTC/USDT LIVE
+            {selectedPair.label} LIVE
           </span>
           <PriceRoll value={price} color={priceColor} />
           <AnimatePresence mode="wait">
@@ -938,7 +1000,7 @@ export default function Terminal() {
           </div>
         )}
 
-        {/* Time-Limit (Round Duration) Selector */}
+        {/* Time-Limit (Round Duration) Selector — 6s/10s/30s/60s */}
         {!activePrediction && (
           <div className="mb-2">
             <div className="flex items-center justify-between mb-2">
@@ -948,10 +1010,28 @@ export default function Terminal() {
                 {vip && <span className="text-[#FFD700]/70 ml-1">(+VIP)</span>}
               </span>
             </div>
-            <div className="app-card px-3 py-2 text-center">
-              <span className="font-mono text-[10px] text-white/70">
-                Fixed 60s round for all trades
-              </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {DURATION_TIERS.map((tier, idx) => {
+                const active = idx === tierIndex;
+                return (
+                  <motion.button
+                    key={tier.seconds}
+                    whileTap={{ scale: 0.96 }}
+                    onClick={() => setTierIndex(idx)}
+                    className={`pressable py-2 rounded-xl border font-mono text-[11px] font-black transition-all duration-150 ${
+                      active
+                        ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10"
+                        : "border-white/10 text-white/40 hover:border-white/30"
+                    }`}
+                    data-testid={`btn-duration-${tier.seconds}`}
+                  >
+                    <div>{tier.label}</div>
+                    <div className={`text-[9px] font-bold ${active ? "text-[#FFD700]/80" : "text-white/30"}`}>
+                      {tier.baseMultiplier.toFixed(2)}×
+                    </div>
+                  </motion.button>
+                );
+              })}
             </div>
           </div>
         )}
