@@ -11,6 +11,7 @@ import {
   Cell,
   ComposedChart,
   Line,
+  ReferenceLine,
 } from "recharts";
 import {
   useCreatePrediction,
@@ -282,7 +283,14 @@ export default function Terminal() {
                     <Cell key={`body-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} />
                   ))}
                 </Bar>
-                <ReferenceLine y={price} stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} strokeDasharray="3 3" opacity={0.5} />
+                {price > 0 && (
+                  <ReferenceLine 
+                    y={price} 
+                    stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} 
+                    strokeDasharray="3 3" 
+                    opacity={0.5} 
+                  />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
