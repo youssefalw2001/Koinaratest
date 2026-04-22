@@ -16,11 +16,10 @@ const minesRateLimiter = createRouteRateLimiter("mines-action", {
 });
 
 // ---------- Game config ----------
-// Increased house edge from 1% (0.99) to 3.5% (0.965) to protect liquidity.
-const HOUSE_EDGE_MULT = 0.965;
+const HOUSE_EDGE_MULT = 0.965; // 3.5% house edge
 const MIN_BET_TC = 50;
 const MAX_BET_TC_FREE = 2_000;
-const MAX_BET_TC_VIP = 10_000;
+const MAX_BET_TC_VIP = 8_000; // Updated to 8,000 as requested
 
 const ALLOWED_GRID_SIZES = [3, 4, 5] as const;
 type GridSize = (typeof ALLOWED_GRID_SIZES)[number];
