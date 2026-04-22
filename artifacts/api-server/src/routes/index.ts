@@ -11,6 +11,7 @@ import crashRouter from "./crash";
 import marketRouter from "./market";
 import featuresRouter from "./features";
 import exchangeRouter from "./exchange";
+import minesRouter from "./mines";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(crashRouter);
 router.use(marketRouter);
 router.use(featuresRouter);
 router.use(exchangeRouter);
+router.use(minesRouter);
 
 export default router;
