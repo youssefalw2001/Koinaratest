@@ -53,7 +53,7 @@ const TRADING_PAIRS: readonly TradingPair[] = [
   { id: "BTCUSDT", label: "BTC/USDT", short: "BTC", symbol: "₿" },
   { id: "ETHUSDT", label: "ETH/USDT", short: "ETH", symbol: "Ξ" },
   { id: "SOLUSDT", label: "SOL/USDT", short: "SOL", symbol: "S" },
-  { id: "PAXGUSDT", label: "GOLD/USDT", short: "GOLD", symbol: "Au" }, // PAXG is gold-backed
+  { id: "PAXGUSDT", label: "GOLD/USDT", short: "GOLD", symbol: "Au" },
   { id: "TONUSDT", label: "TON/USDT", short: "TON", symbol: "T" },
 ];
 
@@ -89,6 +89,8 @@ export default function Terminal() {
   const [showResult, setShowResult] = useState<any>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [showPairMenu, setShowPairMenu] = useState(false);
+  const [candleTimer, setCandleTimer] = useState(60);
+  const [sentiment, setSentiment] = useState(55); // Default 55% bullish
 
   const createPrediction = useCreatePrediction();
   const resolvePrediction = useResolvePrediction();
@@ -98,7 +100,7 @@ export default function Terminal() {
 
   const vipActivity = useMemo(() => Array.isArray(vipActivityRaw) ? vipActivityRaw : [], [vipActivityRaw]);
 
-  // Candle Engine
+  // Candle Engine & Sentiment Generator
   useEffect(() => {
     setPrice(0);
     setCandles([]);
@@ -126,8 +128,22 @@ export default function Terminal() {
         }
         return [...prev, newCandle].slice(-20);
       });
+
+      // Update candle timer based on current minute progress
+      const now = Date.now();
+      const secondsPassed = Math.floor((now - k.t) / 1000);
+      setCandleTimer(Math.max(0, 60 - secondsPassed));
     };
-    return () => ws.close();
+
+    // Randomize sentiment occasionally for "Live" feel
+    const sInt = setInterval(() => {
+      setSentiment(prev => {
+        const delta = (Math.random() - 0.5) * 4;
+        return Math.min(85, Math.max(15, prev + delta));
+      });
+    }, 5000);
+
+    return () => { ws.close(); clearInterval(sInt); };
   }, [selectedPair.id]);
 
   const handlePredict = async (direction: "long" | "short") => {
@@ -166,11 +182,9 @@ export default function Terminal() {
     }
   }, [showResult]);
 
-  // Chart data formatting for Recharts
   const chartData = useMemo(() => {
     return candles.map(c => ({
       ...c,
-      // Bar needs height and base
       bottom: Math.min(c.open, c.close),
       top: Math.max(c.open, c.close),
       height: Math.abs(c.open - c.close) || 0.01,
@@ -211,9 +225,15 @@ export default function Terminal() {
               <span className="text-[11px] font-black text-[#FFD700] tracking-widest uppercase">{selectedPair.label}</span>
               <ChevronDown size={14} className="text-[#FFD700]/50" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
-              <span className="text-[10px] font-mono text-white/30 tracking-widest uppercase">Live Terminal</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Clock size={10} className="text-white/20" />
+                <span className="text-[10px] font-mono text-white/40 font-black">{candleTimer}s</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
+                <span className="text-[10px] font-mono text-white/30 tracking-widest uppercase">Live</span>
+              </div>
             </div>
           </div>
 
@@ -252,22 +272,31 @@ export default function Terminal() {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chartData}>
                 <YAxis hide domain={["auto", "auto"]} />
-                {/* Wicks */}
                 <Bar dataKey="high" fill="none">
                   {chartData.map((entry, index) => (
                     <Cell key={`wick-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} opacity={0.3} />
                   ))}
                 </Bar>
-                {/* Bodies */}
                 <Bar dataKey="height" stackId="a">
                   {chartData.map((entry, index) => (
                     <Cell key={`body-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} />
                   ))}
                 </Bar>
-                {/* Current Price Line */}
                 <ReferenceLine y={price} stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} strokeDasharray="3 3" opacity={0.5} />
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Sentiment Bar */}
+          <div className="mt-4 flex flex-col gap-1.5">
+            <div className="flex justify-between text-[8px] font-black tracking-[0.2em] uppercase">
+              <span className="text-[#00E676]">Bulls {sentiment.toFixed(0)}%</span>
+              <span className="text-[#FF1744]">Bears {(100 - sentiment).toFixed(0)}%</span>
+            </div>
+            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden flex">
+              <motion.div animate={{ width: `${sentiment}%` }} className="h-full bg-[#00E676] shadow-[0_0_8px_#00E676]" />
+              <motion.div animate={{ width: `${100 - sentiment}%` }} className="h-full bg-[#FF1744] shadow-[0_0_8px_#FF1744]" />
+            </div>
           </div>
         </div>
 
