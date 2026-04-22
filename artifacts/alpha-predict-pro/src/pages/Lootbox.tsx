@@ -1,19 +1,65 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Gift, Sparkles, Gem, Coins, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Gift,
+  Sparkles,
+  Gem,
+  Coins,
+  CheckCircle2,
+  AlertTriangle,
+  Crown,
+  Rocket,
+  PackageOpen,
+} from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
 
+type Tier = "basic" | "pro" | "mega";
+
+type RewardType =
+  | "tc"
+  | "gc"
+  | "jackpot_tc"
+  | "mega_tc"
+  | "mega_gc_multiplier"
+  | "mega_vip_trial"
+  | "mega_shop_powerup";
+
 type LootboxResponse = {
-  tier: "basic" | "pro";
+  tier: Tier;
   gcCost: number;
-  rewardType: "tc" | "gc" | "jackpot_tc";
+  rewardType: RewardType;
   rewardAmount: number;
+  rewardLabel: string | null;
   balances: {
     goldCoins: number;
     tradeCredits: number;
   };
+};
+
+const TIER_META: Record<
+  Tier,
+  { cost: number; label: string; blurb: string; accent: string }
+> = {
+  basic: {
+    cost: 120,
+    label: "Basic",
+    blurb: "Small TC/GC rolls",
+    accent: "#FFD700",
+  },
+  pro: {
+    cost: 300,
+    label: "Pro",
+    blurb: "Richer jackpots",
+    accent: "#FFD700",
+  },
+  mega: {
+    cost: 500,
+    label: "Mega",
+    blurb: "TC bonus · 2× GC · VIP · Power-up",
+    accent: "#9D5CFF",
+  },
 };
 
 function apiUrl(path: string): string {
@@ -21,18 +67,53 @@ function apiUrl(path: string): string {
   return `${base}${path}`;
 }
 
+function rewardIcon(type: RewardType) {
+  switch (type) {
+    case "gc":
+      return <Gem size={18} className="text-[#FFD700]" />;
+    case "tc":
+    case "jackpot_tc":
+    case "mega_tc":
+      return <Coins size={18} className="text-[#4DA3FF]" />;
+    case "mega_gc_multiplier":
+      return <Rocket size={18} className="text-[#9D5CFF]" />;
+    case "mega_vip_trial":
+      return <Crown size={18} className="text-[#FFD700]" />;
+    case "mega_shop_powerup":
+      return <PackageOpen size={18} className="text-[#00E676]" />;
+    default:
+      return <Sparkles size={18} className="text-white" />;
+  }
+}
+
+function defaultLabel(res: LootboxResponse): string {
+  if (res.rewardLabel) return res.rewardLabel;
+  if (res.rewardType === "gc") return `+${res.rewardAmount} GC`;
+  if (res.rewardType === "tc") return `+${res.rewardAmount} TC`;
+  if (res.rewardType === "jackpot_tc") return `Jackpot! +${res.rewardAmount} TC`;
+  return `+${res.rewardAmount}`;
+}
+
 export default function Lootbox() {
   const { user, refreshUser } = useTelegram();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [tier, setTier] = useState<"basic" | "pro">("basic");
+  const [tier, setTier] = useState<Tier>("basic");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LootboxResponse | null>(null);
+  const [reveal, setReveal] = useState(false);
+
+  useEffect(() => {
+    if (!reveal) return;
+    const t = setTimeout(() => setReveal(false), 2200);
+    return () => clearTimeout(t);
+  }, [reveal]);
 
   const handleOpen = async () => {
     if (!user || busy) return;
     setBusy(true);
     setError(null);
+    setResult(null);
     try {
       const res = await fetch(apiUrl("/api/features/lootbox/open"), {
         method: "POST",
@@ -50,6 +131,7 @@ export default function Lootbox() {
         throw new Error((data as { error?: string }).error ?? "Failed to open lootbox.");
       }
       setResult(data as LootboxResponse);
+      setReveal(true);
       refreshUser();
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
     } catch (err) {
@@ -60,7 +142,8 @@ export default function Lootbox() {
   };
 
   const gc = user?.goldCoins ?? 0;
-  const openCost = tier === "pro" ? 300 : 120;
+  const meta = TIER_META[tier];
+  const openCost = meta.cost;
   const canOpen = !!user && gc >= openCost;
 
   return (
@@ -68,53 +151,119 @@ export default function Lootbox() {
       <div className="app-card p-4">
         <div className="flex items-center gap-2 mb-2">
           <Gift size={16} className="text-[#FFD700]" />
-          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">Lootbox</span>
+          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
+            Lootbox
+          </span>
         </div>
         <div className="font-mono text-[11px] text-white/45 mb-3">
-          Open randomized lootboxes to farm TC/GC and occasional jackpot rewards.
+          Spin TC/GC rolls, or push your luck on a Mega box for rare rewards.
         </div>
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <button
-            onClick={() => setTier("basic")}
-            className={`py-2 rounded-lg border font-mono text-xs ${
-              tier === "basic"
-                ? "border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700]"
-                : "border-white/10 text-white/50"
-            }`}
-          >
-            Basic
-          </button>
-          <button
-            onClick={() => setTier("pro")}
-            className={`py-2 rounded-lg border font-mono text-xs ${
-              tier === "pro"
-                ? "border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700]"
-                : "border-white/10 text-white/50"
-            }`}
-          >
-            Pro
-          </button>
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {(Object.keys(TIER_META) as Tier[]).map((t) => {
+            const m = TIER_META[t];
+            const selected = tier === t;
+            return (
+              <button
+                key={t}
+                onClick={() => setTier(t)}
+                className={`py-2 px-2 rounded-lg border font-mono text-[11px] flex flex-col gap-0.5 items-center transition ${
+                  selected
+                    ? t === "mega"
+                      ? "border-[#9D5CFF]/55 bg-[#9D5CFF]/14 text-[#C7A6FF]"
+                      : "border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700]"
+                    : "border-white/10 text-white/50"
+                }`}
+              >
+                <span className="font-black tracking-[0.14em] uppercase">{m.label}</span>
+                <span className="text-[9px] opacity-70">{m.cost} GC</span>
+              </button>
+            );
+          })}
         </div>
-        <div className="rounded-xl border border-[#FFD700]/25 bg-[#FFD700]/8 px-3 py-2 flex items-center justify-between">
+
+        <div className="font-mono text-[10px] text-white/45 mb-2 text-center">
+          {meta.blurb}
+        </div>
+
+        <div
+          className="rounded-xl border px-3 py-2 flex items-center justify-between"
+          style={{
+            borderColor: `${meta.accent}40`,
+            background: `${meta.accent}14`,
+          }}
+        >
           <span className="font-mono text-[11px] text-white/60">Cost</span>
-          <span className="font-mono text-sm font-black text-[#FFD700]">{openCost} GC</span>
+          <span
+            className="font-mono text-sm font-black"
+            style={{ color: meta.accent }}
+          >
+            {openCost} GC
+          </span>
         </div>
 
         <button
           onClick={handleOpen}
           disabled={!canOpen || busy}
-          className="w-full mt-3 py-3 rounded-xl font-mono text-xs font-black border border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700] disabled:opacity-35"
+          className="w-full mt-3 py-3 rounded-xl font-mono text-xs font-black border disabled:opacity-35"
+          style={{
+            borderColor: `${meta.accent}73`,
+            background: `${meta.accent}1E`,
+            color: meta.accent,
+          }}
         >
-          {busy ? "OPENING..." : "OPEN LOOTBOX"}
+          {busy ? "OPENING..." : `OPEN ${meta.label.toUpperCase()} LOOTBOX`}
         </button>
 
-        {!canOpen && (
+        {!canOpen && user && (
           <div className="mt-2 flex items-center gap-1.5 text-[#ff7171]">
             <AlertTriangle size={12} />
-            <span className="font-mono text-[10px]">Need at least {openCost} GC to open.</span>
+            <span className="font-mono text-[10px]">
+              Need at least {openCost} GC to open.
+            </span>
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {reveal && result && (
+          <motion.div
+            key={`reveal-${result.rewardType}-${result.rewardAmount}`}
+            initial={{ opacity: 0, scale: 0.6, rotate: -6 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 260, damping: 16 }}
+            className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center"
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <div className="relative flex flex-col items-center gap-3">
+              <motion.div
+                animate={{ rotate: [0, -6, 6, -4, 4, 0] }}
+                transition={{ duration: 0.9 }}
+                className="w-24 h-24 rounded-2xl flex items-center justify-center"
+                style={{
+                  background:
+                    result.tier === "mega"
+                      ? "radial-gradient(circle at 30% 20%, #9D5CFF, #1a0a2e)"
+                      : "radial-gradient(circle at 30% 20%, #FFD700, #2a1a04)",
+                  boxShadow:
+                    result.tier === "mega"
+                      ? "0 0 40px #9D5CFF80"
+                      : "0 0 40px #FFD70080",
+                }}
+              >
+                <Sparkles size={36} className="text-white drop-shadow" />
+              </motion.div>
+              <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-black/70 px-3 py-2">
+                {rewardIcon(result.rewardType)}
+                <span className="font-mono text-sm text-white font-black">
+                  {defaultLabel(result)}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {result && (
@@ -126,21 +275,16 @@ export default function Lootbox() {
           >
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle2 size={14} className="text-[#00E676]" />
-              <span className="font-mono text-xs text-[#00E676] tracking-[0.14em] uppercase">Loot Result</span>
+              <span className="font-mono text-xs text-[#00E676] tracking-[0.14em] uppercase">
+                Loot Result
+              </span>
             </div>
-            <div className="font-mono text-sm text-white">
-              {(result.rewardType === "tc" || result.rewardType === "jackpot_tc") && (
-                <span className="inline-flex items-center gap-1">
-                  <Coins size={13} className="text-[#4DA3FF]" />
-                  +{result.rewardAmount} TC
-                </span>
-              )}
-              {result.rewardType === "gc" && (
-                <span className="inline-flex items-center gap-1">
-                  <Gem size={13} className="text-[#FFD700]" />
-                  +{result.rewardAmount} GC
-                </span>
-              )}
+            <div className="font-mono text-sm text-white flex items-center gap-1.5">
+              {rewardIcon(result.rewardType)}
+              <span>{defaultLabel(result)}</span>
+            </div>
+            <div className="mt-2 font-mono text-[10px] text-white/45">
+              Balance · {result.balances.goldCoins} GC · {result.balances.tradeCredits} TC
             </div>
           </motion.div>
         )}

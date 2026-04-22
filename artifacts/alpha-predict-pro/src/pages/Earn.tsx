@@ -196,21 +196,13 @@ export default function Earn() {
       <h1 className="text-2xl font-black text-white mb-1">Koinara Quests</h1>
       <p className="font-mono text-xs text-white/40 mb-4">Complete missions. Earn Trade Credits. Trade to win Gold Coins.</p>
 
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="mb-4">
         <Link href="/lootbox">
           <div className="rounded-xl border border-[#FFD700]/25 bg-[#FFD700]/8 px-3 py-2.5">
             <div className="font-mono text-[9px] text-[#FFD700] tracking-[0.14em] uppercase mb-1">
               Bonus Feature
             </div>
             <div className="font-mono text-xs font-black text-white">Lootbox</div>
-          </div>
-        </Link>
-        <Link href="/arbitrage">
-          <div className="rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-3 py-2.5">
-            <div className="font-mono text-[9px] text-[#00f0ff] tracking-[0.14em] uppercase mb-1">
-              Bonus Feature
-            </div>
-            <div className="font-mono text-xs font-black text-white">Digital Arbitrage</div>
           </div>
         </Link>
       </div>
