@@ -165,7 +165,28 @@
   [dir="rtl"] {
     text-align: right;
   }
-  
+
+  /* Keep mono/numeric/token readouts in LTR inside RTL layout so numbers
+     like "+100 TC" and wallet addresses read naturally. */
+  [dir="rtl"] .font-mono {
+    unicode-bidi: plaintext;
+  }
+  [dir="rtl"] input[inputmode="numeric"],
+  [dir="rtl"] input[type="number"] {
+    direction: ltr;
+    text-align: right;
+  }
+
+  /* Tailwind's `ml-*` / `mr-*` stick to physical sides, which flips our
+     spacing in RTL. Flip at the leaves where we can't easily switch to the
+     logical `ms-*` / `me-*` utilities. */
+  [dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
+  [dir="rtl"] .mr-auto { margin-right: 0; margin-left: auto; }
+
+  /* Horizontally-scrolling lanes (pair selector, duration grid) tend to
+     feel wrong when mirrored; keep them LTR for consistent tap targets. */
+  [dir="rtl"] .ltr-scroll { direction: ltr; }
+
   /* Hide scrollbar for mobile feel */
   ::-webkit-scrollbar {
     width: 0px;

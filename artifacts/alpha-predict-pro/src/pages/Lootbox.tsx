@@ -12,6 +12,7 @@ import {
   PackageOpen,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { useLanguage } from "@/lib/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
 
@@ -96,6 +97,7 @@ function defaultLabel(res: LootboxResponse): string {
 
 export default function Lootbox() {
   const { user, refreshUser } = useTelegram();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [tier, setTier] = useState<Tier>("basic");
@@ -152,12 +154,10 @@ export default function Lootbox() {
         <div className="flex items-center gap-2 mb-2">
           <Gift size={16} className="text-[#FFD700]" />
           <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
-            Lootbox
+            {t("lootbox")}
           </span>
         </div>
-        <div className="font-mono text-[11px] text-white/45 mb-3">
-          Spin TC/GC rolls, or push your luck on a Mega box for rare rewards.
-        </div>
+        <div className="font-mono text-[11px] text-white/45 mb-3">{t("lootboxBlurb")}</div>
 
         <div className="grid grid-cols-3 gap-2 mb-3">
           {(Object.keys(TIER_META) as Tier[]).map((t) => {
@@ -193,7 +193,7 @@ export default function Lootbox() {
             background: `${meta.accent}14`,
           }}
         >
-          <span className="font-mono text-[11px] text-white/60">Cost</span>
+          <span className="font-mono text-[11px] text-white/60">{t("cost")}</span>
           <span
             className="font-mono text-sm font-black"
             style={{ color: meta.accent }}
@@ -212,7 +212,7 @@ export default function Lootbox() {
             color: meta.accent,
           }}
         >
-          {busy ? "OPENING..." : `OPEN ${meta.label.toUpperCase()} LOOTBOX`}
+          {busy ? `${t("placing").toUpperCase()}...` : `${t("openLootbox").toUpperCase()} · ${meta.label.toUpperCase()}`}
         </button>
 
         {!canOpen && user && (
@@ -276,7 +276,7 @@ export default function Lootbox() {
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle2 size={14} className="text-[#00E676]" />
               <span className="font-mono text-xs text-[#00E676] tracking-[0.14em] uppercase">
-                Loot Result
+                {t("lootResult")}
               </span>
             </div>
             <div className="font-mono text-sm text-white flex items-center gap-1.5">
