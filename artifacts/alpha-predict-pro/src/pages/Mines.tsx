@@ -1,572 +1,297 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Bomb,
-  Gem,
-  Shield,
-  DollarSign,
-  AlertTriangle,
-  CheckCircle2,
-  Grid3x3,
-  RotateCcw,
-} from "lucide-react";
+import { Bomb, Gem, Zap, Info, Shield, Trophy, RotateCcw, ChevronRight, Lock } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
-import { useLanguage } from "@/lib/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
+import { isVipActive } from "@/lib/vipActive";
+import { PageLoader } from "@/components/PageStatus";
+import confetti from "canvas-confetti";
 
-type GridSize = 3 | 4 | 5;
+const API_BASE = "/api/mines";
+const HOUSE_EDGE_MULT = 0.965; // Matches backend 3.5% edge
 
-type ActiveRound = {
+interface ActiveRound {
   roundId: number;
-  gridSize: GridSize;
+  gridSize: number;
   minesCount: number;
   bet: number;
+  revealed: number[];
+  multiplier: number;
   serverSeedHash: string;
   clientSeed: string;
-  revealed: number[];
-  multiplier: number;
-};
-
-type RevealSafeResponse = {
-  isMine: false;
-  tile: number;
-  revealed: number[];
-  multiplier: number;
-  status: "active";
-};
-
-type RevealBustResponse = {
-  isMine: true;
-  tile: number;
-  revealed: number[];
-  multiplier: number;
-  status: "busted";
-  mines: number[];
-  serverSeed: string;
-};
-
-type RevealWinAllResponse = {
-  isMine: false;
-  tile: number;
-  revealed: number[];
-  multiplier: number;
-  status: "cashed_out";
-  payout: number;
-  mines: number[];
-  serverSeed: string;
-};
-
-type RevealResponse = RevealSafeResponse | RevealBustResponse | RevealWinAllResponse;
-
-type CashoutResponse = {
-  status: "cashed_out";
-  revealed: number[];
-  multiplier: number;
-  payout: number;
-  mines: number[];
-  serverSeed: string;
-  balances: { tradeCredits: number };
-};
-
-type LastResult =
-  | { kind: "win"; payout: number; multiplier: number; mines: number[]; serverSeed: string }
-  | { kind: "bust"; tile: number; mines: number[]; serverSeed: string };
-
-function apiUrl(path: string): string {
-  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-  return `${base}${path}`;
 }
 
-const GRID_SIZES: GridSize[] = [3, 4, 5];
-const DEFAULT_MINES: Record<GridSize, number> = { 3: 2, 4: 3, 5: 5 };
-const MIN_BET = 50;
-
-function randomClientSeed(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function headers(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    ...(window.Telegram?.WebApp?.initData
-      ? { "X-Telegram-Init-Data": window.Telegram.WebApp.initData }
-      : {}),
-    ...extra,
-  };
+interface MinesResult {
+  hit: boolean;
+  revealed: number[];
+  multiplier: number;
+  status: "active" | "won" | "bust";
+  mines?: number[];
+  payout?: number;
 }
 
 export default function Mines() {
-  const { user, refreshUser } = useTelegram();
-  const { t } = useLanguage();
+  const { user, isLoading: userLoading, refreshUser } = useTelegram();
   const queryClient = useQueryClient();
+  const [gridSize, setGridSize] = useState(5);
+  const [minesCount, setMinesCount] = useState(3);
+  const [bet, setBet] = useState(100);
+  const [activeRound, setActiveRound] = useState<ActiveRound | null>(null);
+  const [lastResult, setLastResult] = useState<MinesResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [clientSeed, setClientSeed] = useState(() => Math.random().toString(36).substring(7));
 
-  const [gridSize, setGridSize] = useState<GridSize>(5);
-  const [minesCount, setMinesCount] = useState<number>(DEFAULT_MINES[5]);
-  const [bet, setBet] = useState<string>("100");
-  const [clientSeed, setClientSeed] = useState<string>(() => randomClientSeed());
+  const vip = isVipActive(user);
+  const maxBet = vip ? 10000 : 2000;
 
-  const [active, setActive] = useState<ActiveRound | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<LastResult | null>(null);
-  const [revealingTile, setRevealingTile] = useState<number | null>(null);
-  const lockRef = useRef(false);
-
-  // Hydrate any in-progress round on mount.
-  useEffect(() => {
+  const fetchActive = useCallback(async () => {
     if (!user) return;
-    let aborted = false;
-    void (async () => {
-      try {
-        const res = await fetch(apiUrl(`/api/mines/active/${encodeURIComponent(user.telegramId)}`), {
-          headers: headers(),
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { active: ActiveRound | null };
-        if (!aborted && data.active) {
-          setActive(data.active);
-          setGridSize(data.active.gridSize as GridSize);
-          setMinesCount(data.active.minesCount);
-          setBet(String(data.active.bet));
-          setClientSeed(data.active.clientSeed);
-        }
-      } catch {
-        /* ignore hydration errors */
+    try {
+      const res = await fetch(`${API_BASE}/active/${user.telegramId}`, {
+        headers: { 
+          "x-telegram-init-data": (window as any).Telegram.WebApp.initData || ""
+        },
+      });
+      const data = await res.json();
+      if (data.active) {
+        setActiveRound(data.active);
+        setGridSize(data.active.gridSize);
+        setMinesCount(data.active.minesCount);
+        setBet(data.active.bet);
       }
-    })();
-    return () => {
-      aborted = true;
-    };
+    } catch {}
   }, [user]);
 
-  const totalTiles = gridSize * gridSize;
-  const maxMines = totalTiles - 2;
-  const betNum = useMemo(() => {
-    const n = Number(bet);
-    return Number.isFinite(n) && n >= MIN_BET ? Math.floor(n) : MIN_BET;
-  }, [bet]);
-
   useEffect(() => {
-    // Keep minesCount in range when grid size changes.
-    if (active) return;
-    const max = gridSize * gridSize - 2;
-    setMinesCount((m) => Math.min(Math.max(m, 1), max));
-  }, [gridSize, active]);
+    fetchActive();
+  }, [fetchActive]);
 
   const handleStart = async () => {
-    if (!user || busy || active) return;
-    if (betNum < MIN_BET) {
-      setError(`Minimum bet is ${MIN_BET} TC.`);
-      return;
-    }
-    if ((user.tradeCredits ?? 0) < betNum) {
-      setError("Insufficient Trade Credits.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
+    if (!user || loading) return;
+    setLoading(true);
     setLastResult(null);
     try {
-      const seed = clientSeed.trim() || randomClientSeed();
-      const res = await fetch(apiUrl("/api/mines/start"), {
+      const res = await fetch(`${API_BASE}/start`, {
         method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          telegramId: user.telegramId,
-          gridSize,
-          minesCount,
-          bet: betNum,
-          clientSeed: seed,
-        }),
+        headers: { 
+          "Content-Type": "application/json",
+          "x-telegram-init-data": (window as any).Telegram.WebApp.initData || ""
+        },
+        body: JSON.stringify({ telegramId: user.telegramId, gridSize, minesCount, bet, clientSeed }),
       });
-      const data = (await res.json()) as (ActiveRound & { balances?: { tradeCredits: number } }) | { error?: string };
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? "Failed to start round.");
+      const data = await res.json();
+      if (res.ok) {
+        setActiveRound(data);
+        refreshUser();
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       }
-      const round = data as ActiveRound;
-      setActive(round);
-      setClientSeed(round.clientSeed);
-      refreshUser();
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start round.");
-    } finally {
-      setBusy(false);
-    }
+    } catch {}
+    setLoading(false);
   };
 
   const handleReveal = async (tile: number) => {
-    if (!user || !active || busy || lockRef.current) return;
-    if (active.revealed.includes(tile)) return;
-    lockRef.current = true;
-    setBusy(true);
-    setRevealingTile(tile);
-    setError(null);
+    if (!activeRound || loading) return;
+    setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/mines/reveal"), {
+      const res = await fetch(`${API_BASE}/reveal`, {
         method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          telegramId: user.telegramId,
-          roundId: active.roundId,
-          tile,
-        }),
+        headers: { 
+          "Content-Type": "application/json",
+          "x-telegram-init-data": (window as any).Telegram.WebApp.initData || ""
+        },
+        body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId, tile }),
       });
-      const data = (await res.json()) as RevealResponse | { error?: string };
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? "Failed to reveal tile.");
+      const data = await res.json();
+      if (res.ok) {
+        if (data.status === "bust") {
+          setLastResult({ ...data, hit: true });
+          setActiveRound(null);
+          refreshUser();
+          queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
+        } else {
+          setActiveRound({ ...activeRound, revealed: data.revealed, multiplier: data.multiplier });
+        }
       }
-      const result = data as RevealResponse;
-      if (result.status === "busted") {
-        setActive((prev) => (prev ? { ...prev, revealed: result.revealed, multiplier: 0 } : null));
-        setLastResult({
-          kind: "bust",
-          tile: result.tile,
-          mines: result.mines,
-          serverSeed: result.serverSeed,
-        });
-        setActive(null);
-        refreshUser();
-        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      } else if (result.status === "cashed_out") {
-        setLastResult({
-          kind: "win",
-          payout: result.payout,
-          multiplier: result.multiplier,
-          mines: result.mines,
-          serverSeed: result.serverSeed,
-        });
-        setActive(null);
-        refreshUser();
-        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      } else {
-        setActive((prev) =>
-          prev
-            ? { ...prev, revealed: result.revealed, multiplier: result.multiplier }
-            : null,
-        );
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reveal tile.");
-    } finally {
-      setBusy(false);
-      setRevealingTile(null);
-      lockRef.current = false;
-    }
+    } catch {}
+    setLoading(false);
   };
 
   const handleCashout = async () => {
-    if (!user || !active || busy) return;
-    if (active.revealed.length === 0) {
-      setError("Reveal at least one tile before cashing out.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
+    if (!activeRound || loading) return;
+    setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/mines/cashout"), {
+      const res = await fetch(`${API_BASE}/cashout`, {
         method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ telegramId: user.telegramId, roundId: active.roundId }),
+        headers: { 
+          "Content-Type": "application/json",
+          "x-telegram-init-data": (window as any).Telegram.WebApp.initData || ""
+        },
+        body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId }),
       });
-      const data = (await res.json()) as CashoutResponse | { error?: string };
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? "Failed to cash out.");
+      const data = await res.json();
+      if (res.ok) {
+        setLastResult({ ...data, hit: false });
+        setActiveRound(null);
+        confetti({ 
+          particleCount: 150, 
+          spread: 70, 
+          origin: { y: 0.6 }, 
+          colors: ["#FFD700", "#FFF9E0", "#B8860B"] 
+        });
+        refreshUser();
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
       }
-      const ok = data as CashoutResponse;
-      setLastResult({
-        kind: "win",
-        payout: ok.payout,
-        multiplier: ok.multiplier,
-        mines: ok.mines,
-        serverSeed: ok.serverSeed,
-      });
-      setActive(null);
-      refreshUser();
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cash out.");
-    } finally {
-      setBusy(false);
-    }
+    } catch {}
+    setLoading(false);
   };
 
-  const nextSafe = Math.max(0, totalTiles - minesCount - (active?.revealed.length ?? 0));
-  const nextMultiplier = active
-    ? (() => {
-        const rev = active.revealed.length;
-        const safe = totalTiles - active.minesCount;
-        if (rev + 1 > safe) return active.multiplier;
-        let m = 1;
-        for (let i = 0; i < rev + 1; i++) m *= (totalTiles - i) / (safe - i);
-        return +(0.99 * m).toFixed(4);
-      })()
-    : 1;
+  const nextMultiplier = useMemo(() => {
+    if (!activeRound) return 0;
+    const total = activeRound.gridSize * activeRound.gridSize;
+    const safeTiles = total - activeRound.minesCount;
+    const revealedCount = activeRound.revealed.length + 1;
+    if (revealedCount > safeTiles) return activeRound.multiplier;
+    let mult = 1;
+    for (let i = 0; i < revealedCount; i++) {
+      mult *= (total - i) / (safeTiles - i);
+    }
+    return +(HOUSE_EDGE_MULT * mult).toFixed(4);
+  }, [activeRound]);
 
-  const gridMines = active?.minesCount ?? minesCount;
-  const renderGrid = () => {
-    const size = active?.gridSize ?? gridSize;
-    const total = size * size;
-    const revealed = active?.revealed ?? [];
-    const bustedMines =
-      lastResult?.kind === "bust" ? new Set(lastResult.mines) : null;
-    const wonMines =
-      lastResult?.kind === "win" ? new Set(lastResult.mines) : null;
-    const tiles = Array.from({ length: total }, (_, i) => i);
-    return (
-      <div
-        className="grid gap-1.5 mx-auto"
-        style={{
-          gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`,
-          maxWidth: size === 5 ? 360 : size === 4 ? 320 : 240,
-        }}
-      >
-        {tiles.map((idx) => {
-          const isRevealed = revealed.includes(idx);
-          const isBusted = bustedMines?.has(idx);
-          const isWonMine = wonMines?.has(idx);
-          const justRevealed = revealingTile === idx;
+  if (userLoading) return <PageLoader rows={6} />;
+
+  return (
+    <div className="flex flex-col min-h-screen p-4 pb-24 bg-[#050508]">
+      <style>{`
+        @keyframes pulse-tension {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50% { transform: scale(1.02); filter: brightness(1.2) drop-shadow(0 0 15px rgba(255,215,0,0.3)); }
+        }
+        .tension-active {
+          animation: pulse-tension 1.5s ease-in-out infinite;
+        }
+        .grid-glow {
+          box-shadow: 0 0 40px rgba(255, 215, 0, 0.05);
+        }
+        .gold-text-gradient {
+          background: linear-gradient(135deg, #FFD700 0%, #B8860B 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+      `}</style>
+
+      {/* Header Stats */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-mono text-white/30 tracking-[0.2em] uppercase">Mines Terminal</span>
+          <h1 className="text-xl font-black gold-text-gradient tracking-tight">PROVABLY FAIR</h1>
+        </div>
+        {activeRound && (
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] font-mono text-[#FFD700] font-bold">{activeRound.multiplier.toFixed(2)}x</span>
+            <span className="text-[10px] font-mono text-white/30 uppercase tracking-tighter">Current Multiplier</span>
+          </div>
+        )}
+      </div>
+
+      {/* Main Game Grid */}
+      <div className={`aspect-square w-full grid gap-2 p-3 rounded-3xl border border-white/[0.05] bg-white/[0.02] grid-glow mb-6 ${activeRound ? "tension-active" : ""}`}
+           style={{ gridTemplateColumns: `repeat(${activeRound?.gridSize ?? gridSize}, 1fr)` }}>
+        {Array.from({ length: (activeRound?.gridSize ?? gridSize) ** 2 }).map((_, i) => {
+          const isRevealed = activeRound?.revealed.includes(i);
+          const isMine = lastResult?.mines?.includes(i);
+          const isLastClicked = lastResult?.revealed?.slice(-1)[0] === i;
+          const isGhostMine = !activeRound && lastResult?.mines?.includes(i) && !isLastClicked;
+
           return (
             <motion.button
-              key={idx}
-              whileTap={active ? { scale: 0.92 } : undefined}
-              animate={justRevealed ? { scale: [1, 1.1, 1] } : undefined}
-              onClick={() => handleReveal(idx)}
-              disabled={!active || busy || isRevealed}
-              className={`aspect-square rounded-lg border font-mono text-sm font-black flex items-center justify-center transition ${
-                isBusted
-                  ? "border-[#FF1744]/55 bg-[#FF1744]/25 text-[#FF1744]"
-                  : isWonMine
-                    ? "border-[#FF1744]/25 bg-[#FF1744]/10 text-[#FF1744]/70"
-                    : isRevealed
-                      ? "border-[#00E676]/45 bg-[#00E676]/12 text-[#00E676]"
-                      : active
-                        ? "border-white/15 bg-white/[0.04] text-white/60 hover:bg-white/[0.08]"
-                        : "border-white/10 bg-white/[0.02] text-white/25"
-              }`}
+              key={i}
+              whileTap={!activeRound || isRevealed ? {} : { scale: 0.9 }}
+              onClick={() => !isRevealed && handleReveal(i)}
+              disabled={!activeRound || isRevealed}
+              className={`relative rounded-xl flex items-center justify-center transition-all duration-300 overflow-hidden ${
+                isRevealed ? "bg-[#FFD700]/10 border-[#FFD700]/30" : 
+                isMine ? "bg-[#FF1744]/20 border-[#FF1744]/50" :
+                isGhostMine ? "bg-white/[0.05] border-white/[0.1] opacity-40" :
+                "bg-white/[0.05] border-white/[0.1] hover:bg-white/[0.08]"
+              } border`}
             >
-              {isBusted ? (
-                <Bomb size={16} />
-              ) : isWonMine ? (
-                <Bomb size={14} />
-              ) : isRevealed ? (
-                <Gem size={14} />
-              ) : (
-                ""
+              {isRevealed && <Gem size={20} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,0.5)]" />}
+              {isMine && <Bomb size={20} className={isLastClicked ? "text-[#FF1744]" : "text-white/40"} />}
+              {isGhostMine && <Bomb size={14} className="text-white/20" />}
+              
+              {activeRound && !isRevealed && (
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.02] to-transparent" />
               )}
             </motion.button>
           );
         })}
       </div>
-    );
-  };
 
-  return (
-    <div className="px-4 pt-4 pb-8 flex flex-col gap-4">
-      <div className="app-card p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Bomb size={14} className="text-[#FF1744]" />
-          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
-            {t("minesGame")}
-          </span>
-        </div>
-        <div className="font-mono text-[11px] text-white/45 mb-3">{t("minesBlurb")}</div>
-
-        {!active && (
+      {/* Controls */}
+      <div className="flex flex-col gap-4">
+        {!activeRound ? (
           <>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {GRID_SIZES.map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setGridSize(size)}
-                  className={`py-2 rounded-lg border font-mono text-[11px] font-black transition ${
-                    gridSize === size
-                      ? "border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700]"
-                      : "border-white/10 text-white/50"
-                  }`}
-                >
-                  {size}×{size}
-                </button>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3 mb-3">
-              <div className="font-mono text-[10px] text-white/45 mb-1">{t("minesLabel")}</div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={1}
-                  max={maxMines}
-                  value={minesCount}
-                  onChange={(e) => setMinesCount(Number(e.target.value))}
-                  className="flex-1"
-                />
-                <span className="font-mono text-sm font-black text-[#FF1744] w-8 text-right">
-                  {minesCount}
-                </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono text-white/30 ml-1 uppercase">Grid Size</span>
+                <div className="flex bg-white/[0.03] rounded-xl p-1 border border-white/[0.05]">
+                  {[3, 4, 5].map(s => (
+                    <button key={s} onClick={() => setGridSize(s as any)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${gridSize === s ? "bg-[#FFD700] text-black" : "text-white/40"}`}>{s}x{s}</button>
+                  ))}
+                </div>
               </div>
-              <div className="font-mono text-[9px] text-white/35 mt-1">
-                Max {maxMines}. More mines = fewer safe tiles = higher multiplier jumps.
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono text-white/30 ml-1 uppercase">Mines</span>
+                <input type="number" value={minesCount} onChange={e => setMinesCount(Math.max(1, parseInt(e.target.value) || 1))} className="bg-white/[0.03] border border-white/[0.05] rounded-xl py-2 px-3 text-xs font-bold text-[#FFD700] outline-none" />
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3 mb-3">
-              <div className="font-mono text-[10px] text-white/45 mb-1">Bet</div>
-              <input
-                inputMode="numeric"
-                value={bet}
-                onChange={(e) => setBet(e.target.value.replace(/[^0-9]/g, ""))}
-                className="w-full bg-transparent outline-none font-mono text-lg font-black text-white"
-                placeholder={String(MIN_BET)}
-              />
-              <div className="font-mono text-[9px] text-white/35 mt-1">
-                Min {MIN_BET} TC · Balance {(user?.tradeCredits ?? 0).toLocaleString()} TC
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-mono text-white/30 ml-1 uppercase">Bet Amount (TC)</span>
+              <div className="flex gap-2">
+                {[100, 250, 500, 1000].map(v => (
+                  <button key={v} onClick={() => setBet(v)} className={`flex-1 py-2 rounded-xl border text-[10px] font-bold transition-all ${bet === v ? "border-[#4DA3FF] bg-[#4DA3FF]/10 text-[#8BC3FF]" : "border-white/10 text-white/30"}`}>{v}</button>
+                ))}
               </div>
             </div>
 
-            <details className="mb-3">
-              <summary className="font-mono text-[10px] text-white/45 cursor-pointer select-none">
-                {t("provablyFair")}
-              </summary>
-              <input
-                value={clientSeed}
-                onChange={(e) => setClientSeed(e.target.value.slice(0, 128))}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1 font-mono text-[10px] text-white/70 outline-none"
-              />
-              <button
-                onClick={() => setClientSeed(randomClientSeed())}
-                className="mt-1 font-mono text-[9px] text-[#FFD700]/75 underline"
-              >
-                Regenerate
-              </button>
-            </details>
-
-            <button
-              onClick={handleStart}
-              disabled={busy || !user || betNum > (user?.tradeCredits ?? 0)}
-              className="w-full py-3 rounded-xl font-mono text-xs font-black border border-[#00E676]/45 bg-[#00E676]/12 text-[#00E676] disabled:opacity-35"
-            >
-              {busy ? `${t("placing").toUpperCase()}...` : t("startRound").toUpperCase()}
-            </button>
+            <button onClick={handleStart} disabled={loading || (user?.tradeCredits ?? 0) < bet} className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#B8860B] text-black font-black text-sm tracking-widest shadow-[0_0_30px_rgba(255,215,0,0.2)] disabled:opacity-30 uppercase">Start Round</button>
           </>
-        )}
-
-        {active && (
-          <div className="grid grid-cols-3 gap-2 mb-3">
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-              <div className="font-mono text-[9px] text-white/45">Bet</div>
-              <div className="font-mono text-xs font-black text-white">
-                {active.bet.toLocaleString()} TC
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between p-4 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/5">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-mono text-white/40 uppercase">Next Tile Reward</span>
+                <span className="text-lg font-black text-[#FFD700]">{nextMultiplier.toFixed(2)}x</span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-mono text-white/40 uppercase">Current Cashout</span>
+                <span className="text-lg font-black text-white">{(activeRound.bet * activeRound.multiplier).toFixed(0)} TC</span>
               </div>
             </div>
-            <div className="rounded-xl border border-[#FF1744]/25 bg-[#FF1744]/8 px-3 py-2">
-              <div className="font-mono text-[9px] text-[#FF1744]/75">{t("minesLabel")}</div>
-              <div className="font-mono text-xs font-black text-[#FF1744]">{gridMines}</div>
-            </div>
-            <div className="rounded-xl border border-[#00E676]/25 bg-[#00E676]/8 px-3 py-2">
-              <div className="font-mono text-[9px] text-[#00E676]/75">{t("multiplier")}</div>
-              <div className="font-mono text-xs font-black text-[#00E676]">
-                {active.multiplier.toFixed(2)}×
-              </div>
-            </div>
+            <button onClick={handleCashout} disabled={activeRound.revealed.length === 0 || loading} className="w-full py-4 rounded-2xl bg-white text-black font-black text-sm tracking-widest uppercase disabled:opacity-30">Cash Out</button>
           </div>
         )}
-      </div>
 
-      <div className="app-card p-4">{renderGrid()}</div>
-
-      {active && (
-        <div className="flex gap-2">
-          <button
-            onClick={handleCashout}
-            disabled={busy || active.revealed.length === 0}
-            className="flex-1 py-3 rounded-xl font-mono text-xs font-black border border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700] disabled:opacity-35 flex items-center justify-center gap-1.5"
-          >
-            <DollarSign size={12} />
-            {t("cashout").toUpperCase()} · {Math.floor(active.bet * active.multiplier).toLocaleString()} TC
-          </button>
-          <div className="px-3 py-3 rounded-xl border border-white/10 bg-white/[0.02] font-mono text-[10px] text-white/55 flex items-center gap-1.5">
-            <Shield size={10} className="text-[#4DA3FF]" />
-            {t("nextSafe")} · {nextMultiplier.toFixed(2)}× ({nextSafe})
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-[#FF1744]/30 bg-[#FF1744]/10 px-3 py-2 flex items-center gap-2">
-          <AlertTriangle size={12} className="text-[#ffb3c2]" />
-          <span className="font-mono text-xs text-[#ffb3c2]">{error}</span>
-        </div>
-      )}
-
-      <AnimatePresence>
-        {lastResult && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className={`app-card p-4 border ${
-              lastResult.kind === "win"
-                ? "border-[#FFD700]/40"
-                : "border-[#FF1744]/40"
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              {lastResult.kind === "win" ? (
-                <CheckCircle2 size={14} className="text-[#FFD700]" />
-              ) : (
-                <Bomb size={14} className="text-[#FF1744]" />
-              )}
-              <span
-                className={`font-mono text-xs tracking-[0.14em] uppercase ${
-                  lastResult.kind === "win" ? "text-[#FFD700]" : "text-[#FF1744]"
-                }`}
-              >
-                {lastResult.kind === "win" ? t("cashedOut") : t("busted")}
-              </span>
-            </div>
-            {lastResult.kind === "win" ? (
-              <div className="font-mono text-sm text-white">
-                +{lastResult.payout.toLocaleString()} TC at {lastResult.multiplier.toFixed(2)}×
+        {/* Last Result Toast */}
+        <AnimatePresence>
+          {lastResult && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className={`p-4 rounded-2xl border flex items-center justify-between ${lastResult.hit ? "border-[#FF1744]/30 bg-[#FF1744]/5" : "border-[#FFD700]/30 bg-[#FFD700]/5"}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${lastResult.hit ? "bg-[#FF1744]/20" : "bg-[#FFD700]/20"}`}>
+                  {lastResult.hit ? <Bomb size={16} className="text-[#FF1744]" /> : <Trophy size={16} className="text-[#FFD700]" />}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-white uppercase">{lastResult.hit ? "Boom! Hit a Mine" : "Round Won!"}</span>
+                  <span className="text-[10px] font-mono text-white/40">{lastResult.hit ? "Try again for the rush" : `You won ${lastResult.payout} TC`}</span>
+                </div>
               </div>
-            ) : (
-              <div className="font-mono text-sm text-white">
-                Mine at tile #{lastResult.tile + 1} — stake lost.
-              </div>
-            )}
-            <details className="mt-2">
-              <summary className="font-mono text-[10px] text-white/45 cursor-pointer select-none">
-                {t("verifyRound")}
-              </summary>
-              <div className="font-mono text-[10px] text-white/55 mt-1 break-all">
-                server seed: {lastResult.serverSeed}
-              </div>
-              <div className="font-mono text-[10px] text-white/55 mt-1 break-all">
-                mines: {lastResult.mines.map((m) => `#${m + 1}`).join(", ")}
-              </div>
-            </details>
-            <button
-              onClick={() => {
-                setLastResult(null);
-                setClientSeed(randomClientSeed());
-              }}
-              className="mt-3 w-full py-2 rounded-lg font-mono text-[11px] font-black border border-white/15 text-white/75 flex items-center justify-center gap-1.5"
-            >
-              <RotateCcw size={11} />
-              {t("newRound")}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-center gap-2">
-        <Grid3x3 size={12} className="text-white/35" />
-        <span className="font-mono text-[10px] text-white/45">
-          Mine positions are derived from HMAC(serverSeed, clientSeed). Seed hash is committed at round start and revealed on settle.
-        </span>
+              {!lastResult.hit && <span className="text-sm font-black text-[#FFD700]">{lastResult.multiplier.toFixed(2)}x</span>}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

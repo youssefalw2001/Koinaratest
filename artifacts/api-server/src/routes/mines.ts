@@ -16,8 +16,8 @@ const minesRateLimiter = createRouteRateLimiter("mines-action", {
 });
 
 // ---------- Game config ----------
-// 1% house edge, applied to the fair multiplier.
-const HOUSE_EDGE_MULT = 0.99;
+// Increased house edge from 1% (0.99) to 3.5% (0.965) to protect liquidity.
+const HOUSE_EDGE_MULT = 0.965;
 const MIN_BET_TC = 50;
 const MAX_BET_TC_FREE = 2_000;
 const MAX_BET_TC_VIP = 10_000;
@@ -25,17 +25,11 @@ const MAX_BET_TC_VIP = 10_000;
 const ALLOWED_GRID_SIZES = [3, 4, 5] as const;
 type GridSize = (typeof ALLOWED_GRID_SIZES)[number];
 
-// Mines bounds per grid: min 1, leave at least 1 safe tile above the first
-// reveal so the game has tension but isn't an auto-loss.
 function minesBounds(gridSize: GridSize): { min: number; max: number } {
   const total = gridSize * gridSize;
   return { min: 1, max: total - 2 };
 }
 
-// ---------- Provably-fair RNG ----------
-// Fisher-Yates shuffle seeded with HMAC(serverSeed, clientSeed || counter).
-// Consumes 4 bytes per draw; refreshes the HMAC output in 32-byte chunks so
-// large grids still have plenty of entropy.
 function placeMines(
   serverSeed: string,
   clientSeed: string,
@@ -66,10 +60,6 @@ function placeMines(
   return indices.slice(0, minesCount).sort((a, b) => a - b);
 }
 
-// ---------- Multiplier math ----------
-// Fair multiplier after k safe reveals on an N×N grid with M mines:
-//   product_{i=0..k-1} (total-i) / (safeTiles-i)
-// Apply the 1% house edge once at the end.
 function computeMultiplier(gridSize: GridSize, minesCount: number, safeRevealed: number): number {
   const total = gridSize * gridSize;
   const safeTiles = total - minesCount;
@@ -104,8 +94,6 @@ function isVipForBetCap(user: {
   return false;
 }
 
-// ---------- GET /mines/config ----------
-
 router.get("/mines/config", (_req, res): void => {
   res.json({
     gridSizes: ALLOWED_GRID_SIZES,
@@ -116,8 +104,6 @@ router.get("/mines/config", (_req, res): void => {
     mines: Object.fromEntries(ALLOWED_GRID_SIZES.map((g) => [g, minesBounds(g)])),
   });
 });
-
-// ---------- GET /mines/active/:telegramId ----------
 
 router.get("/mines/active/:telegramId", async (req, res): Promise<void> => {
   const requested = String(req.params.telegramId ?? "").trim();
@@ -154,8 +140,6 @@ router.get("/mines/active/:telegramId", async (req, res): Promise<void> => {
     },
   });
 });
-
-// ---------- POST /mines/start ----------
 
 const StartBody = z.object({
   telegramId: z.string().min(1),
@@ -199,8 +183,6 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
       if (bet > maxBet) throw new Error(`MAX_BET_${maxBet}`);
       if ((user.tradeCredits ?? 0) < bet) throw new Error("INSUFFICIENT_TC");
 
-      // Refuse to start a new round while one is still open — keeps the UI
-      // and the idempotency logic simple.
       const [activeRound] = await tx
         .select({ id: minesRoundsTable.id })
         .from(minesRoundsTable)
@@ -213,7 +195,6 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
         .limit(1);
       if (activeRound) throw new Error("ACTIVE_ROUND_EXISTS");
 
-      // Debit the stake up-front.
       await tx
         .update(usersTable)
         .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${bet}` })
@@ -281,8 +262,6 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
   }
 });
 
-// ---------- POST /mines/reveal ----------
-
 const RevealBody = z.object({
   telegramId: z.string().min(1),
   roundId: z.number().int().positive(),
@@ -314,7 +293,7 @@ router.post("/mines/reveal", minesRateLimiter, async (req, res): Promise<void> =
 
       const gridSize = round.gridSize as GridSize;
       const total = gridSize * gridSize;
-      if (tile < 0 || tile >= total) throw new Error("TILE_OUT_OF_RANGE");
+      if (tile < 0 || tile >= total) throw new Error("INVALID_TILE");
 
       const revealed = parseRevealed(round.revealed);
       if (revealed.includes(tile)) throw new Error("TILE_ALREADY_REVEALED");
@@ -323,78 +302,31 @@ router.post("/mines/reveal", minesRateLimiter, async (req, res): Promise<void> =
       const isMine = mines.includes(tile);
 
       if (isMine) {
-        await tx
+        const [updated] = await tx
           .update(minesRoundsTable)
-          .set({
-            status: "busted",
-            multiplier: 0,
-            payout: 0,
-            revealed: JSON.stringify([...revealed, tile]),
-            completedAt: new Date(),
-          })
-          .where(eq(minesRoundsTable.id, roundId));
-
-        return {
-          isMine: true,
-          tile,
-          revealed: [...revealed, tile],
-          multiplier: 0,
-          status: "busted" as const,
-          mines,
-          serverSeed: round.serverSeed,
-        };
-      }
-
-      const nextRevealed = [...revealed, tile];
-      const nextMultiplier = computeMultiplier(gridSize, round.minesCount, nextRevealed.length);
-      const safeRemaining = total - round.minesCount - nextRevealed.length;
-
-      await tx
-        .update(minesRoundsTable)
-        .set({
-          revealed: JSON.stringify(nextRevealed),
-          multiplier: nextMultiplier,
-        })
-        .where(eq(minesRoundsTable.id, roundId));
-
-      // Auto cash-out when there are no safe tiles left.
-      if (safeRemaining === 0) {
-        const payout = Math.floor(round.bet * nextMultiplier);
-        await tx
-          .update(usersTable)
-          .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${payout}` })
-          .where(eq(usersTable.telegramId, telegramId));
-        await tx
+          .set({ status: "bust", revealed: JSON.stringify([...revealed, tile]) })
+          .where(eq(minesRoundsTable.id, roundId))
+          .returning();
+        return { hit: true, round: updated, mines };
+      } else {
+        const nextRevealed = [...revealed, tile];
+        const nextMultiplier = computeMultiplier(gridSize, round.minesCount, nextRevealed.length);
+        const [updated] = await tx
           .update(minesRoundsTable)
-          .set({
-            status: "cashed_out",
-            payout,
-            completedAt: new Date(),
-          })
-          .where(eq(minesRoundsTable.id, roundId));
-
-        return {
-          isMine: false,
-          tile,
-          revealed: nextRevealed,
-          multiplier: nextMultiplier,
-          status: "cashed_out" as const,
-          payout,
-          mines,
-          serverSeed: round.serverSeed,
-        };
+          .set({ revealed: JSON.stringify(nextRevealed), multiplier: nextMultiplier })
+          .where(eq(minesRoundsTable.id, roundId))
+          .returning();
+        return { hit: false, round: updated };
       }
-
-      return {
-        isMine: false,
-        tile,
-        revealed: nextRevealed,
-        multiplier: nextMultiplier,
-        status: "active" as const,
-      };
     });
 
-    res.json(outcome);
+    res.json({
+      hit: outcome.hit,
+      revealed: parseRevealed(outcome.round.revealed),
+      multiplier: outcome.round.multiplier,
+      status: outcome.round.status,
+      mines: outcome.hit ? outcome.mines : undefined,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "UNKNOWN";
     if (msg === "ROUND_NOT_FOUND") {
@@ -402,23 +334,13 @@ router.post("/mines/reveal", minesRateLimiter, async (req, res): Promise<void> =
       return;
     }
     if (msg === "ROUND_NOT_ACTIVE") {
-      res.status(400).json({ error: "Round already finished." });
+      res.status(400).json({ error: "Round is no longer active." });
       return;
     }
-    if (msg === "TILE_OUT_OF_RANGE") {
-      res.status(400).json({ error: "Invalid tile index." });
-      return;
-    }
-    if (msg === "TILE_ALREADY_REVEALED") {
-      res.status(400).json({ error: "Tile already revealed." });
-      return;
-    }
-    logger.error({ err, telegramId, roundId, tile }, "Mines reveal failed");
+    logger.error({ err, telegramId, roundId }, "Mines reveal failed");
     res.status(500).json({ error: "Failed to reveal tile." });
   }
 });
-
-// ---------- POST /mines/cashout ----------
 
 const CashoutBody = z.object({
   telegramId: z.string().min(1),
@@ -451,12 +373,25 @@ router.post("/mines/cashout", minesRateLimiter, async (req, res): Promise<void> 
       const revealed = parseRevealed(round.revealed);
       if (revealed.length === 0) throw new Error("NO_TILES_REVEALED");
 
-      const multiplier = computeMultiplier(
-        round.gridSize as GridSize,
-        round.minesCount,
-        revealed.length,
-      );
-      const payout = Math.floor(round.bet * multiplier);
+      const payout = Math.floor(round.bet * round.multiplier);
+
+      await tx
+        .update(usersTable)
+        .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${payout}` })
+        .where(eq(usersTable.telegramId, telegramId));
+
+      const [updated] = await tx
+        .update(minesRoundsTable)
+        .set({ status: "won", payout })
+        .where(eq(minesRoundsTable.id, roundId))
+        .returning();
+
+      const [user] = await tx
+        .select({ tradeCredits: usersTable.tradeCredits })
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId))
+        .limit(1);
+
       const mines = placeMines(
         round.serverSeed,
         round.clientSeed,
@@ -464,51 +399,14 @@ router.post("/mines/cashout", minesRateLimiter, async (req, res): Promise<void> 
         round.minesCount,
       );
 
-      await tx
-        .update(usersTable)
-        .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${payout}` })
-        .where(eq(usersTable.telegramId, telegramId));
-
-      await tx
-        .update(minesRoundsTable)
-        .set({
-          status: "cashed_out",
-          multiplier,
-          payout,
-          completedAt: new Date(),
-        })
-        .where(eq(minesRoundsTable.id, roundId));
-
-      const [updated] = await tx
-        .select({ tradeCredits: usersTable.tradeCredits })
-        .from(usersTable)
-        .where(eq(usersTable.telegramId, telegramId))
-        .limit(1);
-
-      return {
-        status: "cashed_out" as const,
-        revealed,
-        multiplier,
-        payout,
-        mines,
-        serverSeed: round.serverSeed,
-        balanceTc: updated?.tradeCredits ?? 0,
-      };
+      return { round: updated, balanceTc: user?.tradeCredits ?? 0, mines };
     });
 
-    logger.info(
-      { telegramId, roundId, multiplier: outcome.multiplier, payout: outcome.payout },
-      "Mines cashed out",
-    );
-
     res.json({
-      status: outcome.status,
-      revealed: outcome.revealed,
-      multiplier: outcome.multiplier,
-      payout: outcome.payout,
-      mines: outcome.mines,
-      serverSeed: outcome.serverSeed,
+      status: "won",
+      payout: outcome.round.payout,
       balances: { tradeCredits: outcome.balanceTc },
+      mines: outcome.mines,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "UNKNOWN";
@@ -517,55 +415,16 @@ router.post("/mines/cashout", minesRateLimiter, async (req, res): Promise<void> 
       return;
     }
     if (msg === "ROUND_NOT_ACTIVE") {
-      res.status(400).json({ error: "Round already finished." });
+      res.status(400).json({ error: "Round is no longer active." });
       return;
     }
     if (msg === "NO_TILES_REVEALED") {
-      res.status(400).json({ error: "Reveal at least one tile before cashing out." });
+      res.status(400).json({ error: "Reveal at least one safe tile before cashing out." });
       return;
     }
     logger.error({ err, telegramId, roundId }, "Mines cashout failed");
     res.status(500).json({ error: "Failed to cash out." });
   }
-});
-
-// ---------- GET /mines/history/:telegramId ----------
-
-router.get("/mines/history/:telegramId", async (req, res): Promise<void> => {
-  const requested = String(req.params.telegramId ?? "").trim();
-  if (!requested) {
-    res.status(400).json({ error: "telegramId is required." });
-    return;
-  }
-  const telegramId = resolveAuthenticatedTelegramId(req, res, requested);
-  if (!telegramId) return;
-
-  const limit = Math.min(Math.max(Number(req.query.limit ?? 10) || 10, 1), 50);
-
-  const rows = await db
-    .select()
-    .from(minesRoundsTable)
-    .where(eq(minesRoundsTable.telegramId, telegramId))
-    .orderBy(desc(minesRoundsTable.createdAt))
-    .limit(limit);
-
-  res.json({
-    history: rows.map((r) => ({
-      roundId: r.id,
-      gridSize: r.gridSize,
-      minesCount: r.minesCount,
-      bet: r.bet,
-      status: r.status,
-      multiplier: r.multiplier,
-      payout: r.payout,
-      revealed: parseRevealed(r.revealed),
-      serverSeedHash: r.serverSeedHash,
-      serverSeed: r.status === "active" ? null : r.serverSeed,
-      clientSeed: r.clientSeed,
-      createdAt: r.createdAt.toISOString(),
-      completedAt: r.completedAt?.toISOString() ?? null,
-    })),
-  });
 });
 
 export default router;

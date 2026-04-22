@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, or, gt, isNotNull } from "drizzle-orm";
+import { eq, desc, sql, and, or, gt, isNotNull, count } from "drizzle-orm";
 import { db, predictionsTable, usersTable } from "@workspace/db";
 import {
   CreatePredictionBody,
@@ -25,8 +25,7 @@ const router: IRouter = Router();
 const MIN_BET_TC = 50;
 const RESOLVE_TOLERANCE_SEC = 0;
 
-// Binary Options duration tiers — each tier has its own fixed payout
-// multiplier. Keep in sync with Terminal.tsx DURATION_TIERS.
+// Binary Options duration tiers
 const DURATION_TIERS: Record<number, number> = {
   6: 1.5,
   10: 1.65,
@@ -52,9 +51,6 @@ router.post("/predictions", async (req, res): Promise<void> => {
     typeof (parsed.data as { duration?: number }).duration === "number"
       ? (parsed.data as { duration: number }).duration
       : DEFAULT_DURATION_SEC;
-  // Multiplier is optional on the wire: when omitted we derive it server-side
-  // from the duration + VIP state. When provided it must match the expected
-  // value so UI/server can never disagree on the advertised payout.
   const rawMultiplier = (parsed.data as { multiplier?: number }).multiplier;
   const multiplierProvided = typeof rawMultiplier === "number";
 
@@ -82,9 +78,28 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const vipActive = isVipActive(user);
-  const maxBet = vipActive ? 5000 : 1000;
+  
+  // 5K Bet Lock Logic: Requires VIP or 5 referrals
+  let maxBet = 1000;
+  if (vipActive) {
+    maxBet = 5000;
+  } else {
+    const referralCountResult = await db
+      .select({ cnt: count() })
+      .from(usersTable)
+      .where(eq(usersTable.referredBy, telegramId));
+    const referralCount = referralCountResult[0]?.cnt ?? 0;
+    if (referralCount >= 5) {
+      maxBet = 5000;
+    }
+  }
+
   if (amount > maxBet) {
-    res.status(400).json({ error: `Maximum bet is ${maxBet} Trade Credits` });
+    res.status(400).json({ 
+      error: maxBet === 1000 
+        ? "Maximum bet is 1000 TC. Get VIP or refer 5 friends to unlock 5000 TC bets!" 
+        : `Maximum bet is ${maxBet} Trade Credits` 
+    });
     return;
   }
 
@@ -93,9 +108,6 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  // Server-derived payout multiplier: duration tier + VIP bonus. If the client
-  // sent a multiplier we validate it agrees (within tolerance) so the UI and
-  // the server can never disagree on the advertised payout.
   const expectedMultiplier =
     DURATION_TIERS[requestedDuration] + (vipActive ? VIP_MULTIPLIER_BONUS : 0);
   if (
@@ -196,8 +208,6 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  // Backend per-prediction duration enforcement: must wait at least
-  // (prediction.duration - RESOLVE_TOLERANCE_SEC) seconds.
   const roundDuration = prediction.duration ?? DEFAULT_DURATION_SEC;
   const elapsed = (Date.now() - new Date(prediction.createdAt).getTime()) / 1000;
   if (elapsed < roundDuration - RESOLVE_TOLERANCE_SEC) {
