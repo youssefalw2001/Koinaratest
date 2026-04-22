@@ -10,11 +10,11 @@ import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 const router: IRouter = Router();
 
 const GEM_CATALOG = {
-  starter_boost: { gcCost: 300, usesRemaining: 3, vipOnly: false },
-  big_swing: { gcCost: 750, usesRemaining: 2, vipOnly: false },
-  streak_saver: { gcCost: 400, usesRemaining: 1, vipOnly: false },
-  mystery_box: { gcCost: 200, usesRemaining: 1, vipOnly: false },
-  daily_refill: { gcCost: 500, usesRemaining: 1, vipOnly: true },
+  starter_boost: { gcCost: 1500, usesRemaining: 3, vipOnly: false },
+  big_swing: { gcCost: 4000, usesRemaining: 2, vipOnly: false },
+  streak_saver: { gcCost: 2500, usesRemaining: 1, vipOnly: false },
+  mystery_box: { gcCost: 1000, usesRemaining: 1, vipOnly: false },
+  daily_refill: { gcCost: 3000, usesRemaining: 1, vipOnly: true },
   double_or_nothing: { gcCost: 0, usesRemaining: 1, vipOnly: false },
 } as const;
 

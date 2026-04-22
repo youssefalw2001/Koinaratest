@@ -27,7 +27,7 @@ const GEMS: GemDef[] = [
     id: "starter_boost",
     name: "Starter Boost",
     description: "2× GC multiplier on your next 3 winning trades",
-    gcCost: 300,
+    gcCost: 1500, // Increased from 300
     uses: "3 uses",
     icon: Zap,
     color: "#00f0ff",
@@ -37,7 +37,7 @@ const GEMS: GemDef[] = [
     id: "big_swing",
     name: "Big Swing",
     description: "5× GC multiplier on your next 2 winning trades",
-    gcCost: 750,
+    gcCost: 4000, // Increased from 750
     uses: "2 uses",
     icon: Gem,
     color: "#f5c518",
@@ -48,7 +48,7 @@ const GEMS: GemDef[] = [
     id: "streak_saver",
     name: "Streak Saver",
     description: "If your next trade loses, your TC bet is refunded automatically",
-    gcCost: 400,
+    gcCost: 2500, // Increased from 400
     uses: "1 use",
     icon: Shield,
     color: "#ff2d78",
@@ -58,7 +58,7 @@ const GEMS: GemDef[] = [
     id: "mystery_box",
     name: "Mystery Box",
     description: "Random reward: 50–500 TC or a surprise powerup gem",
-    gcCost: 200,
+    gcCost: 1000, // Increased from 200
     uses: "Instant",
     icon: Package,
     color: "#a855f7",
@@ -69,7 +69,7 @@ const GEMS: GemDef[] = [
     id: "daily_refill",
     name: "Daily Refill",
     description: "Reset today's ad cap + bonus 1,000 TC instantly",
-    gcCost: 500,
+    gcCost: 3000, // Increased from 500
     uses: "Instant",
     icon: RefreshCw,
     color: "#f5c518",
@@ -161,20 +161,6 @@ export default function Shop() {
           <span className="font-mono text-[10px] text-white/30 ml-auto">available balance</span>
         </div>
       )}
-
-      {/* Exchange shortcut — GC→TC conversion + TON TC packs */}
-      <Link href="/exchange">
-        <div className="app-card mb-6 p-3 flex items-center gap-3 cursor-pointer">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#4DA3FF]/15 text-[#4DA3FF]">
-            <ArrowDownUp size={14} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-mono text-xs font-black text-white">Exchange</div>
-            <div className="font-mono text-[10px] text-white/45">Convert GC → TC, or buy TC packs with TON</div>
-          </div>
-          <ChevronRight size={14} className="text-white/35" />
-        </div>
-      </Link>
 
       {/* Active Gems Summary */}
       {safeActiveGems.length > 0 && (
@@ -276,59 +262,38 @@ export default function Shop() {
                         className="flex-1 py-2 rounded-xl font-mono text-xs font-black border-2 transition-all disabled:opacity-40"
                         style={{
                           borderColor: gem.color,
-                          color: "#000",
-                          background: gem.color,
+                          background: `${gem.color}15`,
+                          color: gem.color,
                         }}
                       >
-                        {purchaseMutation.isPending ? "BUYING..." : `CONFIRM — ${gem.gcCost} GC`}
+                        {purchaseMutation.isPending ? "PROCESSING..." : "CONFIRM PURCHASE"}
                       </motion.button>
                       <button
                         onClick={() => setConfirming(null)}
-                        className="px-3 py-2 rounded-xl font-mono text-xs text-white/40 border border-white/10"
+                        className="px-4 py-2 rounded-xl font-mono text-xs font-black bg-white/5 text-white/40"
                       >
-                        Cancel
+                        CANCEL
                       </button>
                     </div>
                   ) : (
                     <motion.button
-                      whileTap={{ scale: 0.97 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => handleBuy(gem)}
-                      disabled={!canAfford || purchaseMutation.isPending}
-                      className="w-full flex items-center justify-between py-2.5 px-3 rounded-xl font-mono text-xs font-black border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full py-2.5 rounded-xl font-mono text-xs font-black transition-all flex items-center justify-center gap-2"
                       style={{
-                        borderColor: canAfford ? `${gem.color}60` : "rgba(255,255,255,0.1)",
+                        background: canAfford ? `${gem.color}15` : "rgba(255,255,255,0.03)",
                         color: canAfford ? gem.color : "rgba(255,255,255,0.2)",
-                        background: canAfford ? `${gem.color}10` : "transparent",
+                        border: `1px solid ${canAfford ? gem.color + "40" : "rgba(255,255,255,0.05)"}`,
                       }}
                     >
-                      <span>{canAfford ? "BUY POWERUP" : "NOT ENOUGH GC"}</span>
-                      {canAfford && <ChevronRight size={12} />}
+                      {canAfford ? "PURCHASE" : "INSUFFICIENT GC"}
                     </motion.button>
                   )}
-                </div>
-              )}
-
-              {locked && (
-                <div className="mt-3 flex items-center gap-2 py-2 px-3 rounded-xl border border-[#f5c518]/20 bg-[#f5c518]/5">
-                  <Crown size={10} className="text-[#f5c518]" />
-                  <span className="font-mono text-[10px] text-[#f5c518]/70">VIP required — activate in Wallet</span>
                 </div>
               )}
             </motion.div>
           );
         })}
-      </div>
-
-      {/* Double or Nothing info */}
-      <div className="mt-4 p-4 rounded-2xl border border-white/10 bg-white/[0.02]">
-        <div className="flex items-center gap-2 mb-1">
-          <Zap size={12} className="text-[#ff2d78]" />
-          <span className="font-mono text-xs font-black text-white">Double or Nothing</span>
-          <span className="font-mono text-[9px] text-white/30 ml-auto">FREE · On loss</span>
-        </div>
-        <p className="font-mono text-[10px] text-white/40 leading-relaxed">
-          After a losing trade, a "Double or Nothing" button appears in the result screen. One free rematch at 2× stakes — win or leave empty-handed.
-        </p>
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowDownUp,
   Coins,
   Gem,
   Zap,
@@ -27,15 +26,7 @@ type TcPack = {
 };
 
 type PacksResponse = {
-  gcToTc: { rate: number; minGc: number; maxGcPerRequest: number };
   packs: TcPack[];
-};
-
-type GcToTcResponse = {
-  gcSpent: number;
-  tcAwarded: number;
-  rate: number;
-  balances: { goldCoins: number; tradeCredits: number };
 };
 
 type TcPackPurchaseResponse = {
@@ -67,14 +58,10 @@ export default function Exchange() {
   const { user, refreshUser } = useTelegram();
   const { t } = useLanguage();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<"convert" | "packs">("convert");
   const [packs, setPacks] = useState<PacksResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
-
-  // GC -> TC state
-  const [gcInput, setGcInput] = useState<string>("100");
 
   // TON packs state
   const [pendingPack, setPendingPack] = useState<TcPack["id"] | null>(null);
@@ -104,52 +91,6 @@ export default function Exchange() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const gcAmount = useMemo(() => {
-    const n = Number(gcInput);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  }, [gcInput]);
-
-  const convertRate = packs?.gcToTc.rate ?? 5;
-  const minGc = packs?.gcToTc.minGc ?? 100;
-  const maxGc = packs?.gcToTc.maxGcPerRequest ?? 10_000;
-  const tcReward = gcAmount * convertRate;
-  const canConvert =
-    !!user &&
-    gcAmount >= minGc &&
-    gcAmount <= maxGc &&
-    (user.goldCoins ?? 0) >= gcAmount;
-
-  const handleConvert = async () => {
-    if (!user || !canConvert || busy) return;
-    setBusy(true);
-    setToast(null);
-    try {
-      const res = await fetch(apiUrl("/api/exchange/gc-to-tc"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": `gc2tc:${user.telegramId}:${gcAmount}:${Date.now()}`,
-          ...(window.Telegram?.WebApp?.initData
-            ? { "X-Telegram-Init-Data": window.Telegram.WebApp.initData }
-            : {}),
-        },
-        body: JSON.stringify({ telegramId: user.telegramId, gcAmount }),
-      });
-      const data = (await res.json()) as GcToTcResponse | { error?: string };
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? "Conversion failed.");
-      }
-      const ok = data as GcToTcResponse;
-      setToast({ kind: "ok", msg: `+${ok.tcAwarded.toLocaleString()} TC (spent ${ok.gcSpent} GC)` });
-      refreshUser();
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-    } catch (err) {
-      setToast({ kind: "err", msg: err instanceof Error ? err.message : "Conversion failed." });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleBuyPack = async (pack: TcPack) => {
     if (!user || busy) return;
     if (!tonAddress) {
@@ -178,9 +119,7 @@ export default function Exchange() {
         ],
       });
 
-      // 2) Poll the verifier — give the chain a few seconds, then retry up
-      //    to ~45s total so slow blocks or TON API caches have time to catch
-      //    up with the user's tx.
+      // 2) Poll the verifier
       let lastError = "Payment verification timed out.";
       for (let attempt = 0; attempt < 6; attempt++) {
         await new Promise((r) => setTimeout(r, 8_000));
@@ -223,145 +162,82 @@ export default function Exchange() {
     <div className="px-4 pt-4 pb-8 flex flex-col gap-4">
       <div className="app-card p-4">
         <div className="flex items-center gap-2 mb-1">
-          <ArrowDownUp size={14} className="text-[#FFD700]" />
+          <Sparkles size={14} className="text-[#4DA3FF]" />
           <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
-            {t("exchange")}
+            {t("tradeCredits")}
           </span>
         </div>
-        <div className="font-mono text-[11px] text-white/45 mb-3">{t("exchangeBlurb")}</div>
-
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.02]">
-          <button
-            onClick={() => setTab("convert")}
-            className={`py-2 rounded-lg font-mono text-xs font-black ${
-              tab === "convert"
-                ? "bg-[#FFD700]/15 text-[#FFD700] border border-[#FFD700]/30"
-                : "text-white/45 border border-transparent"
-            }`}
-          >
-            {t("gcToTc")}
-          </button>
-          <button
-            onClick={() => setTab("packs")}
-            className={`py-2 rounded-lg font-mono text-xs font-black ${
-              tab === "packs"
-                ? "bg-[#0098EA]/15 text-[#4DA3FF] border border-[#4DA3FF]/30"
-                : "text-white/45 border border-transparent"
-            }`}
-          >
-            {t("buyTcTon")}
-          </button>
+        <div className="font-mono text-[11px] text-white/45 mb-3">
+          Purchase Trade Credits (TC) to power your trading and unlock premium features.
         </div>
       </div>
 
-      {tab === "convert" && (
-        <div className="app-card p-4 flex flex-col gap-3">
-          <div className="font-mono text-[11px] text-white/55">
-            {t("rate")}: <span className="text-[#FFD700]">1 GC = {convertRate} TC</span> · {t("minimum")}{" "}
-            {minGc} GC · {t("maximum")} {maxGc.toLocaleString()} GC.
+      <div className="flex flex-col gap-3">
+        {loadError && !packs && (
+          <div className="rounded-xl border border-[#FF1744]/30 bg-[#FF1744]/10 px-3 py-2">
+            <span className="font-mono text-xs text-[#ffb3c2]">{loadError}</span>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3">
-            <div className="font-mono text-[10px] text-white/45 mb-1">{t("gcToSpend")}</div>
-            <input
-              inputMode="numeric"
-              value={gcInput}
-              onChange={(e) => setGcInput(e.target.value.replace(/[^0-9]/g, ""))}
-              className="w-full bg-transparent outline-none font-mono text-lg font-black text-white"
-              placeholder={String(minGc)}
-            />
-          </div>
-          <div className="rounded-xl border border-[#4DA3FF]/25 bg-[#4DA3FF]/5 px-3 py-3 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/50">{t("youReceive")}</span>
-            <span className="font-mono text-lg font-black text-[#4DA3FF]">
-              +{tcReward.toLocaleString()} TC
-            </span>
-          </div>
-          <button
-            onClick={handleConvert}
-            disabled={!canConvert || busy}
-            className="py-3 rounded-xl font-mono text-xs font-black border border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700] disabled:opacity-35"
-          >
-            {busy ? t("converting").toUpperCase() : t("convert").toUpperCase()}
-          </button>
-          {user && gcAmount > 0 && (user.goldCoins ?? 0) < gcAmount && (
-            <div className="flex items-center gap-1.5 text-[#ff7171]">
-              <AlertTriangle size={12} />
-              <span className="font-mono text-[10px]">
-                Balance {user.goldCoins?.toLocaleString()} GC — not enough.
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "packs" && (
-        <div className="flex flex-col gap-3">
-          {loadError && !packs && (
-            <div className="rounded-xl border border-[#FF1744]/30 bg-[#FF1744]/10 px-3 py-2">
-              <span className="font-mono text-xs text-[#ffb3c2]">{loadError}</span>
-            </div>
-          )}
-          {!packs && !loadError && (
-            <div className="app-card p-4 font-mono text-xs text-white/45">Loading packs...</div>
-          )}
-          {packs?.packs.map((pack) => {
-            const Icon = PACK_ICON[pack.id];
-            const color = PACK_COLOR[pack.id];
-            const pending = pendingPack === pack.id;
-            return (
-              <div
-                key={pack.id}
-                className="app-card p-4 flex items-center justify-between"
-                style={{
-                  borderColor: `${color}33`,
-                  background: `linear-gradient(90deg, ${color}0a, transparent 55%)`,
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ background: `${color}22`, color }}
-                  >
-                    <Icon size={18} />
+        )}
+        {!packs && !loadError && (
+          <div className="app-card p-4 font-mono text-xs text-white/45">Loading packs...</div>
+        )}
+        {packs?.packs.map((pack) => {
+          const Icon = PACK_ICON[pack.id];
+          const color = PACK_COLOR[pack.id];
+          const pending = pendingPack === pack.id;
+          return (
+            <div
+              key={pack.id}
+              className="app-card p-4 flex items-center justify-between"
+              style={{
+                borderColor: `${color}33`,
+                background: `linear-gradient(90deg, ${color}0a, transparent 55%)`,
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: `${color}22`, color }}
+                >
+                  <Icon size={18} />
+                </div>
+                <div>
+                  <div className="font-mono text-sm font-black text-white flex items-center gap-1.5">
+                    {pack.label}
+                    {pack.bonusPct > 0 && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                        style={{ background: `${color}20`, color }}
+                      >
+                        +{pack.bonusPct}% BONUS
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="font-mono text-sm font-black text-white flex items-center gap-1.5">
-                      {pack.label}
-                      {pack.bonusPct > 0 && (
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 rounded font-bold"
-                          style={{ background: `${color}20`, color }}
-                        >
-                          +{pack.bonusPct}% BONUS
-                        </span>
-                      )}
-                    </div>
-                    <div className="font-mono text-[10px] text-white/55 mt-0.5">
-                      {pack.tcAwarded.toLocaleString()} TC · {pack.priceTon} TON
-                    </div>
+                  <div className="font-mono text-[10px] text-white/55 mt-0.5">
+                    {pack.tcAwarded.toLocaleString()} TC · {pack.priceTon} TON
                   </div>
                 </div>
-                <button
-                  onClick={() => handleBuyPack(pack)}
-                  disabled={busy}
-                  className="px-3 py-2 rounded-lg font-mono text-[11px] font-black border disabled:opacity-35"
-                  style={{ borderColor: `${color}5c`, background: `${color}1a`, color }}
-                >
-                  {pending ? t("confirmingTx").toUpperCase() : t("buy").toUpperCase()}
-                </button>
               </div>
-            );
-          })}
-          {!tonAddress && packs && (
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-center gap-2">
-              <Package size={12} className="text-white/50" />
-              <span className="font-mono text-[10px] text-white/50">
-                Connect a TON wallet in the Wallet tab to purchase packs.
-              </span>
+              <button
+                onClick={() => handleBuyPack(pack)}
+                disabled={busy}
+                className="px-3 py-2 rounded-lg font-mono text-[11px] font-black border disabled:opacity-35"
+                style={{ borderColor: `${color}5c`, background: `${color}1a`, color }}
+              >
+                {pending ? t("confirmingTx").toUpperCase() : t("buy").toUpperCase()}
+              </button>
             </div>
-          )}
-        </div>
-      )}
+          );
+        })}
+        {!tonAddress && packs && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-center gap-2">
+            <Package size={12} className="text-white/50" />
+            <span className="font-mono text-[10px] text-white/50">
+              Connect a TON wallet in the Wallet tab to purchase packs.
+            </span>
+          </div>
+        )}
+      </div>
 
       <AnimatePresence>
         {toast && (

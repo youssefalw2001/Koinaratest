@@ -3,19 +3,12 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db, usersTable, tcPackTxHashesTable } from "@workspace/db";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
-import { beginIdempotency } from "../lib/idempotency";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// ---------- Rates & pack definitions ----------
-
-// 100 GC -> 500 TC (1:5). Keeps TC tradeable but expensive enough in GC
-// that users aren't farming GC solely to refill TC.
-const GC_TO_TC_RATE = 5;
-const MIN_GC_CONVERT = 100;
-const MAX_GC_CONVERT_PER_REQUEST = 10_000;
+// ---------- TC Pack definitions ----------
 
 type TcPack = {
   id: "small" | "medium" | "large" | "jumbo";
@@ -77,11 +70,6 @@ const exchangeRateLimiter = createRouteRateLimiter("exchange-action", {
 
 router.get("/exchange/tc-packs", (_req, res): void => {
   res.json({
-    gcToTc: {
-      rate: GC_TO_TC_RATE,
-      minGc: MIN_GC_CONVERT,
-      maxGcPerRequest: MAX_GC_CONVERT_PER_REQUEST,
-    },
     packs: TC_PACKS.map((p) => ({
       id: p.id,
       label: p.label,
@@ -92,129 +80,6 @@ router.get("/exchange/tc-packs", (_req, res): void => {
     })),
   });
 });
-
-// ---------- POST /exchange/gc-to-tc ----------
-
-const GcToTcBody = z.object({
-  telegramId: z.string().min(1),
-  gcAmount: z.number().int().positive(),
-});
-
-router.post(
-  "/exchange/gc-to-tc",
-  exchangeRateLimiter,
-  async (req, res): Promise<void> => {
-    const parsed = GcToTcBody.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request body." });
-      return;
-    }
-
-    const telegramId = resolveAuthenticatedTelegramId(req, res, parsed.data.telegramId);
-    if (!telegramId) return;
-    const { gcAmount } = parsed.data;
-
-    if (gcAmount < MIN_GC_CONVERT) {
-      res.status(400).json({ error: `Minimum conversion is ${MIN_GC_CONVERT} GC.` });
-      return;
-    }
-    if (gcAmount > MAX_GC_CONVERT_PER_REQUEST) {
-      res.status(400).json({
-        error: `Max ${MAX_GC_CONVERT_PER_REQUEST.toLocaleString()} GC per conversion.`,
-      });
-      return;
-    }
-
-    const idempotency = await beginIdempotency(req, {
-      scope: "exchange.gc-to-tc",
-      requireHeader: true,
-      fingerprintData: { telegramId, gcAmount },
-      ttlMs: 30 * 60 * 1000,
-    });
-    if (idempotency.kind === "missing") {
-      res.status(400).json({ error: idempotency.message });
-      return;
-    }
-    if (idempotency.kind === "replay") {
-      res.status(idempotency.statusCode).json(idempotency.responseBody);
-      return;
-    }
-    if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") {
-      res.status(409).json({ error: idempotency.message });
-      return;
-    }
-    if (idempotency.kind !== "acquired") {
-      res.status(500).json({ error: "Idempotency precondition failed." });
-      return;
-    }
-
-    const idempotencyHandle = idempotency;
-    const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
-      await idempotencyHandle.commit(statusCode, payload);
-      res.status(statusCode).json(payload);
-    };
-
-    const tcAwarded = gcAmount * GC_TO_TC_RATE;
-
-    try {
-      const result = await db.transaction(async (tx) => {
-        const [user] = await tx
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.telegramId, telegramId))
-          .for("update")
-          .limit(1);
-
-        if (!user) throw new Error("USER_NOT_FOUND");
-        if ((user.goldCoins ?? 0) < gcAmount) throw new Error("INSUFFICIENT_GC");
-
-        await tx
-          .update(usersTable)
-          .set({
-            goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
-            tradeCredits: sql`${usersTable.tradeCredits} + ${tcAwarded}`,
-          })
-          .where(eq(usersTable.telegramId, telegramId));
-
-        const [updated] = await tx
-          .select({
-            goldCoins: usersTable.goldCoins,
-            tradeCredits: usersTable.tradeCredits,
-          })
-          .from(usersTable)
-          .where(eq(usersTable.telegramId, telegramId))
-          .limit(1);
-
-        return updated;
-      });
-
-      logger.info({ telegramId, gcAmount, tcAwarded }, "GC->TC conversion completed");
-
-      await replyWithCommit(200, {
-        gcSpent: gcAmount,
-        tcAwarded,
-        rate: GC_TO_TC_RATE,
-        balances: {
-          goldCoins: result?.goldCoins ?? 0,
-          tradeCredits: result?.tradeCredits ?? 0,
-        },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "UNKNOWN";
-      if (msg === "USER_NOT_FOUND") {
-        await replyWithCommit(404, { error: "User not found." });
-        return;
-      }
-      if (msg === "INSUFFICIENT_GC") {
-        await replyWithCommit(400, { error: "Insufficient Gold Coins." });
-        return;
-      }
-      await idempotencyHandle.abort();
-      logger.error({ err, telegramId, gcAmount }, "GC->TC conversion failed");
-      res.status(500).json({ error: "Conversion failed. Please try again." });
-    }
-  },
-);
 
 // ---------- POST /exchange/tc-pack/purchase ----------
 

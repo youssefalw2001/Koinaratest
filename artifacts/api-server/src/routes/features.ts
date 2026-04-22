@@ -155,7 +155,7 @@ router.post(
       return;
     }
 
-    const gcCost = tier === "mega" ? 500 : tier === "pro" ? 300 : 120;
+    const gcCost = tier === "mega" ? 5000 : tier === "pro" ? 1500 : 500;
 
     try {
       const result = await db.transaction(async (tx) => {
@@ -174,7 +174,7 @@ router.post(
           .set({ goldCoins: sql`${usersTable.goldCoins} - ${gcCost}` })
           .where(eq(usersTable.telegramId, telegramId));
 
-        // Mega tier — 500 GC cost, weighted reward pool defined above.
+        // Mega tier — 5000 GC cost, weighted reward pool defined above.
         if (tier === "mega") {
           const choice = pickWeighted(MEGA_REWARD_POOL);
           if (choice.kind === "tc_bonus") {
