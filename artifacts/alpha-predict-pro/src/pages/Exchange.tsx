@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTonConnectUI, useTonAddress } from "@tonconnect/ui-react";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { useLanguage } from "@/lib/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
 
@@ -64,6 +65,7 @@ const PACK_COLOR: Record<TcPack["id"], string> = {
 
 export default function Exchange() {
   const { user, refreshUser } = useTelegram();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"convert" | "packs">("convert");
   const [packs, setPacks] = useState<PacksResponse | null>(null);
@@ -222,11 +224,11 @@ export default function Exchange() {
       <div className="app-card p-4">
         <div className="flex items-center gap-2 mb-1">
           <ArrowDownUp size={14} className="text-[#FFD700]" />
-          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">Exchange</span>
+          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
+            {t("exchange")}
+          </span>
         </div>
-        <div className="font-mono text-[11px] text-white/45 mb-3">
-          Convert Gold Coins to Trade Credits, or buy TC packs with TON.
-        </div>
+        <div className="font-mono text-[11px] text-white/45 mb-3">{t("exchangeBlurb")}</div>
 
         <div className="grid grid-cols-2 gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.02]">
           <button
@@ -237,7 +239,7 @@ export default function Exchange() {
                 : "text-white/45 border border-transparent"
             }`}
           >
-            GC → TC
+            {t("gcToTc")}
           </button>
           <button
             onClick={() => setTab("packs")}
@@ -247,7 +249,7 @@ export default function Exchange() {
                 : "text-white/45 border border-transparent"
             }`}
           >
-            Buy TC · TON
+            {t("buyTcTon")}
           </button>
         </div>
       </div>
@@ -255,11 +257,11 @@ export default function Exchange() {
       {tab === "convert" && (
         <div className="app-card p-4 flex flex-col gap-3">
           <div className="font-mono text-[11px] text-white/55">
-            Rate: <span className="text-[#FFD700]">1 GC = {convertRate} TC</span> · min {minGc} GC · max{" "}
-            {maxGc.toLocaleString()} GC per convert.
+            {t("rate")}: <span className="text-[#FFD700]">1 GC = {convertRate} TC</span> · {t("minimum")}{" "}
+            {minGc} GC · {t("maximum")} {maxGc.toLocaleString()} GC.
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3">
-            <div className="font-mono text-[10px] text-white/45 mb-1">GC to spend</div>
+            <div className="font-mono text-[10px] text-white/45 mb-1">{t("gcToSpend")}</div>
             <input
               inputMode="numeric"
               value={gcInput}
@@ -269,7 +271,7 @@ export default function Exchange() {
             />
           </div>
           <div className="rounded-xl border border-[#4DA3FF]/25 bg-[#4DA3FF]/5 px-3 py-3 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/50">You receive</span>
+            <span className="font-mono text-[10px] text-white/50">{t("youReceive")}</span>
             <span className="font-mono text-lg font-black text-[#4DA3FF]">
               +{tcReward.toLocaleString()} TC
             </span>
@@ -279,7 +281,7 @@ export default function Exchange() {
             disabled={!canConvert || busy}
             className="py-3 rounded-xl font-mono text-xs font-black border border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700] disabled:opacity-35"
           >
-            {busy ? "CONVERTING..." : "CONVERT"}
+            {busy ? t("converting").toUpperCase() : t("convert").toUpperCase()}
           </button>
           {user && gcAmount > 0 && (user.goldCoins ?? 0) < gcAmount && (
             <div className="flex items-center gap-1.5 text-[#ff7171]">
@@ -345,7 +347,7 @@ export default function Exchange() {
                   className="px-3 py-2 rounded-lg font-mono text-[11px] font-black border disabled:opacity-35"
                   style={{ borderColor: `${color}5c`, background: `${color}1a`, color }}
                 >
-                  {pending ? "CONFIRMING..." : "BUY"}
+                  {pending ? t("confirmingTx").toUpperCase() : t("buy").toUpperCase()}
                 </button>
               </div>
             );

@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
+import { useLanguage } from "@/lib/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
 
@@ -99,6 +100,7 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
 
 export default function Mines() {
   const { user, refreshUser } = useTelegram();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
 
   const [gridSize, setGridSize] = useState<GridSize>(5);
@@ -367,12 +369,11 @@ export default function Mines() {
       <div className="app-card p-4">
         <div className="flex items-center gap-2 mb-1">
           <Bomb size={14} className="text-[#FF1744]" />
-          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">Mines</span>
+          <span className="font-mono text-xs tracking-[0.16em] uppercase text-white/70">
+            {t("minesGame")}
+          </span>
         </div>
-        <div className="font-mono text-[11px] text-white/45 mb-3">
-          Uncover gems to grow your multiplier. Hit a mine and you lose the stake.
-          Cash out any time.
-        </div>
+        <div className="font-mono text-[11px] text-white/45 mb-3">{t("minesBlurb")}</div>
 
         {!active && (
           <>
@@ -393,7 +394,7 @@ export default function Mines() {
             </div>
 
             <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3 mb-3">
-              <div className="font-mono text-[10px] text-white/45 mb-1">Mines</div>
+              <div className="font-mono text-[10px] text-white/45 mb-1">{t("minesLabel")}</div>
               <div className="flex items-center gap-2">
                 <input
                   type="range"
@@ -428,7 +429,7 @@ export default function Mines() {
 
             <details className="mb-3">
               <summary className="font-mono text-[10px] text-white/45 cursor-pointer select-none">
-                Provably fair · client seed
+                {t("provablyFair")}
               </summary>
               <input
                 value={clientSeed}
@@ -448,7 +449,7 @@ export default function Mines() {
               disabled={busy || !user || betNum > (user?.tradeCredits ?? 0)}
               className="w-full py-3 rounded-xl font-mono text-xs font-black border border-[#00E676]/45 bg-[#00E676]/12 text-[#00E676] disabled:opacity-35"
             >
-              {busy ? "STARTING..." : "START ROUND"}
+              {busy ? `${t("placing").toUpperCase()}...` : t("startRound").toUpperCase()}
             </button>
           </>
         )}
@@ -462,11 +463,11 @@ export default function Mines() {
               </div>
             </div>
             <div className="rounded-xl border border-[#FF1744]/25 bg-[#FF1744]/8 px-3 py-2">
-              <div className="font-mono text-[9px] text-[#FF1744]/75">Mines</div>
+              <div className="font-mono text-[9px] text-[#FF1744]/75">{t("minesLabel")}</div>
               <div className="font-mono text-xs font-black text-[#FF1744]">{gridMines}</div>
             </div>
             <div className="rounded-xl border border-[#00E676]/25 bg-[#00E676]/8 px-3 py-2">
-              <div className="font-mono text-[9px] text-[#00E676]/75">Multiplier</div>
+              <div className="font-mono text-[9px] text-[#00E676]/75">{t("multiplier")}</div>
               <div className="font-mono text-xs font-black text-[#00E676]">
                 {active.multiplier.toFixed(2)}×
               </div>
@@ -485,11 +486,11 @@ export default function Mines() {
             className="flex-1 py-3 rounded-xl font-mono text-xs font-black border border-[#FFD700]/45 bg-[#FFD700]/12 text-[#FFD700] disabled:opacity-35 flex items-center justify-center gap-1.5"
           >
             <DollarSign size={12} />
-            CASH OUT · {Math.floor(active.bet * active.multiplier).toLocaleString()} TC
+            {t("cashout").toUpperCase()} · {Math.floor(active.bet * active.multiplier).toLocaleString()} TC
           </button>
           <div className="px-3 py-3 rounded-xl border border-white/10 bg-white/[0.02] font-mono text-[10px] text-white/55 flex items-center gap-1.5">
             <Shield size={10} className="text-[#4DA3FF]" />
-            Next · {nextMultiplier.toFixed(2)}× ({nextSafe} safe left)
+            {t("nextSafe")} · {nextMultiplier.toFixed(2)}× ({nextSafe})
           </div>
         </div>
       )}
@@ -524,7 +525,7 @@ export default function Mines() {
                   lastResult.kind === "win" ? "text-[#FFD700]" : "text-[#FF1744]"
                 }`}
               >
-                {lastResult.kind === "win" ? "Cashed Out" : "Busted"}
+                {lastResult.kind === "win" ? t("cashedOut") : t("busted")}
               </span>
             </div>
             {lastResult.kind === "win" ? (
@@ -538,7 +539,7 @@ export default function Mines() {
             )}
             <details className="mt-2">
               <summary className="font-mono text-[10px] text-white/45 cursor-pointer select-none">
-                Verify this round
+                {t("verifyRound")}
               </summary>
               <div className="font-mono text-[10px] text-white/55 mt-1 break-all">
                 server seed: {lastResult.serverSeed}
@@ -555,7 +556,7 @@ export default function Mines() {
               className="mt-3 w-full py-2 rounded-lg font-mono text-[11px] font-black border border-white/15 text-white/75 flex items-center justify-center gap-1.5"
             >
               <RotateCcw size={11} />
-              New Round
+              {t("newRound")}
             </button>
           </motion.div>
         )}
