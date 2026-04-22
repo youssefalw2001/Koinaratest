@@ -356,7 +356,7 @@ export default function Crash() {
           <div className="font-mono text-lg font-black text-white mb-1">Coming Soon</div>
           <div className="font-mono text-xs text-white/50">
             We are hardening Crash for maximum fairness and reliability.
-            Lootbox and Digital Arbitrage are live now in the navigation.
+            Try the Lootbox in the meantime.
           </div>
         </div>
       </div>

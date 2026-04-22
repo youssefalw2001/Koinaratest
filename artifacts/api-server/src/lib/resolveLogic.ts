@@ -1,10 +1,15 @@
 import { eq, sql, and, gt } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import { isVipActive } from "./vip";
+import { logger } from "./logger";
 
 export const GC_RATIO = 1.85;
 const DEFAULT_MULTIPLIER = 1.85;
-export const DAILY_GC_CAP_FREE = 800;
+// Daily caps scale with the mix of durations: short rounds let users rack up
+// wins much faster than the legacy 60s-only flow. Keep VIP at a comfortable
+// 6k/day; lift the free tier to 2k so casual play with 6s bets doesn't hit
+// the ceiling after a single session.
+export const DAILY_GC_CAP_FREE = 2000;
 export const DAILY_GC_CAP_VIP = 6000;
 
 export interface ResolveOutcome {
@@ -13,6 +18,19 @@ export interface ResolveOutcome {
   reason?: string;
   payoutApplied?: number;
   payoutBlockedReason?: "daily_cap_reached";
+}
+
+// Defensive coercion: the DB driver should always hand us numbers for
+// integer/real columns, but bad migrations or old rows have been seen to
+// surface strings/nulls. Falling back here means a winning trade can never
+// silently pay zero because of a type mismatch.
+function toFiniteNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 /**
@@ -157,14 +175,33 @@ export async function resolvePredictionLogic(
     const baseMultiplier = vipNow ? 2 : 1;
     // Use the per-prediction multiplier that was validated & stored on bet
     // placement (duration tier + VIP bonus). Fall back to legacy GC_RATIO for
-    // any older rows written before this column existed.
-    const tierMultiplier =
-      typeof prediction.multiplier === "number" && prediction.multiplier > 0
-        ? prediction.multiplier
-        : DEFAULT_MULTIPLIER;
-    const rawPayout = Math.floor(prediction.amount * tierMultiplier) * baseMultiplier * gemMultiplier;
-    const remaining = dailyCap - currentDailyGc;
-    const gcPayout = Math.min(rawPayout, Math.max(0, remaining));
+    // any older rows written before this column existed, and guard against
+    // the driver handing us back a string or null (both have been observed on
+    // Railway during migrations).
+    const storedMultiplier = toFiniteNumber(prediction.multiplier, DEFAULT_MULTIPLIER);
+    const tierMultiplier = storedMultiplier > 0 ? storedMultiplier : DEFAULT_MULTIPLIER;
+    const stakeAmount = toFiniteNumber(prediction.amount, 0);
+    const rawPayout = Math.max(
+      1,
+      Math.floor(stakeAmount * tierMultiplier) * baseMultiplier * gemMultiplier,
+    );
+    const remaining = Math.max(0, dailyCap - currentDailyGc);
+    const gcPayout = Math.min(rawPayout, remaining);
+
+    if (stakeAmount <= 0 || !Number.isFinite(rawPayout)) {
+      logger.warn(
+        {
+          predictionId,
+          rawMultiplier: prediction.multiplier,
+          rawAmount: prediction.amount,
+          stakeAmount,
+          tierMultiplier,
+          baseMultiplier,
+          gemMultiplier,
+        },
+        "Prediction row had non-numeric stake/multiplier — falling back",
+      );
+    }
 
     if (gcPayout <= 0) {
       return {

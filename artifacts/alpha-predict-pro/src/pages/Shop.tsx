@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle, ChevronRight } from "lucide-react";
+import { ArrowDownUp, Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle, ChevronRight } from "lucide-react";
 import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -154,12 +155,26 @@ export default function Shop() {
 
       {/* Balance */}
       {user && (
-        <div className="app-card flex items-center gap-2 mb-6 p-3">
+        <div className="app-card flex items-center gap-2 mb-4 p-3">
           <span className="text-sm">🪙</span>
           <span className="font-mono text-sm font-bold text-[#FFD700]">{(user.goldCoins ?? 0).toLocaleString()} GC</span>
           <span className="font-mono text-[10px] text-white/30 ml-auto">available balance</span>
         </div>
       )}
+
+      {/* Exchange shortcut — GC→TC conversion + TON TC packs */}
+      <Link href="/exchange">
+        <div className="app-card mb-6 p-3 flex items-center gap-3 cursor-pointer">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#4DA3FF]/15 text-[#4DA3FF]">
+            <ArrowDownUp size={14} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-xs font-black text-white">Exchange</div>
+            <div className="font-mono text-[10px] text-white/45">Convert GC → TC, or buy TC packs with TON</div>
+          </div>
+          <ChevronRight size={14} className="text-white/35" />
+        </div>
+      </Link>
 
       {/* Active Gems Summary */}
       {safeActiveGems.length > 0 && (
