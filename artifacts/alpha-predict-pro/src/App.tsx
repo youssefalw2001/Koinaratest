@@ -26,6 +26,7 @@ import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
 import Lootbox from "./pages/Lootbox";
+import Exchange from "./pages/Exchange";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -326,6 +327,7 @@ function Router() {
           }
         />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
+        <Route path="/exchange" component={() => <Bounded><Exchange /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
