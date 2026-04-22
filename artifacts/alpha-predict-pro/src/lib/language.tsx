@@ -89,7 +89,8 @@ type TranslationKey =
   | "megaTier"
   | "openLootbox"
   | "lootResult"
-  | "cost";
+  | "cost"
+  | "tradeCredits";
 
 const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
   en: {
@@ -171,6 +172,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
     jumboPack: "Jumbo Vault",
     buy: "Buy",
     confirmingTx: "Confirming...",
+    tradeCredits: "Trade Credits",
 
     lootbox: "Lootbox",
     lootboxBlurb: "Spin TC/GC rolls, or push your luck on a Mega box for rare rewards.",
@@ -261,6 +263,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
     jumboPack: "الخزينة الكبرى",
     buy: "شراء",
     confirmingTx: "جاري التأكيد...",
+    tradeCredits: "أرصدة التداول",
 
     lootbox: "صندوق الحظ",
     lootboxBlurb: "جرّب حظك بصناديق TC/GC، أو ارفع السقف بصندوق ميجا لمكافآت نادرة.",

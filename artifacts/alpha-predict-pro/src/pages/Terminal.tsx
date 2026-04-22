@@ -95,9 +95,9 @@ export default function Terminal() {
 
   const createPrediction = useCreatePrediction();
   const resolvePrediction = useResolvePrediction();
-  const { data: recentPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 5 }, { query: { enabled: !!user } });
-  const { data: vipActivityRaw } = useGetVipActivity({ query: { refetchInterval: 30_000 } });
-  const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user } });
+  const { data: recentPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 5 }, { query: { enabled: !!user, queryKey: ["predictions", user?.telegramId] } });
+  const { data: vipActivityRaw } = useGetVipActivity({ query: { refetchInterval: 30_000, queryKey: ["vip-activity"] } });
+  const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user, queryKey: ["user-stats", user?.telegramId] } });
 
   const vipActivity = useMemo(() => Array.isArray(vipActivityRaw) ? vipActivityRaw : [], [vipActivityRaw]);
 
@@ -164,7 +164,7 @@ export default function Terminal() {
         });
       }, 1000);
       setTimeout(async () => {
-        const res = await resolvePrediction.mutateAsync({ params: { id: pred.id }, data: { exitPrice: price } });
+        const res = await resolvePrediction.mutateAsync({ id: pred.id, data: { exitPrice: price } });
         setActivePrediction(null);
         setShowResult({ ...pred, exitPrice: price, won: res.status === "won", payout: res.payout ?? 0 });
         refreshUser();
