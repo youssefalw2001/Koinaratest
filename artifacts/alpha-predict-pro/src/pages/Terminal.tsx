@@ -1,43 +1,34 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw, Share2, Users, ChevronDown } from "lucide-react";
 import {
-  LineChart,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
-  ReferenceLine,
-  ReferenceDot,
   ResponsiveContainer,
+  Cell,
+  ComposedChart,
+  Line,
 } from "recharts";
 import {
   useCreatePrediction,
   useResolvePrediction,
   useGetUserPredictions,
   useGetVipActivity,
-  useGetActiveGems,
-  usePurchaseGem,
-  getGetUserPredictionsQueryKey,
   getGetUserQueryKey,
-  getGetVipActivityQueryKey,
-  getGetActiveGemsQueryKey,
   useGetUserStats,
 } from "@workspace/api-client-react";
 import { isVipActive } from "@/lib/vipActive";
-import { getVipCountdownLabel } from "@/lib/vipExpiry";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { PageLoader } from "@/components/PageStatus";
-import { formatGcUsd } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 
-const MIN_BET = 50;
-const DEFAULT_BET = 100;
 const GOLD = "#FFD700";
-const WIN_COLOR = "#00E676";
-const LOSS_COLOR = "#FF1744";
-const TC_BLUE = "#4DA3FF";
+const BULL_COLOR = "#00E676";
+const BEAR_COLOR = "#FF1744";
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -51,24 +42,28 @@ const DURATION_TIERS = [
   { seconds: 60 as const, baseMultiplier: 1.85, label: "60s" },
 ] satisfies readonly DurationTier[];
 const VIP_MULTIPLIER_BONUS = 0.1;
-const DEFAULT_TIER_INDEX = 3;
 
 interface TradingPair {
   id: string;
   label: string;
   short: string;
+  symbol: string;
 }
 const TRADING_PAIRS: readonly TradingPair[] = [
-  { id: "BTCUSDT", label: "BTC/USDT", short: "BTC" },
-  { id: "ETHUSDT", label: "ETH/USDT", short: "ETH" },
-  { id: "SOLUSDT", label: "SOL/USDT", short: "SOL" },
-  { id: "BNBUSDT", label: "BNB/USDT", short: "BNB" },
-  { id: "XRPUSDT", label: "XRP/USDT", short: "XRP" },
-  { id: "DOGEUSDT", label: "DOGE/USDT", short: "DOGE" },
-  { id: "ADAUSDT", label: "ADA/USDT", short: "ADA" },
+  { id: "BTCUSDT", label: "BTC/USDT", short: "BTC", symbol: "₿" },
+  { id: "ETHUSDT", label: "ETH/USDT", short: "ETH", symbol: "Ξ" },
+  { id: "SOLUSDT", label: "SOL/USDT", short: "SOL", symbol: "S" },
+  { id: "PAXGUSDT", label: "GOLD/USDT", short: "GOLD", symbol: "Au" }, // PAXG is gold-backed
+  { id: "TONUSDT", label: "TON/USDT", short: "TON", symbol: "T" },
 ];
 
-const STALE_LIVE_GRACE_SEC = 15;
+interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "recently";
@@ -80,84 +75,57 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-interface PriceResult {
-  direction: string;
-  amount: number;
-  entryPrice: number;
-  exitPrice: number;
-  won: boolean;
-  payout: number;
-  id: number;
-}
-
-interface PricePoint {
-  t: number;
-  v: number;
-}
-
-interface TickerItem {
-  displayName: string;
-  payout: number;
-  resolvedAt: string;
-}
-
-function VipTicker({ items }: { items: TickerItem[] }) {
-  if (!items.length) return null;
-  const doubled = [...items, ...items];
-  return (
-    <div className="relative overflow-hidden border-b border-white/5 h-7 bg-white/[0.02]">
-      <div className="flex whitespace-nowrap absolute top-0 left-0 animate-ticker">
-        {doubled.map((item, i) => (
-          <span key={i} className="inline-flex items-center gap-1.5 shrink-0 leading-7 pr-7">
-            <span className="text-[10px]">👑</span>
-            <span className="font-mono text-[10px] text-white/50">{item.displayName}</span>
-            <span className="font-mono text-[10px] text-[#f5c518]">won {item.payout} GC</span>
-            <span className="font-mono text-[9px] text-white/30">· {timeAgo(item.resolvedAt)}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function Terminal() {
   const { user, isLoading, refreshUser } = useTelegram();
-  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const [tierIndex, setTierIndex] = useState<number>(DEFAULT_TIER_INDEX);
+  const [tierIndex, setTierIndex] = useState<number>(3);
   const [pairIndex, setPairIndex] = useState<number>(0);
   const selectedPair = TRADING_PAIRS[pairIndex] ?? TRADING_PAIRS[0];
-  const [bet, setBet] = useState(DEFAULT_BET);
+  const [bet, setBet] = useState(100);
   const [activePrediction, setActivePrediction] = useState<any>(null);
   const [countdown, setCountdown] = useState(0);
-  const [showResult, setShowResult] = useState<PriceResult | null>(null);
-  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
+  const [showResult, setShowResult] = useState<any>(null);
+  const [candles, setCandles] = useState<Candle[]>([]);
   const [showPairMenu, setShowPairMenu] = useState(false);
 
   const createPrediction = useCreatePrediction();
   const resolvePrediction = useResolvePrediction();
   const { data: recentPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 5 }, { query: { enabled: !!user } });
-  const { data: historyPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 100 }, { query: { enabled: !!user } });
   const { data: vipActivityRaw } = useGetVipActivity({ query: { refetchInterval: 30_000 } });
   const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user } });
 
   const vipActivity = useMemo(() => Array.isArray(vipActivityRaw) ? vipActivityRaw : [], [vipActivityRaw]);
 
-  useEffect(() => {
-    if (price <= 0) return;
-    setPriceHistory(prev => [...prev, { t: Date.now(), v: price }].slice(-40));
-  }, [price]);
-
+  // Candle Engine
   useEffect(() => {
     setPrice(0);
-    setPriceHistory([]);
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@ticker`);
+    setCandles([]);
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@kline_1m`);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      const newPrice = parseFloat(data.c);
+      const k = data.k;
+      const newPrice = parseFloat(k.c);
       setPrice(p => { setPrevPrice(p); return newPrice; });
+      
+      const newCandle: Candle = {
+        time: k.t,
+        open: parseFloat(k.o),
+        high: parseFloat(k.h),
+        low: parseFloat(k.l),
+        close: parseFloat(k.c),
+      };
+      
+      setCandles(prev => {
+        const last = prev[prev.length - 1];
+        if (last && last.time === newCandle.time) {
+          const updated = [...prev];
+          updated[updated.length - 1] = newCandle;
+          return updated;
+        }
+        return [...prev, newCandle].slice(-20);
+      });
     };
     return () => ws.close();
   }, [selectedPair.id]);
@@ -191,13 +159,24 @@ export default function Terminal() {
   const vip = isVipActive(user);
   const referralCount = (userStats as any)?.referralCount ?? 0;
   const is5kLocked = !vip && referralCount < 5;
-  const maxBet = vip ? 5000 : 1000;
 
   useEffect(() => {
     if (showResult?.won) {
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ["#FFD700", "#FFF9E0", "#B8860B"] });
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#FFD700", "#FFF9E0", "#B8860B"] });
     }
   }, [showResult]);
+
+  // Chart data formatting for Recharts
+  const chartData = useMemo(() => {
+    return candles.map(c => ({
+      ...c,
+      // Bar needs height and base
+      bottom: Math.min(c.open, c.close),
+      top: Math.max(c.open, c.close),
+      height: Math.abs(c.open - c.close) || 0.01,
+      isBull: c.close >= c.open
+    }));
+  }, [candles]);
 
   if (isLoading) return <PageLoader rows={5} />;
 
@@ -206,118 +185,174 @@ export default function Terminal() {
       <style>{`
         @keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-ticker { animation: ticker 30s linear infinite; }
+        .gold-glow { text-shadow: 0 0 15px rgba(255, 215, 0, 0.4); }
+        .candle-container { filter: drop-shadow(0 0 10px rgba(0,0,0,0.5)); }
       `}</style>
 
-      <VipTicker items={vipActivity} />
+      {/* VIP Ticker */}
+      <div className="relative overflow-hidden border-b border-white/5 h-7 bg-white/[0.02]">
+        <div className="flex whitespace-nowrap absolute top-0 left-0 animate-ticker">
+          {(vipActivity.length ? [...vipActivity, ...vipActivity] : []).map((item, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 shrink-0 leading-7 pr-7">
+              <span className="text-[10px]">👑</span>
+              <span className="font-mono text-[10px] text-white/50">{item.displayName}</span>
+              <span className="font-mono text-[10px] text-[#FFD700]">won {item.payout} GC</span>
+              <span className="font-mono text-[9px] text-white/30">· {timeAgo(item.resolvedAt)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
 
       <div className="px-4 pt-4 flex flex-col gap-4">
-        {/* Pair Selector & Price Display */}
-        <div className="relative p-5 rounded-3xl border border-white/[0.06] bg-white/[0.03] flex flex-col gap-2 overflow-hidden">
+        {/* Elite Terminal Header */}
+        <div className="relative p-6 rounded-[32px] border border-white/[0.08] bg-gradient-to-b from-white/[0.05] to-transparent flex flex-col gap-2 overflow-hidden shadow-2xl">
           <div className="flex items-center justify-between relative z-10">
-            <button onClick={() => setShowPairMenu(!showPairMenu)} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10">
-              <span className="text-[10px] font-black text-white/40 tracking-widest">{selectedPair.label}</span>
-              <ChevronDown size={12} className="text-white/30" />
+            <button onClick={() => setShowPairMenu(!showPairMenu)} className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/[0.05] border border-white/10 hover:bg-white/10 transition-all">
+              <span className="text-[11px] font-black text-[#FFD700] tracking-widest uppercase">{selectedPair.label}</span>
+              <ChevronDown size={14} className="text-[#FFD700]/50" />
             </button>
-            <span className="text-[10px] font-mono text-white/20 tracking-widest uppercase">Live Terminal</span>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
+              <span className="text-[10px] font-mono text-white/30 tracking-widest uppercase">Live Terminal</span>
+            </div>
           </div>
 
           <AnimatePresence>
             {showPairMenu && (
-              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-14 left-5 z-20 bg-[#121218] border border-white/10 rounded-2xl p-2 grid grid-cols-2 gap-1 shadow-2xl">
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-16 left-6 z-20 bg-[#121218] border border-white/10 rounded-2xl p-2 grid grid-cols-1 gap-1 shadow-2xl min-w-[140px]">
                 {TRADING_PAIRS.map((p, i) => (
-                  <button key={p.id} onClick={() => { setPairIndex(i); setShowPairMenu(false); }} className={`px-4 py-2 rounded-xl text-left font-mono text-[10px] font-bold ${pairIndex === i ? "bg-[#FFD700] text-black" : "text-white/40 hover:bg-white/5"}`}>
-                    {p.label}
+                  <button key={p.id} onClick={() => { setPairIndex(i); setShowPairMenu(false); }} className={`px-4 py-3 rounded-xl text-left font-mono text-[11px] font-black flex justify-between items-center ${pairIndex === i ? "bg-[#FFD700] text-black" : "text-white/40 hover:bg-white/5"}`}>
+                    <span>{p.label}</span>
+                    <span className="opacity-40">{p.symbol}</span>
                   </button>
                 ))}
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="flex items-center gap-3 mt-2">
-            <div className="w-10 h-10 rounded-full bg-white/[0.05] border border-white/10 flex items-center justify-center text-xs font-black text-white/40">
-              {selectedPair.short}
-            </div>
+          <div className="flex items-end justify-between mt-4">
             <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${price >= prevPrice ? "bg-[#00E676]" : "bg-[#FF1744]"} shadow-[0_0_10px_currentColor]`} />
-                <h2 className="text-4xl font-black tracking-tighter tabular-nums">
-                  ${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </h2>
+              <span className={`text-4xl font-black tracking-tighter tabular-nums ${price >= prevPrice ? "text-[#00E676]" : "text-[#FF1744]"}`}>
+                ${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`text-[10px] font-black uppercase tracking-widest ${price >= prevPrice ? "text-[#00E676]" : "text-[#FF1744]"}`}>
+                  {price >= prevPrice ? "Rising" : "Falling"}
+                </span>
+                <span className="text-[10px] font-mono text-white/20">· Realtime Binance Feed</span>
               </div>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center text-xl font-black text-[#FFD700]/40">
+              {selectedPair.symbol}
             </div>
           </div>
 
-          <div className="h-28 w-full mt-4">
+          {/* Candlestick Chart */}
+          <div className="h-40 w-full mt-6 candle-container">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={priceHistory}>
-                <Line type="monotone" dataKey="v" stroke={price >= prevPrice ? "#00E676" : "#FF1744"} strokeWidth={3} dot={false} isAnimationActive={false} />
+              <ComposedChart data={chartData}>
                 <YAxis hide domain={["auto", "auto"]} />
-              </LineChart>
+                {/* Wicks */}
+                <Bar dataKey="high" fill="none">
+                  {chartData.map((entry, index) => (
+                    <Cell key={`wick-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} opacity={0.3} />
+                  ))}
+                </Bar>
+                {/* Bodies */}
+                <Bar dataKey="height" stackId="a">
+                  {chartData.map((entry, index) => (
+                    <Cell key={`body-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} />
+                  ))}
+                </Bar>
+                {/* Current Price Line */}
+                <ReferenceLine y={price} stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} strokeDasharray="3 3" opacity={0.5} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Controls */}
+        {/* Binary Options Controls */}
         {!activePrediction && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5 mt-2">
             <div className="grid grid-cols-4 gap-2">
               {DURATION_TIERS.map((tier, idx) => (
-                <button key={tier.seconds} onClick={() => setTierIndex(idx)} className={`py-2.5 rounded-2xl border font-mono text-[11px] font-black transition-all ${idx === tierIndex ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10" : "border-white/10 text-white/30"}`}>
+                <button key={tier.seconds} onClick={() => setTierIndex(idx)} className={`py-3 rounded-2xl border font-mono text-[11px] font-black transition-all ${idx === tierIndex ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10 shadow-[0_0_15px_rgba(255,215,0,0.1)]" : "border-white/5 text-white/20 bg-white/[0.02]"}`}>
                   {tier.label}
                 </button>
               ))}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {[50, 100, 250, 500, 1000].map(opt => (
-                <button key={opt} onClick={() => setBet(opt)} className={`flex-1 py-2.5 rounded-full font-mono text-[10px] font-bold border transition-all ${bet === opt ? "border-[#4DA3FF] text-[#8BC3FF] bg-[#4DA3FF]/10" : "border-white/10 text-white/30"}`}>
+                <button key={opt} onClick={() => setBet(opt)} className={`flex-1 py-3 rounded-2xl font-mono text-[10px] font-black border transition-all ${bet === opt ? "border-[#4DA3FF] text-[#8BC3FF] bg-[#4DA3FF]/10" : "border-white/5 text-white/20 bg-white/[0.02]"}`}>
                   {opt >= 1000 ? `${opt/1000}K` : opt}
                 </button>
               ))}
               <div className="relative flex-1">
-                <button onClick={() => !is5kLocked && setBet(5000)} className={`w-full py-2.5 rounded-full font-mono text-[10px] font-bold border transition-all flex items-center justify-center gap-1 ${bet === 5000 ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10" : is5kLocked ? "border-white/5 text-white/10 bg-white/5 cursor-not-allowed" : "border-[#FFD700]/30 text-[#FFD700]/50"}`}>
+                <button onClick={() => !is5kLocked && setBet(5000)} className={`w-full py-3 rounded-2xl font-mono text-[10px] font-black border transition-all flex items-center justify-center gap-1 ${bet === 5000 ? "border-[#FFD700] text-[#FFD700] bg-[#FFD700]/10" : is5kLocked ? "border-white/5 text-white/10 bg-white/5 cursor-not-allowed" : "border-[#FFD700]/30 text-[#FFD700]/50 bg-[#FFD700]/5"}`}>
                   {is5kLocked && <Users size={10} />} 5K
                 </button>
-                {is5kLocked && <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/80 border border-white/10 px-2 py-0.5 rounded text-[8px] font-mono text-white/40">Invite 5 friends</div>}
+                {is5kLocked && <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/90 border border-white/10 px-3 py-1 rounded-lg text-[9px] font-black text-[#FFD700]/60">INVITE 5 FRIENDS</div>}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => handlePredict("long")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="py-5 rounded-3xl border-2 font-mono font-black text-xl bg-[#00E676]/10 border-[#00E676]/40 text-[#00E676] disabled:opacity-20 uppercase tracking-widest shadow-[0_0_20px_rgba(0,230,118,0.1)]">Long</button>
-              <button onClick={() => handlePredict("short")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="py-5 rounded-3xl border-2 font-mono font-black text-xl bg-[#FF1744]/10 border-[#FF1744]/40 text-[#FF1744] disabled:opacity-20 uppercase tracking-widest shadow-[0_0_20px_rgba(255,23,68,0.1)]">Short</button>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <button onClick={() => handlePredict("long")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#00E676]/10 active:scale-95">
+                <div className="relative z-10 flex items-center justify-center gap-2">
+                  <TrendingUp size={24} />
+                  LONG
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#00E676]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+              <button onClick={() => handlePredict("short")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#FF1744]/10 active:scale-95">
+                <div className="relative z-10 flex items-center justify-center gap-2">
+                  <TrendingDown size={24} />
+                  SHORT
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#FF1744]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
             </div>
           </div>
         )}
 
         {activePrediction && (
-          <div className="flex flex-col items-center py-6">
-            <div className="relative w-36 h-36 flex items-center justify-center">
+          <div className="flex flex-col items-center py-8">
+            <div className="relative w-40 h-40 flex items-center justify-center">
               <svg className="w-full h-full -rotate-90">
-                <circle cx="72" cy="72" r="68" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="6" />
-                <circle cx="72" cy="72" r="68" fill="none" stroke="#FFD700" strokeWidth="6" strokeDasharray={427} strokeDashoffset={427 * (1 - countdown / activePrediction.duration)} strokeLinecap="round" className="transition-all duration-1000 linear" />
+                <circle cx="80" cy="80" r="76" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="8" />
+                <circle cx="80" cy="80" r="76" fill="none" stroke="#FFD700" strokeWidth="8" strokeDasharray={477} strokeDashoffset={477 * (1 - countdown / activePrediction.duration)} strokeLinecap="round" className="transition-all duration-1000 linear shadow-[0_0_20px_#FFD700]" />
               </svg>
               <div className="absolute flex flex-col items-center">
-                <span className="text-4xl font-black tabular-nums">{countdown}s</span>
-                <span className="text-[10px] font-mono text-white/30 uppercase tracking-[0.2em]">{activePrediction.direction}</span>
+                <span className="text-5xl font-black tabular-nums tracking-tighter">{countdown}s</span>
+                <span className="text-[11px] font-black text-[#FFD700] uppercase tracking-[0.3em] mt-1">{activePrediction.direction}</span>
               </div>
             </div>
           </div>
         )}
 
-        <div className="flex flex-col gap-2 mt-2">
-          <span className="text-[10px] font-mono text-white/20 tracking-[0.3em] uppercase">Recent History</span>
+        {/* History List */}
+        <div className="flex flex-col gap-3 mt-4">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-black text-white/30 tracking-[0.3em] uppercase">Market History</span>
+            <span className="text-[10px] font-mono text-white/20">Last 5 Trades</span>
+          </div>
           <div className="space-y-2">
             {(recentPredictions ?? []).slice(0, 5).map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between p-4 rounded-2xl border border-white/[0.04] bg-white/[0.02]">
-                <div className="flex items-center gap-3">
-                  {p.direction === "long" ? <TrendingUp size={14} className="text-[#00E676]" /> : <TrendingDown size={14} className="text-[#FF1744]" />}
+              <div key={p.id} className="flex items-center justify-between p-5 rounded-[24px] border border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.04] transition-all">
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${p.direction === "long" ? "bg-[#00E676]/10 text-[#00E676]" : "bg-[#FF1744]/10 text-[#FF1744]"}`}>
+                    {p.direction === "long" ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                  </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-black text-white/80">{p.amount} TC</span>
-                    <span className="text-[9px] font-mono text-white/30 uppercase tracking-tighter">{p.direction} · {p.duration}s</span>
+                    <span className="text-sm font-black text-white">{p.amount} TC</span>
+                    <span className="text-[10px] font-mono text-white/30 uppercase tracking-tighter">{p.duration}s · ${p.entryPrice.toLocaleString()}</span>
                   </div>
                 </div>
-                <div className={`text-xs font-black ${p.status === "won" ? "text-[#FFD700]" : p.status === "lost" ? "text-white/20" : "text-white/40"}`}>
-                  {p.status === "won" ? `+${p.payout} GC` : p.status === "lost" ? "LOST" : "LIVE"}
+                <div className="flex flex-col items-end">
+                  <span className={`text-sm font-black ${p.status === "won" ? "text-[#FFD700] gold-glow" : p.status === "lost" ? "text-white/10" : "text-white/40"}`}>
+                    {p.status === "won" ? `+${p.payout} GC` : p.status === "lost" ? "LOSS" : "PENDING"}
+                  </span>
+                  <span className="text-[9px] font-mono text-white/20 uppercase tracking-tighter">{timeAgo(p.createdAt)}</span>
                 </div>
               </div>
             ))}
@@ -325,22 +360,27 @@ export default function Terminal() {
         </div>
       </div>
 
+      {/* Result Modal */}
       <AnimatePresence>
         {showResult && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md p-6" onClick={() => setShowResult(null)}>
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className={`w-full max-w-xs p-10 rounded-[40px] border-2 text-center flex flex-col gap-6 ${showResult.won ? "border-[#FFD700] bg-[#FFD700]/5 shadow-[0_0_60px_rgba(255,215,0,0.15)]" : "border-white/10 bg-white/5"}`}>
-              <div className="flex justify-center">{showResult.won ? <Crown size={56} className="text-[#FFD700]" /> : <Zap size={56} className="text-white/10" />}</div>
-              <div className="flex flex-col gap-1">
-                <h2 className={`text-4xl font-black tracking-tighter ${showResult.won ? "text-[#FFD700]" : "text-white/30"}`}>{showResult.won ? "PROFIT!" : "LOSS"}</h2>
-                <span className="text-[10px] font-mono text-white/20 tracking-[0.3em] uppercase">{showResult.won ? "Trade Successful" : "Trade Failed"}</span>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 backdrop-blur-xl p-6" onClick={() => setShowResult(null)}>
+            <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} className={`w-full max-w-sm p-12 rounded-[48px] border-2 text-center flex flex-col gap-8 ${showResult.won ? "border-[#FFD700] bg-gradient-to-b from-[#FFD700]/10 to-transparent shadow-[0_0_100px_rgba(255,215,0,0.2)]" : "border-white/10 bg-white/5"}`}>
+              <div className="flex justify-center">
+                <div className={`w-24 h-24 rounded-[32px] flex items-center justify-center ${showResult.won ? "bg-[#FFD700] text-black shadow-[0_0_40px_#FFD700]" : "bg-white/5 text-white/10"}`}>
+                  {showResult.won ? <Crown size={48} /> : <Zap size={48} />}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <h2 className={`text-5xl font-black tracking-tighter ${showResult.won ? "text-[#FFD700] gold-glow" : "text-white/20"}`}>{showResult.won ? "ELITE WIN!" : "TRADE LOSS"}</h2>
+                <span className="text-[11px] font-black text-white/30 tracking-[0.4em] uppercase">{showResult.won ? "Liquidity Secured" : "Market Volatility"}</span>
               </div>
               {showResult.won && (
                 <div className="flex flex-col gap-1">
-                  <span className="text-5xl font-black text-white tracking-tighter">+{showResult.payout}</span>
-                  <span className="text-xs text-white/30 font-mono">GOLD COINS AWARDED</span>
+                  <span className="text-6xl font-black text-white tracking-tighter">+{showResult.payout}</span>
+                  <span className="text-xs text-[#FFD700] font-black tracking-widest uppercase">GOLD COINS EARNED</span>
                 </div>
               )}
-              <button className="mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 font-black text-[10px] tracking-widest uppercase text-white/40">Tap to continue</button>
+              <button className="mt-4 py-5 rounded-3xl bg-white/5 border border-white/10 font-black text-xs tracking-[0.3em] uppercase text-white/30 hover:bg-white/10 transition-all">TAP TO DISMISS</button>
             </motion.div>
           </motion.div>
         )}
