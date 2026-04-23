@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bomb, Gem, Trophy, Shield, Eye, Zap, RefreshCw, ChevronUp, ChevronDown, Sparkles, ShoppingBag } from "lucide-react";
+import {
+  Bomb, Gem, Trophy, Shield, Eye, Zap, RefreshCw,
+  ChevronUp, ChevronDown, Sparkles, ShoppingBag, Check, X,
+} from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
@@ -11,9 +14,16 @@ import { useLocation } from "wouter";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
-const HOUSE_EDGE_MULT = 0.965; // 3.5% edge — fair but profitable
+const HOUSE_EDGE_MULT = 0.965;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+interface ActiveGemsState {
+  revenge_shield?: boolean;
+  safe_reveal_used?: boolean;
+  gem_magnet_left?: number;
+  second_chance?: boolean;
+}
+
 interface ActiveRound {
   roundId: number;
   gridSize: number;
@@ -23,6 +33,7 @@ interface ActiveRound {
   multiplier: number;
   serverSeedHash: string;
   clientSeed: string;
+  activeGems: ActiveGemsState;
 }
 
 interface GemItem {
@@ -37,6 +48,8 @@ interface RoundResult {
   multiplier?: number;
   mines?: number[];
   hitTile?: number;
+  secondChance?: boolean;
+  refund?: number;
 }
 
 // ─── Multiplier helper (mirrors backend) ──────────────────────────────────────
@@ -52,19 +65,30 @@ function computeNextMultiplier(gridSize: number, minesCount: number, revealedAft
   return +(HOUSE_EDGE_MULT * mult).toFixed(4);
 }
 
+// ─── Gem metadata ─────────────────────────────────────────────────────────────
+const GEM_META: Record<string, { icon: typeof Shield; name: string; desc: string; color: string }> = {
+  revenge_shield: { icon: Shield, name: "Revenge Shield", desc: "Absorbs 1 mine hit", color: "#00F5A0" },
+  safe_reveal:    { icon: Eye,    name: "Safe Reveal",    desc: "Server reveals 1 safe tile", color: "#00BFFF" },
+  gem_magnet:     { icon: Zap,    name: "Gem Magnet",     desc: "1.25× boost for 3 tiles", color: "#FFD700" },
+  second_chance:  { icon: RefreshCw, name: "Second Chance", desc: "Refunds bet on bust", color: "#FF9800" },
+};
+const MINES_GEM_TYPES = Object.keys(GEM_META);
+
 // ─── Tile component ───────────────────────────────────────────────────────────
 interface TileProps {
   index: number;
   isRevealed: boolean;
-  isMine: boolean | null; // null = unknown, true = mine, false = safe
+  isMine: boolean | null;
   isLastHit: boolean;
-  isGhost: boolean; // mine shown after bust (not the hit tile)
+  isShielded: boolean;
+  isGhost: boolean;
+  isSafeHint: boolean;
   isLoading: boolean;
   disabled: boolean;
   onClick: () => void;
 }
 
-function Tile({ index, isRevealed, isMine, isLastHit, isGhost, isLoading, disabled, onClick }: TileProps) {
+function Tile({ index, isRevealed, isMine, isLastHit, isShielded, isGhost, isSafeHint, isLoading, disabled, onClick }: TileProps) {
   return (
     <motion.button
       key={index}
@@ -78,23 +102,34 @@ function Tile({ index, isRevealed, isMine, isLastHit, isGhost, isLoading, disabl
         relative aspect-square rounded-xl flex items-center justify-center overflow-hidden border transition-colors duration-200
         ${isLastHit
           ? "bg-[#FF1744]/25 border-[#FF1744]/60 shadow-[0_0_18px_rgba(255,23,68,0.4)]"
-          : isRevealed
-            ? "bg-[#FFD700]/10 border-[#FFD700]/30"
-            : isMine === false && !isRevealed
-              ? "bg-[#00F5A0]/10 border-[#00F5A0]/30"
-              : isGhost
-                ? "bg-white/[0.04] border-white/[0.08]"
-                : "bg-white/[0.05] border-white/[0.08] active:bg-white/[0.1]"
+          : isShielded
+            ? "bg-[#00F5A0]/20 border-[#00F5A0]/50 shadow-[0_0_14px_rgba(0,245,160,0.3)]"
+            : isRevealed
+              ? "bg-[#FFD700]/10 border-[#FFD700]/30"
+              : isSafeHint
+                ? "bg-[#00BFFF]/15 border-[#00BFFF]/40 shadow-[0_0_12px_rgba(0,191,255,0.25)]"
+                : isGhost
+                  ? "bg-white/[0.04] border-white/[0.08]"
+                  : "bg-white/[0.05] border-white/[0.08] active:bg-white/[0.1]"
         }
       `}
     >
-      {/* Inner shimmer on unrevealed active tiles */}
-      {!isRevealed && !isGhost && isMine === null && (
+      {!isRevealed && !isGhost && !isSafeHint && isMine === null && (
         <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent pointer-events-none" />
       )}
 
+      {/* Safe hint indicator */}
+      {isSafeHint && !isRevealed && (
+        <motion.div
+          animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        >
+          <Eye size={16} className="text-[#00BFFF]" />
+        </motion.div>
+      )}
+
       {/* Gem (safe tile) */}
-      {isRevealed && isMine !== true && (
+      {isRevealed && isMine !== true && !isShielded && (
         <motion.div
           initial={{ scale: 0.1, rotate: -25, opacity: 0 }}
           animate={{ scale: 1, rotate: 0, opacity: 1 }}
@@ -104,8 +139,19 @@ function Tile({ index, isRevealed, isMine, isLastHit, isGhost, isLoading, disabl
         </motion.div>
       )}
 
+      {/* Shielded mine */}
+      {isShielded && (
+        <motion.div
+          initial={{ scale: 0.2, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", damping: 10 }}
+        >
+          <Shield size={18} className="text-[#00F5A0] drop-shadow-[0_0_10px_rgba(0,245,160,0.7)]" />
+        </motion.div>
+      )}
+
       {/* Mine (hit tile) */}
-      {isLastHit && (
+      {isLastHit && !isShielded && (
         <motion.div
           initial={{ scale: 0.2, opacity: 0 }}
           animate={{ scale: [0.2, 1.3, 1], opacity: 1 }}
@@ -115,12 +161,12 @@ function Tile({ index, isRevealed, isMine, isLastHit, isGhost, isLoading, disabl
         </motion.div>
       )}
 
-      {/* Ghost mine (other mines revealed after bust) */}
+      {/* Ghost mine */}
       {isGhost && (
         <Bomb size={14} className="text-white/25" />
       )}
 
-      {/* Loading spinner on this specific tile */}
+      {/* Loading spinner */}
       {isLoading && (
         <motion.div
           className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl"
@@ -158,12 +204,13 @@ export default function Mines() {
   const [cashingOut, setCashingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Power-ups
+  // Power-up selection (pre-round)
   const [gems, setGems] = useState<GemItem[]>([]);
-  const [activeShield, setActiveShield] = useState(false);
-  const [revealedSafeTile, setRevealedSafeTile] = useState<number | null>(null);
-  const [gemMagnetActive, setGemMagnetActive] = useState(false);
-  const [gemMagnetTilesLeft, setGemMagnetTilesLeft] = useState(0);
+  const [selectedGemIds, setSelectedGemIds] = useState<number[]>([]);
+
+  // In-round power-up state
+  const [shieldedTiles, setShieldedTiles] = useState<number[]>([]);
+  const [safeTileHint, setSafeTileHint] = useState<number | null>(null);
 
   const vip = isVipActive(user);
   const maxBet = vip ? 8000 : 2000;
@@ -179,7 +226,17 @@ export default function Mines() {
       if (!res.ok) return;
       const data = await res.json();
       if (data.active) {
-        setActiveRound(data.active);
+        setActiveRound({
+          roundId: data.active.roundId,
+          gridSize: data.active.gridSize,
+          minesCount: data.active.minesCount,
+          bet: data.active.bet,
+          revealed: data.active.revealed ?? [],
+          multiplier: data.active.multiplier ?? 1,
+          serverSeedHash: data.active.serverSeedHash,
+          clientSeed: data.active.clientSeed,
+          activeGems: data.active.activeGems ?? {},
+        });
         setGridSize(data.active.gridSize as 3 | 4 | 5);
         setMinesCount(data.active.minesCount);
         setBet(data.active.bet);
@@ -197,9 +254,6 @@ export default function Mines() {
       if (!res.ok) return;
       const data: GemItem[] = await res.json();
       setGems(data);
-      // Restore shield state if user has one
-      const hasShield = data.some(g => g.gemType === "revenge_shield" && g.usesRemaining > 0);
-      setActiveShield(hasShield);
     } catch { /* silent */ }
   }, [user, initData]);
 
@@ -209,8 +263,8 @@ export default function Mines() {
   }, [fetchActive, fetchGems]);
 
   // ── Computed values ──
-  const totalTiles = (activeRound?.gridSize ?? gridSize) ** 2;
-
+  const currentGridSize = activeRound?.gridSize ?? gridSize;
+  const totalTiles = currentGridSize ** 2;
   const currentMultiplier = activeRound?.multiplier ?? 1;
   const cashoutValue = activeRound ? Math.floor(activeRound.bet * currentMultiplier) : 0;
 
@@ -223,9 +277,29 @@ export default function Mines() {
   const tc = user?.tradeCredits ?? 0;
   const canStart = !starting && tc >= bet && !activeRound;
 
-  const minesGems = gems.filter(g =>
-    ["revenge_shield", "safe_reveal", "gem_magnet", "second_chance"].includes(g.gemType)
+  // Available mines gems (not yet selected, with uses remaining)
+  const availableMinesGems = gems.filter(
+    g => MINES_GEM_TYPES.includes(g.gemType) && g.usesRemaining > 0
   );
+
+  // ── Toggle gem selection ──
+  const toggleGem = (gemId: number) => {
+    const gem = availableMinesGems.find(g => g.id === gemId);
+    if (!gem) return;
+
+    setSelectedGemIds(prev => {
+      if (prev.includes(gemId)) {
+        return prev.filter(id => id !== gemId);
+      }
+      // Don't allow two of the same type
+      const sameTypeSelected = prev.some(id => {
+        const existing = availableMinesGems.find(g => g.id === id);
+        return existing && existing.gemType === gem.gemType;
+      });
+      if (sameTypeSelected) return prev;
+      return [...prev, gemId];
+    });
+  };
 
   // ── Handlers ──
   const handleStart = async () => {
@@ -233,14 +307,25 @@ export default function Mines() {
     setStarting(true);
     setError(null);
     setResult(null);
-    setRevealedSafeTile(null);
-    setGemMagnetActive(false);
-    setGemMagnetTilesLeft(0);
+    setShieldedTiles([]);
+    setSafeTileHint(null);
     try {
+      const body: Record<string, unknown> = {
+        telegramId: user.telegramId,
+        gridSize,
+        minesCount,
+        bet,
+        clientSeed,
+      };
+      // Include selected gems to consume
+      if (selectedGemIds.length > 0) {
+        body.useGems = selectedGemIds;
+      }
+
       const res = await fetch(`${API_BASE}/mines/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-telegram-init-data": initData },
-        body: JSON.stringify({ telegramId: user.telegramId, gridSize, minesCount, bet, clientSeed }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
@@ -253,25 +338,19 @@ export default function Mines() {
           multiplier: data.multiplier ?? 1,
           serverSeedHash: data.serverSeedHash,
           clientSeed: data.clientSeed,
+          activeGems: data.activeGems ?? {},
         });
+
+        // Server returns a safe tile hint if Safe Reveal was activated
+        if (data.safeTileHint !== null && data.safeTileHint !== undefined) {
+          setSafeTileHint(data.safeTileHint);
+        }
+
+        // Clear selection and refresh
+        setSelectedGemIds([]);
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-
-        // Apply Safe Reveal power-up
-        const safeRevealGem = gems.find(g => g.gemType === "safe_reveal" && g.usesRemaining > 0);
-        if (safeRevealGem) {
-          // Pick a random tile that isn't a mine — we do this client-side as a hint
-          // The actual safe reveal is cosmetic (we don't know mines yet), so we just highlight a random tile
-          const randomSafe = Math.floor(Math.random() * (gridSize * gridSize));
-          setRevealedSafeTile(randomSafe);
-        }
-
-        // Apply Gem Magnet power-up
-        const gemMagnetGem = gems.find(g => g.gemType === "gem_magnet" && g.usesRemaining > 0);
-        if (gemMagnetGem) {
-          setGemMagnetActive(true);
-          setGemMagnetTilesLeft(3);
-        }
+        fetchGems(); // Refresh gem inventory (uses decremented)
       } else {
         setError(data?.error || "Could not start round. Please try again.");
       }
@@ -284,6 +363,7 @@ export default function Mines() {
   const handleReveal = async (tile: number) => {
     if (!activeRound || loadingTile !== null || cashingOut) return;
     if (activeRound.revealed.includes(tile)) return;
+    if (shieldedTiles.includes(tile)) return; // Can't click a shielded tile again
     setLoadingTile(tile);
     setError(null);
     try {
@@ -294,51 +374,44 @@ export default function Mines() {
       });
       const data = await res.json();
       if (res.ok) {
-        if (data.status === "bust") {
-          // Check if Revenge Shield absorbs the hit
-          const shieldGem = gems.find(g => g.gemType === "revenge_shield" && g.usesRemaining > 0);
-          if (shieldGem && activeShield) {
-            // Shield breaks — keep multiplier, continue round
-            setActiveShield(false);
-            setGems(prev => prev.map(g => g.id === shieldGem.id ? { ...g, usesRemaining: g.usesRemaining - 1 } : g));
-            setError("🛡️ Revenge Shield activated! Mine absorbed. Keep going!");
-            setLoadingTile(null);
-            return;
-          }
-
-          // Check Second Chance gem
-          const secondChanceGem = gems.find(g => g.gemType === "second_chance" && g.usesRemaining > 0);
-          if (secondChanceGem) {
-            setGems(prev => prev.map(g => g.id === secondChanceGem.id ? { ...g, usesRemaining: g.usesRemaining - 1 } : g));
-            setResult({ won: false, payout: activeRound.bet, mines: data.mines, hitTile: tile });
-            setActiveRound(null);
-            refreshUser();
-            queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
-            // Refund bet via second chance (cosmetic — actual refund needs backend support)
-            setError("🎲 Second Chance activated! Your bet has been refunded.");
-            setLoadingTile(null);
-            return;
-          }
-
+        if (data.hit && data.shielded) {
+          // Shield absorbed the mine — round continues!
+          setShieldedTiles(prev => [...prev, data.shieldedTile ?? tile]);
+          setActiveRound(prev => prev ? {
+            ...prev,
+            activeGems: data.activeGems ?? {},
+          } : null);
+          setError("🛡️ Revenge Shield activated! Mine absorbed — keep going!");
+        } else if (data.hit && data.secondChance) {
+          // Second Chance — bust but refunded
+          setResult({
+            won: false,
+            mines: data.mines,
+            hitTile: tile,
+            secondChance: true,
+            refund: data.refund,
+          });
+          setActiveRound(null);
+          refreshUser();
+          queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
+        } else if (data.hit) {
+          // Normal bust
           setResult({ won: false, mines: data.mines, hitTile: tile });
           setActiveRound(null);
           refreshUser();
           queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
         } else {
-          // Safe tile revealed
+          // Safe tile
           const newRevealed = data.revealed ?? [...activeRound.revealed, tile];
           const newMultiplier = data.multiplier ?? computeNextMultiplier(activeRound.gridSize, activeRound.minesCount, newRevealed.length);
-
-          // Gem Magnet boost (cosmetic multiplier display boost)
-          let displayMult = newMultiplier;
-          if (gemMagnetActive && gemMagnetTilesLeft > 0) {
-            displayMult = +(newMultiplier * 1.5).toFixed(4);
-            const newLeft = gemMagnetTilesLeft - 1;
-            setGemMagnetTilesLeft(newLeft);
-            if (newLeft === 0) setGemMagnetActive(false);
-          }
-
-          setActiveRound(prev => prev ? { ...prev, revealed: newRevealed, multiplier: displayMult } : null);
+          setActiveRound(prev => prev ? {
+            ...prev,
+            revealed: newRevealed,
+            multiplier: newMultiplier,
+            activeGems: data.activeGems ?? prev.activeGems,
+          } : null);
+          // Clear safe hint if this was the hinted tile
+          if (safeTileHint === tile) setSafeTileHint(null);
         }
       } else {
         setError(data?.error || "Could not reveal tile. Try again.");
@@ -365,6 +438,8 @@ export default function Mines() {
         const mult = activeRound.multiplier;
         setResult({ won: true, payout, multiplier: mult, mines: data.mines });
         setActiveRound(null);
+        setSafeTileHint(null);
+        setShieldedTiles([]);
         confetti({
           particleCount: 120,
           spread: 65,
@@ -421,9 +496,9 @@ export default function Mines() {
         )}
       </div>
 
-      {/* ── Power-up bar (only when active round) ── */}
+      {/* ── Active power-up indicators (during round) ── */}
       <AnimatePresence>
-        {activeRound && minesGems.length > 0 && (
+        {activeRound && Object.keys(activeRound.activeGems).length > 0 && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -431,22 +506,28 @@ export default function Mines() {
             className="px-4 mb-3 overflow-hidden"
           >
             <div className="flex gap-2 flex-wrap">
-              {activeShield && (
+              {activeRound.activeGems.revenge_shield && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#00F5A0]/10 border border-[#00F5A0]/30">
                   <Shield size={12} className="text-[#00F5A0]" />
                   <span className="text-[10px] font-mono text-[#00F5A0] font-bold">SHIELD ACTIVE</span>
                 </div>
               )}
-              {gemMagnetActive && (
+              {(activeRound.activeGems.gem_magnet_left ?? 0) > 0 && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFD700]/10 border border-[#FFD700]/30">
                   <Zap size={12} className="text-[#FFD700]" />
-                  <span className="text-[10px] font-mono text-[#FFD700] font-bold">MAGNET ×{gemMagnetTilesLeft}</span>
+                  <span className="text-[10px] font-mono text-[#FFD700] font-bold">MAGNET ×{activeRound.activeGems.gem_magnet_left}</span>
                 </div>
               )}
-              {revealedSafeTile !== null && (
+              {activeRound.activeGems.second_chance && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FF9800]/10 border border-[#FF9800]/30">
+                  <RefreshCw size={12} className="text-[#FF9800]" />
+                  <span className="text-[10px] font-mono text-[#FF9800] font-bold">2ND CHANCE</span>
+                </div>
+              )}
+              {safeTileHint !== null && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#00BFFF]/10 border border-[#00BFFF]/30">
                   <Eye size={12} className="text-[#00BFFF]" />
-                  <span className="text-[10px] font-mono text-[#00BFFF] font-bold">SAFE HINT: TILE {revealedSafeTile + 1}</span>
+                  <span className="text-[10px] font-mono text-[#00BFFF] font-bold">SAFE: TILE {safeTileHint + 1}</span>
                 </div>
               )}
             </div>
@@ -504,7 +585,6 @@ export default function Mines() {
                 </div>
                 <button onClick={() => adjustBet(50)} className="p-3 text-white/30 hover:text-white transition-colors"><ChevronUp size={16} /></button>
               </div>
-              {/* Quick bet chips */}
               <div className="flex gap-1.5 flex-wrap">
                 {[50, 100, 250, 500, 1000].filter(v => v <= maxBet).map(v => (
                   <button key={v} onClick={() => setBet(v)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${bet === v ? "bg-[#FFD700]/15 border-[#FFD700]/40 text-[#FFD700]" : "border-white/10 text-white/30 hover:text-white/60"}`}>
@@ -518,6 +598,49 @@ export default function Mines() {
                 )}
               </div>
             </div>
+
+            {/* ── Power-up selection (pre-round) ── */}
+            {availableMinesGems.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">Activate Power-ups (consumed on start)</span>
+                <div className="flex flex-col gap-1.5">
+                  {availableMinesGems.map(gem => {
+                    const meta = GEM_META[gem.gemType];
+                    if (!meta) return null;
+                    const isSelected = selectedGemIds.includes(gem.id);
+                    const IconComp = meta.icon;
+                    return (
+                      <button
+                        key={gem.id}
+                        onClick={() => toggleGem(gem.id)}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                          isSelected
+                            ? `border-[${meta.color}]/40 bg-[${meta.color}]/[0.08]`
+                            : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
+                        }`}
+                        style={isSelected ? { borderColor: `${meta.color}66`, backgroundColor: `${meta.color}14` } : {}}
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center"
+                          style={{ backgroundColor: `${meta.color}20` }}
+                        >
+                          <IconComp size={16} style={{ color: meta.color }} />
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="text-[11px] font-bold text-white">{meta.name}</p>
+                          <p className="text-[9px] font-mono text-white/30">{meta.desc} · ×{gem.usesRemaining} left</p>
+                        </div>
+                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                          isSelected ? "border-transparent" : "border-white/20"
+                        }`} style={isSelected ? { backgroundColor: meta.color } : {}}>
+                          {isSelected && <Check size={12} className="text-black" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Next multiplier preview */}
             <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05]">
@@ -539,14 +662,14 @@ export default function Mines() {
                 {starting ? (
                   <><RefreshCw size={14} className="animate-spin" /> Starting…</>
                 ) : (
-                  <><Sparkles size={14} /> Start Round</>
+                  <><Sparkles size={14} /> {selectedGemIds.length > 0 ? `Start with ${selectedGemIds.length} Power-up${selectedGemIds.length > 1 ? "s" : ""}` : "Start Round"}</>
                 )}
               </span>
             </motion.button>
 
             {tc < bet && (
               <p className="text-center text-[10px] font-mono text-[#FF1744]/70">
-                Not enough TC. <button onClick={() => setLocation("/exchange")} className="underline text-[#FFD700]">Get more →</button>
+                Not enough TC. <button onClick={() => setLocation("/exchange")} className="underline text-[#FFD700]">Get more</button>
               </p>
             )}
           </motion.div>
@@ -575,7 +698,7 @@ export default function Mines() {
               whileTap={{ scale: 0.97 }}
               className="w-full py-4 rounded-2xl bg-white text-black font-black text-sm tracking-widest uppercase disabled:opacity-30 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)]"
             >
-              {cashingOut ? "Cashing out…" : `💰 Cash Out ${cashoutValue.toLocaleString()} TC`}
+              {cashingOut ? "Cashing out…" : `Cash Out ${cashoutValue.toLocaleString()} TC`}
             </motion.button>
           </motion.div>
         )}
@@ -585,7 +708,7 @@ export default function Mines() {
       <div className="px-4 mb-4">
         <motion.div
           className="w-full grid gap-2 p-3 rounded-3xl border border-white/[0.05] bg-white/[0.015]"
-          style={{ gridTemplateColumns: `repeat(${activeRound?.gridSize ?? gridSize}, 1fr)` }}
+          style={{ gridTemplateColumns: `repeat(${currentGridSize}, 1fr)` }}
           animate={activeRound ? { boxShadow: ["0 0 0px rgba(255,215,0,0)", "0 0 30px rgba(255,215,0,0.06)", "0 0 0px rgba(255,215,0,0)"] } : {}}
           transition={{ duration: 2.5, repeat: Infinity }}
         >
@@ -594,18 +717,21 @@ export default function Mines() {
             const isLastHit = result?.hitTile === i;
             const isMineOnResult = result?.mines?.includes(i) ?? false;
             const isGhost = !activeRound && isMineOnResult && !isLastHit;
-            const isSafeHint = revealedSafeTile === i && activeRound && !isRevealed;
+            const isShielded = shieldedTiles.includes(i);
+            const isSafeHint = safeTileHint === i && !!activeRound && !isRevealed;
 
             return (
               <Tile
                 key={i}
                 index={i}
                 isRevealed={isRevealed}
-                isMine={isLastHit ? true : isGhost ? true : isSafeHint ? false : null}
-                isLastHit={isLastHit}
+                isMine={isLastHit ? true : isGhost ? true : null}
+                isLastHit={isLastHit && !isShielded}
+                isShielded={isShielded}
                 isGhost={isGhost}
+                isSafeHint={isSafeHint}
                 isLoading={loadingTile === i}
-                disabled={!activeRound || isRevealed || loadingTile !== null || cashingOut}
+                disabled={!activeRound || isRevealed || isShielded || loadingTile !== null || cashingOut}
                 onClick={() => handleReveal(i)}
               />
             );
@@ -623,6 +749,7 @@ export default function Mines() {
             className="mx-4 mb-3 p-3 rounded-xl border border-[#FF1744]/30 bg-[#FF1744]/[0.07] text-xs text-[#ffd6df] font-mono"
           >
             {error}
+            <button onClick={() => setError(null)} className="ml-2 text-white/40 hover:text-white"><X size={12} /></button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -634,20 +761,32 @@ export default function Mines() {
             initial={{ opacity: 0, y: 16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.97 }}
-            className={`mx-4 mb-4 p-5 rounded-2xl border flex flex-col gap-3 ${result.won ? "border-[#FFD700]/30 bg-[#FFD700]/[0.05]" : "border-[#FF1744]/30 bg-[#FF1744]/[0.05]"}`}
+            className={`mx-4 mb-4 p-5 rounded-2xl border flex flex-col gap-3 ${
+              result.won
+                ? "border-[#FFD700]/30 bg-[#FFD700]/[0.05]"
+                : result.secondChance
+                  ? "border-[#FF9800]/30 bg-[#FF9800]/[0.05]"
+                  : "border-[#FF1744]/30 bg-[#FF1744]/[0.05]"
+            }`}
           >
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${result.won ? "bg-[#FFD700]/15" : "bg-[#FF1744]/15"}`}>
-                {result.won ? <Trophy size={20} className="text-[#FFD700]" /> : <Bomb size={20} className="text-[#FF1744]" />}
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                result.won ? "bg-[#FFD700]/15" : result.secondChance ? "bg-[#FF9800]/15" : "bg-[#FF1744]/15"
+              }`}>
+                {result.won ? <Trophy size={20} className="text-[#FFD700]" /> :
+                 result.secondChance ? <RefreshCw size={20} className="text-[#FF9800]" /> :
+                 <Bomb size={20} className="text-[#FF1744]" />}
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-black text-white uppercase">
-                  {result.won ? "Round Won!" : "Boom! Hit a Mine"}
+                  {result.won ? "Round Won!" : result.secondChance ? "Second Chance!" : "Boom! Hit a Mine"}
                 </span>
                 <span className="text-[11px] font-mono text-white/40">
                   {result.won
                     ? `+${result.payout?.toLocaleString()} TC at ${result.multiplier?.toFixed(2)}×`
-                    : "Better luck next time"}
+                    : result.secondChance
+                      ? `Bet refunded: +${result.refund?.toLocaleString()} TC`
+                      : "Better luck next time"}
                 </span>
               </div>
               {result.won && (
@@ -655,8 +794,8 @@ export default function Mines() {
               )}
             </div>
 
-            {/* Power-up upsell after loss */}
-            {!result.won && (
+            {/* Power-up upsell after loss (not second chance) */}
+            {!result.won && !result.secondChance && (
               <motion.button
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -665,46 +804,15 @@ export default function Mines() {
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-[#00F5A0]/30 bg-[#00F5A0]/[0.06] text-[#00F5A0] text-xs font-black uppercase tracking-widest"
               >
                 <ShoppingBag size={13} />
-                Get Revenge Shield — Never Lose Again
+                Get Power-ups — Never Lose Again
               </motion.button>
             )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Power-ups section (pre-round, show owned mines gems) ── */}
-      {!activeRound && minesGems.length > 0 && (
-        <div className="mx-4 mb-4 p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
-          <p className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-3">Your Mines Power-ups</p>
-          <div className="flex flex-col gap-2">
-            {minesGems.map(gem => {
-              const labels: Record<string, { icon: React.ReactNode; name: string; desc: string }> = {
-                revenge_shield: { icon: <Shield size={14} className="text-[#00F5A0]" />, name: "Revenge Shield", desc: "Absorbs 1 mine hit" },
-                safe_reveal: { icon: <Eye size={14} className="text-[#00BFFF]" />, name: "Safe Reveal", desc: "Hints 1 safe tile" },
-                gem_magnet: { icon: <Zap size={14} className="text-[#FFD700]" />, name: "Gem Magnet", desc: "1.5× next 3 tiles" },
-                second_chance: { icon: <RefreshCw size={14} className="text-[#FF9800]" />, name: "Second Chance", desc: "Refunds bet on bust" },
-              };
-              const info = labels[gem.gemType];
-              if (!info) return null;
-              return (
-                <div key={gem.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {info.icon}
-                    <div>
-                      <p className="text-[11px] font-bold text-white">{info.name}</p>
-                      <p className="text-[9px] font-mono text-white/30">{info.desc}</p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-mono text-white/40">×{gem.usesRemaining}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Shop CTA (no power-ups owned) ── */}
-      {!activeRound && minesGems.length === 0 && (
+      {/* ── No power-ups CTA (pre-round, no gems) ── */}
+      {!activeRound && availableMinesGems.length === 0 && (
         <motion.button
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
