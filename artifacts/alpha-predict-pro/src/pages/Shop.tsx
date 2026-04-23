@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDownUp, Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle, ChevronRight, Wallet, Rocket, Flame, Star } from "lucide-react";
 import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
@@ -144,6 +144,7 @@ export default function Shop() {
   const queryClient = useQueryClient();
   const vip = isVipActive(user);
   const [activeTab, setActiveTab] = useState<ShopTab>("tc_packs");
+  const [, setLocation] = useLocation();
   const [confirming, setConfirming] = useState<GemType | null>(null);
   const [lastResult, setLastResult] = useState<{ name: string; mysteryReward?: { type: string; amount?: number; gem?: string } | null } | null>(null);
 
@@ -431,7 +432,9 @@ export default function Shop() {
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
-                        className="py-2 rounded-xl font-mono text-[10px] font-black border"
+                        type="button"
+                        onClick={() => setLocation("/exchange")}
+                        className="py-2 rounded-xl font-mono text-[10px] font-black border flex items-center justify-center"
                         style={{ borderColor: `${pack.accent}66`, color: pack.accent, background: `${pack.accent}14` }}
                       >
                         BUY NOW
