@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, gt, sql } from "drizzle-orm";
 import { z } from "zod/v4";
-import { db, usersTable, minesRoundsTable } from "@workspace/db";
+import { db, usersTable, minesRoundsTable, gemInventoryTable } from "@workspace/db";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
@@ -19,11 +19,31 @@ const minesRateLimiter = createRouteRateLimiter("mines-action", {
 const HOUSE_EDGE_MULT = 0.965; // 3.5% house edge
 const MIN_BET_TC = 50;
 const MAX_BET_TC_FREE = 2_000;
-const MAX_BET_TC_VIP = 8_000; // Updated to 8,000 as requested
+const MAX_BET_TC_VIP = 8_000;
+const GEM_MAGNET_BOOST = 1.25; // 25% boost per tile (not 50% — keeps house edge healthy)
+const GEM_MAGNET_TILES = 3;
 
 const ALLOWED_GRID_SIZES = [3, 4, 5] as const;
 type GridSize = (typeof ALLOWED_GRID_SIZES)[number];
 
+// ---------- Active gems state stored per round ----------
+interface ActiveGemsState {
+  revenge_shield?: boolean;   // absorbs 1 mine hit, then removed
+  safe_reveal_used?: boolean; // already used this round
+  gem_magnet_left?: number;   // tiles remaining with boost
+  second_chance?: boolean;    // refund bet on bust
+}
+
+function parseActiveGems(raw: string | null | undefined): ActiveGemsState {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as ActiveGemsState;
+  } catch {
+    return {};
+  }
+}
+
+// ---------- Helpers ----------
 function minesBounds(gridSize: GridSize): { min: number; max: number } {
   const total = gridSize * gridSize;
   return { min: 1, max: total - 2 };
@@ -93,6 +113,7 @@ function isVipForBetCap(user: {
   return false;
 }
 
+// ========== GET /mines/config ==========
 router.get("/mines/config", (_req, res): void => {
   res.json({
     gridSizes: ALLOWED_GRID_SIZES,
@@ -104,6 +125,7 @@ router.get("/mines/config", (_req, res): void => {
   });
 });
 
+// ========== GET /mines/active/:telegramId ==========
 router.get("/mines/active/:telegramId", async (req, res): Promise<void> => {
   const requested = String(req.params.telegramId ?? "").trim();
   if (!requested) {
@@ -135,17 +157,21 @@ router.get("/mines/active/:telegramId", async (req, res): Promise<void> => {
       clientSeed: round.clientSeed,
       revealed: parseRevealed(round.revealed),
       multiplier: round.multiplier,
+      activeGems: parseActiveGems(round.activeGems),
       createdAt: round.createdAt.toISOString(),
     },
   });
 });
 
+// ========== POST /mines/start ==========
 const StartBody = z.object({
   telegramId: z.string().min(1),
   gridSize: z.union([z.literal(3), z.literal(4), z.literal(5)]),
   minesCount: z.number().int().min(1),
   bet: z.number().int().min(MIN_BET_TC),
   clientSeed: z.string().min(1).max(128),
+  // Optional: gem IDs to activate for this round (consumed on start)
+  useGems: z.array(z.number().int().positive()).optional(),
 });
 
 router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> => {
@@ -157,7 +183,7 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
 
   const telegramId = resolveAuthenticatedTelegramId(req, res, parsed.data.telegramId);
   if (!telegramId) return;
-  const { gridSize, minesCount, bet, clientSeed } = parsed.data;
+  const { gridSize, minesCount, bet, clientSeed, useGems } = parsed.data;
 
   const bounds = minesBounds(gridSize);
   if (minesCount < bounds.min || minesCount > bounds.max) {
@@ -194,6 +220,57 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
         .limit(1);
       if (activeRound) throw new Error("ACTIVE_ROUND_EXISTS");
 
+      // ── Consume gems if requested ──
+      const activeGemsState: ActiveGemsState = {};
+      const MINES_GEM_TYPES = ["revenge_shield", "safe_reveal", "gem_magnet", "second_chance"];
+
+      if (useGems && useGems.length > 0) {
+        // Fetch the requested gems
+        const userGems = await tx
+          .select()
+          .from(gemInventoryTable)
+          .where(
+            and(
+              eq(gemInventoryTable.telegramId, telegramId),
+              gt(gemInventoryTable.usesRemaining, 0),
+            ),
+          );
+
+        const usedTypes = new Set<string>();
+
+        for (const gemId of useGems) {
+          const gem = userGems.find(g => g.id === gemId);
+          if (!gem) throw new Error(`GEM_NOT_FOUND_${gemId}`);
+          if (gem.usesRemaining <= 0) throw new Error(`GEM_DEPLETED_${gemId}`);
+          if (!MINES_GEM_TYPES.includes(gem.gemType)) throw new Error(`GEM_NOT_MINES_TYPE_${gem.gemType}`);
+          if (usedTypes.has(gem.gemType)) throw new Error(`GEM_DUPLICATE_TYPE_${gem.gemType}`);
+          usedTypes.add(gem.gemType);
+
+          // Decrement uses
+          await tx
+            .update(gemInventoryTable)
+            .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
+            .where(eq(gemInventoryTable.id, gemId));
+
+          // Set active state
+          switch (gem.gemType) {
+            case "revenge_shield":
+              activeGemsState.revenge_shield = true;
+              break;
+            case "safe_reveal":
+              activeGemsState.safe_reveal_used = false; // will be used when requested
+              break;
+            case "gem_magnet":
+              activeGemsState.gem_magnet_left = GEM_MAGNET_TILES;
+              break;
+            case "second_chance":
+              activeGemsState.second_chance = true;
+              break;
+          }
+        }
+      }
+
+      // Deduct bet
       await tx
         .update(usersTable)
         .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${bet}` })
@@ -215,14 +292,34 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
           revealed: "[]",
           status: "active",
           multiplier: 1,
+          activeGems: JSON.stringify(activeGemsState),
         })
         .returning();
 
-      return { round, balanceTc: (user.tradeCredits ?? 0) - bet };
+      // If safe_reveal was activated, compute a safe tile to return
+      let safeTileHint: number | null = null;
+      if (activeGemsState.safe_reveal_used === false) {
+        const mines = placeMines(serverSeed, clientSeed, gridSize, minesCount);
+        const total = gridSize * gridSize;
+        const safeTiles: number[] = [];
+        for (let i = 0; i < total; i++) {
+          if (!mines.includes(i)) safeTiles.push(i);
+        }
+        // Pick a random safe tile
+        safeTileHint = safeTiles[Math.floor(Math.random() * safeTiles.length)];
+        // Mark as used
+        activeGemsState.safe_reveal_used = true;
+        await tx
+          .update(minesRoundsTable)
+          .set({ activeGems: JSON.stringify(activeGemsState) })
+          .where(eq(minesRoundsTable.id, round.id));
+      }
+
+      return { round, balanceTc: (user.tradeCredits ?? 0) - bet, activeGemsState, safeTileHint };
     });
 
     logger.info(
-      { telegramId, roundId: outcome.round.id, gridSize, minesCount, bet },
+      { telegramId, roundId: outcome.round.id, gridSize, minesCount, bet, gems: outcome.activeGemsState },
       "Mines round started",
     );
 
@@ -235,6 +332,8 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
       clientSeed,
       revealed: [],
       multiplier: 1,
+      activeGems: outcome.activeGemsState,
+      safeTileHint: outcome.safeTileHint,
       balances: { tradeCredits: outcome.balanceTc },
     });
   } catch (err) {
@@ -256,11 +355,28 @@ router.post("/mines/start", minesRateLimiter, async (req, res): Promise<void> =>
       res.status(409).json({ error: "You already have an active mines round. Finish it first." });
       return;
     }
+    if (msg.startsWith("GEM_NOT_FOUND")) {
+      res.status(400).json({ error: "One or more selected power-ups not found in your inventory." });
+      return;
+    }
+    if (msg.startsWith("GEM_DEPLETED")) {
+      res.status(400).json({ error: "One or more selected power-ups has no uses remaining." });
+      return;
+    }
+    if (msg.startsWith("GEM_NOT_MINES_TYPE")) {
+      res.status(400).json({ error: "Only Mines power-ups can be used in Mines." });
+      return;
+    }
+    if (msg.startsWith("GEM_DUPLICATE_TYPE")) {
+      res.status(400).json({ error: "Cannot use two of the same power-up type in one round." });
+      return;
+    }
     logger.error({ err, telegramId }, "Mines start failed");
     res.status(500).json({ error: "Failed to start mines round." });
   }
 });
 
+// ========== POST /mines/reveal ==========
 const RevealBody = z.object({
   telegramId: z.string().min(1),
   roundId: z.number().int().positive(),
@@ -299,32 +415,133 @@ router.post("/mines/reveal", minesRateLimiter, async (req, res): Promise<void> =
 
       const mines = placeMines(round.serverSeed, round.clientSeed, gridSize, round.minesCount);
       const isMine = mines.includes(tile);
+      const gemsState = parseActiveGems(round.activeGems);
 
       if (isMine) {
+        // ── Check Revenge Shield ──
+        if (gemsState.revenge_shield) {
+          // Shield absorbs the hit — remove shield, keep round active
+          gemsState.revenge_shield = false;
+          // Don't add this tile to revealed (it was a mine, user "dodged" it)
+          // But we need to let the user know which tile was shielded
+          await tx
+            .update(minesRoundsTable)
+            .set({ activeGems: JSON.stringify(gemsState) })
+            .where(eq(minesRoundsTable.id, roundId));
+
+          return {
+            hit: true,
+            shielded: true,
+            round: { ...round, activeGems: JSON.stringify(gemsState) },
+            shieldedTile: tile,
+          };
+        }
+
+        // ── Check Second Chance ──
+        if (gemsState.second_chance) {
+          gemsState.second_chance = false;
+          // Refund the bet
+          await tx
+            .update(usersTable)
+            .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${round.bet}` })
+            .where(eq(usersTable.telegramId, telegramId));
+
+          // End the round as bust but with refund
+          await tx
+            .update(minesRoundsTable)
+            .set({
+              status: "bust",
+              revealed: JSON.stringify([...revealed, tile]),
+              activeGems: JSON.stringify(gemsState),
+              payout: round.bet, // refunded amount
+            })
+            .where(eq(minesRoundsTable.id, roundId));
+
+          const [user] = await tx
+            .select({ tradeCredits: usersTable.tradeCredits })
+            .from(usersTable)
+            .where(eq(usersTable.telegramId, telegramId))
+            .limit(1);
+
+          return {
+            hit: true,
+            shielded: false,
+            secondChance: true,
+            refund: round.bet,
+            round: { ...round, status: "bust", revealed: JSON.stringify([...revealed, tile]) },
+            mines,
+            balanceTc: user?.tradeCredits ?? 0,
+          };
+        }
+
+        // ── Normal bust ──
         const [updated] = await tx
           .update(minesRoundsTable)
           .set({ status: "bust", revealed: JSON.stringify([...revealed, tile]) })
           .where(eq(minesRoundsTable.id, roundId))
           .returning();
-        return { hit: true, round: updated, mines };
+        return { hit: true, shielded: false, round: updated, mines };
       } else {
+        // ── Safe tile ──
         const nextRevealed = [...revealed, tile];
-        const nextMultiplier = computeMultiplier(gridSize, round.minesCount, nextRevealed.length);
+        let nextMultiplier = computeMultiplier(gridSize, round.minesCount, nextRevealed.length);
+
+        // Apply Gem Magnet boost if active
+        if (gemsState.gem_magnet_left && gemsState.gem_magnet_left > 0) {
+          nextMultiplier = +(nextMultiplier * GEM_MAGNET_BOOST).toFixed(4);
+          gemsState.gem_magnet_left -= 1;
+        }
+
         const [updated] = await tx
           .update(minesRoundsTable)
-          .set({ revealed: JSON.stringify(nextRevealed), multiplier: nextMultiplier })
+          .set({
+            revealed: JSON.stringify(nextRevealed),
+            multiplier: nextMultiplier,
+            activeGems: JSON.stringify(gemsState),
+          })
           .where(eq(minesRoundsTable.id, roundId))
           .returning();
-        return { hit: false, round: updated };
+        return { hit: false, shielded: false, round: updated };
       }
     });
+
+    if (outcome.shielded) {
+      // Shield absorbed the mine — round continues
+      res.json({
+        hit: true,
+        shielded: true,
+        shieldedTile: (outcome as any).shieldedTile,
+        revealed: parseRevealed(outcome.round.revealed),
+        multiplier: outcome.round.multiplier,
+        status: "active",
+        activeGems: parseActiveGems(typeof outcome.round.activeGems === "string" ? outcome.round.activeGems : "{}"),
+      });
+      return;
+    }
+
+    if ((outcome as any).secondChance) {
+      // Second chance — bust but refunded
+      res.json({
+        hit: true,
+        shielded: false,
+        secondChance: true,
+        refund: (outcome as any).refund,
+        revealed: parseRevealed(outcome.round.revealed),
+        multiplier: outcome.round.multiplier,
+        status: "bust",
+        mines: (outcome as any).mines,
+        balances: { tradeCredits: (outcome as any).balanceTc },
+      });
+      return;
+    }
 
     res.json({
       hit: outcome.hit,
       revealed: parseRevealed(outcome.round.revealed),
       multiplier: outcome.round.multiplier,
       status: outcome.round.status,
-      mines: outcome.hit ? outcome.mines : undefined,
+      mines: outcome.hit ? (outcome as any).mines : undefined,
+      activeGems: parseActiveGems(typeof outcome.round.activeGems === "string" ? outcome.round.activeGems : "{}"),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "UNKNOWN";
@@ -341,6 +558,7 @@ router.post("/mines/reveal", minesRateLimiter, async (req, res): Promise<void> =
   }
 });
 
+// ========== POST /mines/cashout ==========
 const CashoutBody = z.object({
   telegramId: z.string().min(1),
   roundId: z.number().int().positive(),

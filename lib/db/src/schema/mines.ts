@@ -10,9 +10,12 @@ export const minesRoundsTable = pgTable("mines_rounds", {
   serverSeedHash: text("server_seed_hash").notNull(), // revealed at start
   clientSeed: text("client_seed").notNull(),
   revealed: text("revealed").notNull().default("[]"), // JSON int[] of revealed tile indices
-  status: text("status").notNull().default("active"), // active | busted | cashed_out
+  status: text("status").notNull().default("active"), // active | bust | won
   multiplier: real("multiplier").notNull().default(1),
   payout: integer("payout"),                          // TC returned (null while active)
+  // Power-up state: JSON object tracking active gems for this round
+  // e.g. {"revenge_shield":true,"gem_magnet_left":3,"second_chance":true}
+  activeGems: text("active_gems").notNull().default("{}"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
