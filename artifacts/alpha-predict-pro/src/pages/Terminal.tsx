@@ -1,18 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw, Share2, Users, ChevronDown } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Cell,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-} from "recharts";
+import { TrendingUp, TrendingDown, Zap, Crown, Users, ChevronDown } from "lucide-react";
 import {
   useCreatePrediction,
   useResolvePrediction,
@@ -30,6 +19,8 @@ import confetti from "canvas-confetti";
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
+const FAST_CANDLE_MS = 5_000;
+const MAX_CHART_CANDLES = 60;
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -66,6 +57,82 @@ interface Candle {
   close: number;
 }
 
+function CandlestickChart({ candles, price, prevPrice }: { candles: Candle[]; price: number; prevPrice: number }) {
+  const chart = useMemo(() => {
+    if (!candles.length) return { points: [], min: 0, max: 0 };
+    const min = Math.min(...candles.map(c => c.low));
+    const max = Math.max(...candles.map(c => c.high));
+    const span = Math.max(max - min, 1e-6);
+    const candleCount = Math.max(candles.length, 20);
+    const slot = 100 / candleCount;
+    const bodyWidth = Math.max(slot * 0.5, 0.9);
+    const points = candles.map((c, idx) => {
+      const x = (idx + 0.5) * slot;
+      const openY = 100 - ((c.open - min) / span) * 100;
+      const closeY = 100 - ((c.close - min) / span) * 100;
+      const highY = 100 - ((c.high - min) / span) * 100;
+      const lowY = 100 - ((c.low - min) / span) * 100;
+      return {
+        x,
+        bodyY: Math.min(openY, closeY),
+        bodyH: Math.max(Math.abs(openY - closeY), 0.9),
+        highY,
+        lowY,
+        bodyWidth,
+        isBull: c.close >= c.open,
+      };
+    });
+    return { points, min, max };
+  }, [candles]);
+
+  const priceY = useMemo(() => {
+    if (!chart.points.length) return null;
+    const span = Math.max(chart.max - chart.min, 1e-6);
+    return 100 - ((price - chart.min) / span) * 100;
+  }, [chart, price]);
+
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+      {[20, 40, 60, 80].map((y) => (
+        <line key={`grid-${y}`} x1={0} x2={100} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth={0.25} />
+      ))}
+      {chart.points.map((point, index) => (
+        <g key={`candle-${index}`}>
+          <line
+            x1={point.x}
+            x2={point.x}
+            y1={point.highY}
+            y2={point.lowY}
+            stroke={point.isBull ? BULL_COLOR : BEAR_COLOR}
+            strokeWidth={0.4}
+            opacity={0.9}
+          />
+          <rect
+            x={point.x - point.bodyWidth / 2}
+            y={point.bodyY}
+            width={point.bodyWidth}
+            height={point.bodyH}
+            fill={point.isBull ? BULL_COLOR : BEAR_COLOR}
+            rx={0.25}
+          />
+        </g>
+      ))}
+      {priceY !== null && priceY >= 0 && priceY <= 100 && (
+        <line
+          x1={0}
+          x2={100}
+          y1={priceY}
+          y2={priceY}
+          stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR}
+          strokeWidth={0.35}
+          strokeDasharray="1.2 1.2"
+          opacity={0.75}
+        />
+      )}
+    </svg>
+  );
+}
+
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "recently";
   const t = new Date(iso).getTime();
@@ -90,7 +157,6 @@ export default function Terminal() {
   const [showResult, setShowResult] = useState<any>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [showPairMenu, setShowPairMenu] = useState(false);
-  const [candleTimer, setCandleTimer] = useState(60);
   const [sentiment, setSentiment] = useState(55); // Default 55% bullish
 
   const createPrediction = useCreatePrediction();
@@ -105,35 +171,37 @@ export default function Terminal() {
   useEffect(() => {
     setPrice(0);
     setCandles([]);
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@kline_1m`);
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@trade`);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      const k = data.k;
-      const newPrice = parseFloat(k.c);
+      const newPrice = parseFloat(data.p);
+      const tradeTime = Number(data.T || Date.now());
+      const bucketTime = Math.floor(tradeTime / FAST_CANDLE_MS) * FAST_CANDLE_MS;
       setPrice(p => { setPrevPrice(p); return newPrice; });
-      
-      const newCandle: Candle = {
-        time: k.t,
-        open: parseFloat(k.o),
-        high: parseFloat(k.h),
-        low: parseFloat(k.l),
-        close: parseFloat(k.c),
-      };
-      
+
       setCandles(prev => {
         const last = prev[prev.length - 1];
-        if (last && last.time === newCandle.time) {
+        if (last && last.time === bucketTime) {
           const updated = [...prev];
-          updated[updated.length - 1] = newCandle;
+          updated[updated.length - 1] = {
+            ...last,
+            high: Math.max(last.high, newPrice),
+            low: Math.min(last.low, newPrice),
+            close: newPrice,
+          };
           return updated;
         }
-        return [...prev, newCandle].slice(-20);
+        const open = last?.close ?? newPrice;
+        const newCandle: Candle = {
+          time: bucketTime,
+          open,
+          high: Math.max(open, newPrice),
+          low: Math.min(open, newPrice),
+          close: newPrice,
+        };
+        return [...prev, newCandle].slice(-MAX_CHART_CANDLES);
       });
 
-      // Update candle timer based on current minute progress
-      const now = Date.now();
-      const secondsPassed = Math.floor((now - k.t) / 1000);
-      setCandleTimer(Math.max(0, 60 - secondsPassed));
     };
 
     // Randomize sentiment occasionally for "Live" feel
@@ -183,16 +251,6 @@ export default function Terminal() {
     }
   }, [showResult]);
 
-  const chartData = useMemo(() => {
-    return candles.map(c => ({
-      ...c,
-      bottom: Math.min(c.open, c.close),
-      top: Math.max(c.open, c.close),
-      height: Math.abs(c.open - c.close) || 0.01,
-      isBull: c.close >= c.open
-    }));
-  }, [candles]);
-
   if (isLoading) return <PageLoader rows={5} />;
 
   return (
@@ -227,10 +285,6 @@ export default function Terminal() {
               <ChevronDown size={14} className="text-[#FFD700]/50" />
             </button>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <Clock size={10} className="text-white/20" />
-                <span className="text-[10px] font-mono text-white/40 font-black">{candleTimer}s</span>
-              </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
                 <span className="text-[10px] font-mono text-white/30 tracking-widest uppercase">Live</span>
@@ -270,29 +324,7 @@ export default function Terminal() {
 
           {/* Candlestick Chart */}
           <div className="h-40 w-full mt-6 candle-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData}>
-                <YAxis hide domain={["auto", "auto"]} />
-                <Bar dataKey="high" fill="none">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`wick-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} opacity={0.3} />
-                  ))}
-                </Bar>
-                <Bar dataKey="height" stackId="a">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`body-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} />
-                  ))}
-                </Bar>
-                {price > 0 && (
-                  <ReferenceLine 
-                    y={price} 
-                    stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} 
-                    strokeDasharray="3 3" 
-                    opacity={0.5} 
-                  />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+            <CandlestickChart candles={candles} price={price} prevPrice={prevPrice} />
           </div>
 
           {/* Sentiment Bar */}
