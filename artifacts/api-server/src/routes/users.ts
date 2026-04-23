@@ -584,27 +584,20 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
 });
 
 /**
- * Owner-only TC refill endpoint for testing purposes.
- * Protected by OWNER_TELEGRAM_ID env var — only that specific Telegram ID can call it.
- * Remove or disable this route before public launch.
+ * DEV TESTING — Open TC refill endpoint. No owner check.
+ * ⚠ REMOVE THIS ROUTE BEFORE PUBLIC LAUNCH ⚠
  */
 router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void> => {
-  const ownerTelegramId = process.env.OWNER_TELEGRAM_ID;
-  if (!ownerTelegramId) {
-    res.status(503).json({ error: "Owner refill not configured." });
-    return;
-  }
-
   const { telegramId } = req.params;
-  if (telegramId !== ownerTelegramId) {
-    res.status(403).json({ error: "Forbidden." });
-    return;
-  }
 
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authedId) return;
 
-  const REFILL_AMOUNT = 999999;
+  // Use requested amount from body, default to 1000 TC
+  const requestedAmount = typeof req.body?.amount === "number" && req.body.amount > 0
+    ? Math.min(req.body.amount, 100000) // cap at 100k per call for safety
+    : 1000;
+  const REFILL_AMOUNT = requestedAmount;
 
   const [updated] = await db
     .update(usersTable)
