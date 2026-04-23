@@ -155,9 +155,17 @@ export default function Earn() {
     if (!user) return;
     setDevAdState("done");
     try {
+      const initData = window.Telegram?.WebApp?.initData ?? "";
       const res = await fetch(
         `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api/users/${user.telegramId}/owner-refill-tc`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: DEV_TC_REWARD }) }
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(initData ? { "x-telegram-init-data": initData } : {}),
+          },
+          body: JSON.stringify({ amount: DEV_TC_REWARD }),
+        }
       );
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
