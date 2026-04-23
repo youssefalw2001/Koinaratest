@@ -30,6 +30,8 @@ export const usersTable = pgTable("users", {
   dailyGcDate: text("daily_gc_date"),
   weeklyWithdrawnGc: integer("weekly_withdrawn_gc").notNull().default(0),
   weeklyWithdrawnResetAt: text("weekly_withdrawn_reset_at"),
+  dailyGcFromMines: integer("daily_gc_from_mines").notNull().default(0),
+  dailyGcFromMinesDate: text("daily_gc_from_mines_date"),
   referralEarnings: integer("referral_earnings").notNull().default(0),
   referralEarningsUnlockedAt: timestamp("referral_earnings_unlocked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
