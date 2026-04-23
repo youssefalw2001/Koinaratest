@@ -24,8 +24,8 @@ const router: IRouter = Router();
 
 // Read lazily so tests can set/unset the env var at runtime.
 const getKoinaraWallet = () => process.env.KOINARA_TON_WALLET;
-const TON_WEEKLY_NANO = BigInt("500000000");   // 0.5 TON in nanotons
-const TON_MONTHLY_NANO = BigInt("1500000000"); // 1.5 TON in nanotons
+// Weekly plan removed — monthly only at ~$5.99
+const TON_MONTHLY_NANO = BigInt("1700000000"); // 1.7 TON ≈ $5.99 in nanotons
 const TONAPI_BASE = "https://tonapi.io/v2";
 
 type TonApiAccount = { address: string };
@@ -66,7 +66,7 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
  */
 async function verifyTonTransaction(
   senderAddress: string,
-  plan: "weekly" | "monthly",
+  plan: "monthly",
 ): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
   const walletEnv = getKoinaraWallet();
   if (!walletEnv) {
@@ -100,7 +100,7 @@ async function verifyTonTransaction(
   // Step 3: Find a matching transaction within the recency window.
   // Only accept transactions confirmed within the last 15 minutes to prevent
   // a user reusing an old payment or scanning stale tx history.
-  const expectedNano = plan === "weekly" ? TON_WEEKLY_NANO : TON_MONTHLY_NANO;
+  const expectedNano = TON_MONTHLY_NANO;
   const minNano = (expectedNano * 95n) / 100n;
   const nowSec = Math.floor(Date.now() / 1000);
   const RECENCY_WINDOW_SEC = 15 * 60; // 15 minutes
@@ -359,7 +359,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
     return;
   }
 
-  if (plan === "weekly" || plan === "monthly") {
+  if (plan === "monthly") {
     if (!senderAddress) {
       res.status(400).json({ error: "senderAddress required for TON plans" });
       return;
@@ -378,9 +378,9 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       return;
     }
 
-    const durationDays = plan === "weekly" ? 7 : 30;
+    const durationDays = 30;
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-    const vipPlan = plan === "weekly" ? "ton_weekly" : "ton_monthly";
+    const vipPlan = "ton_monthly";
 
     // On-chain verification: resolves operator wallet to raw address, scans sender's
     // recent transactions for a matching payment, returns the on-chain tx hash.
@@ -419,7 +419,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
 
     // Track VIP subscription revenue for the daily payout cap.
     // Approximate GC equivalent: weekly=$2→5000 GC, monthly=$6→15000 GC (at 2500 GC/$1 VIP rate).
-    const vipRevenueGc = vipPlan === "ton_monthly" ? 15000 : 5000;
+    const vipRevenueGc = 15000; // monthly plan only
     const todayDate = new Date().toISOString().split("T")[0];
     await db
       .insert(platformDailyStatsTable)

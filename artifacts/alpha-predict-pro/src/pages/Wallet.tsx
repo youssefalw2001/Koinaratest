@@ -33,8 +33,8 @@ const VIP_WEEKLY_MAX_USD  = 100;
 const FEE_PCT = 0.025;
 const MILESTONE_GC = 10000;
 
-const TON_WEEKLY_AMOUNT  = "500000000";
-const TON_MONTHLY_AMOUNT = "1500000000";
+// Monthly only — $5.99 at ~1.7 TON
+const TON_MONTHLY_AMOUNT = "1700000000";
 const TON_VERIFY_AMOUNT  = "20000000"; // 0.02 TON ≈ $1.99 verification fee
 const KOINARA_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || undefined;
 type WalletTab = "withdraw" | "history";
@@ -84,7 +84,7 @@ export default function WalletPage() {
   const [showVipModal, setShowVipModal] = useState(false);
   const [vipSuccess, setVipSuccess]     = useState(false);
   const [tonPending, setTonPending]     = useState(false);
-  const [tonPlan, setTonPlan]           = useState<"weekly" | "monthly">("weekly");
+  const tonPlan = "monthly" as const;
 
   const [walletTab, setWalletTab] = useState<WalletTab>("withdraw");
   const [usdtWallet, setUsdtWallet] = useState("");
@@ -142,8 +142,8 @@ export default function WalletPage() {
     if (!user || !walletAddress || !KOINARA_TON_WALLET) return;
     setTonPending(true);
     try {
-      const amount = tonPlan === "weekly" ? TON_WEEKLY_AMOUNT : TON_MONTHLY_AMOUNT;
-      const plan: "weekly" | "monthly" = tonPlan;
+      const amount = TON_MONTHLY_AMOUNT;
+      const plan = "monthly" as const;
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 300,
         messages: [{ address: KOINARA_TON_WALLET, amount }],
@@ -766,26 +766,17 @@ export default function WalletPage() {
                 </div>
 
                 <div className="w-full space-y-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setTonPlan("weekly")}
-                        className={`flex-1 p-3 rounded-2xl border-2 text-left transition-all ${
-                          tonPlan === "weekly" ? "border-[#FFD700] bg-[#FFD700]/10" : "border-white/10 bg-white/[0.02]"
-                        }`}
-                      >
-                        <div className="font-mono text-xs font-black text-white">7 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">0.5 TON · $4.99/week</div>
-                      </button>
-                      <button
-                        onClick={() => setTonPlan("monthly")}
-                        className={`flex-1 p-3 rounded-2xl border-2 text-left relative transition-all ${
-                          tonPlan === "monthly" ? "border-[#FFD700] bg-[#FFD700]/10" : "border-white/10 bg-white/[0.02]"
-                        }`}
-                      >
-                        <div className="absolute -top-2 right-2 bg-[#FFD700] text-black font-mono text-[8px] px-1.5 py-0.5 rounded-full font-black">BEST VALUE</div>
-                        <div className="font-mono text-xs font-black text-white">30 Days</div>
-                        <div className="font-mono text-[10px] text-white/40">1.5 TON · $14.99/month</div>
-                      </button>
+                    <div className="w-full p-4 rounded-2xl border-2 border-[#FFD700] bg-[#FFD700]/10">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-mono text-sm font-black text-white">30 Days VIP</div>
+                          <div className="font-mono text-[10px] text-white/40">Full access to all premium features</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono text-lg font-black text-[#FFD700]">$5.99</div>
+                          <div className="font-mono text-[10px] text-white/40">1.7 TON</div>
+                        </div>
+                      </div>
                     </div>
                     {!walletAddress ? (
                       <div className="flex flex-col items-center gap-2">
@@ -808,7 +799,7 @@ export default function WalletPage() {
                         }}
                         data-testid="btn-upgrade-ton"
                       >
-                        {tonPending ? "WAITING FOR TX..." : `PAY ${tonPlan === "weekly" ? "0.5" : "1.5"} TON — ${tonPlan === "weekly" ? "7" : "30"} DAYS`}
+                        {tonPending ? "WAITING FOR TX..." : "PAY 1.7 TON — 30 DAYS"}
                       </button>
                     )}
                   </div>
