@@ -8,7 +8,7 @@ import { isVipActive } from "@/lib/vipActive";
 import { PageLoader } from "@/components/PageStatus";
 import confetti from "canvas-confetti";
 
-const API_BASE = "/api/mines";
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api/mines`;
 const HOUSE_EDGE_MULT = 0.965; // 3.5% edge
 
 interface ActiveRound {
