@@ -23,7 +23,7 @@ import { useLanguage } from "@/lib/language";
 const tabs = [
   { path: "/", icon: Zap, labelKey: "trade" as const },
   { path: "/mines", icon: Bomb, labelKey: "mines" as const },
-  { path: "/leaderboard", icon: Trophy, labelKey: "leaderboard" as const },
+  { path: "/earn", icon: Gift, labelKey: "earn" as const },
   { path: "/exchange", icon: Gem, labelKey: "exchange" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
 ];
@@ -125,6 +125,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 aria-label="Profile"
               >
                 <User size={14} className="text-white/60" />
+              </button>
+            </Link>
+            <Link href="/leaderboard">
+              <button
+                className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors"
+                aria-label="Leaderboard"
+              >
+                <Trophy size={14} className="text-white/60" />
               </button>
             </Link>
             <button
