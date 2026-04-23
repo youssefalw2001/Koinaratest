@@ -34,11 +34,13 @@ interface MinesResult {
 export default function Mines() {
   const { user, isLoading: userLoading, refreshUser } = useTelegram();
   const queryClient = useQueryClient();
+  const telegramInitData = (window as any).Telegram?.WebApp?.initData || "";
   const [gridSize, setGridSize] = useState(5);
   const [minesCount, setMinesCount] = useState(3);
   const [bet, setBet] = useState(100);
   const [activeRound, setActiveRound] = useState<ActiveRound | null>(null);
   const [lastResult, setLastResult] = useState<MinesResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [clientSeed, setClientSeed] = useState(() => Math.random().toString(36).substring(7));
 
@@ -49,7 +51,7 @@ export default function Mines() {
     if (!user) return;
     try {
       const res = await fetch(`${API_BASE}/active/${user.telegramId}`, {
-        headers: { "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "x-telegram-init-data": telegramInitData },
       });
       const data = await res.json();
       if (data.active) {
@@ -59,7 +61,7 @@ export default function Mines() {
         setBet(data.active.bet);
       }
     } catch {}
-  }, [user]);
+  }, [telegramInitData, user]);
 
   useEffect(() => { fetchActive(); }, [fetchActive]);
 
@@ -67,10 +69,11 @@ export default function Mines() {
     if (!user || loading) return;
     setLoading(true);
     setLastResult(null);
+    setErrorMsg(null);
     try {
       const res = await fetch(`${API_BASE}/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": telegramInitData },
         body: JSON.stringify({ telegramId: user.telegramId, gridSize, minesCount, bet, clientSeed }),
       });
       const data = await res.json();
@@ -78,18 +81,24 @@ export default function Mines() {
         setActiveRound(data);
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      } else {
+        setErrorMsg(data?.error ?? "Could not start round.");
+        if (res.status === 409) void fetchActive();
       }
-    } catch {}
+    } catch {
+      setErrorMsg("Network error. Could not start round.");
+    }
     setLoading(false);
   };
 
   const handleReveal = async (tile: number) => {
     if (!activeRound || loading) return;
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await fetch(`${API_BASE}/reveal`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": telegramInitData },
         body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId, tile }),
       });
       const data = await res.json();
@@ -102,18 +111,23 @@ export default function Mines() {
         } else {
           setActiveRound({ ...activeRound, revealed: data.revealed, multiplier: data.multiplier });
         }
+      } else {
+        setErrorMsg(data?.error ?? "Could not reveal tile.");
       }
-    } catch {}
+    } catch {
+      setErrorMsg("Network error. Could not reveal tile.");
+    }
     setLoading(false);
   };
 
   const handleCashout = async () => {
     if (!activeRound || loading) return;
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await fetch(`${API_BASE}/cashout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": telegramInitData },
         body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId }),
       });
       const data = await res.json();
@@ -123,8 +137,12 @@ export default function Mines() {
         confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#FFD700", "#FFF9E0", "#B8860B"] });
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
+      } else {
+        setErrorMsg(data?.error ?? "Could not cash out.");
       }
-    } catch {}
+    } catch {
+      setErrorMsg("Network error. Could not cash out.");
+    }
     setLoading(false);
   };
 
@@ -180,6 +198,18 @@ export default function Mines() {
 
       {/* Controls Above Grid */}
       <div className="flex flex-col gap-4 mb-6">
+        {!telegramInitData && (
+          <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-3 py-2">
+            <span className="text-[10px] font-mono text-yellow-400">
+              Telegram auth is missing in this session. Open from Telegram app for live rounds.
+            </span>
+          </div>
+        )}
+        {errorMsg && (
+          <div className="rounded-xl border border-[#FF1744]/30 bg-[#FF1744]/10 px-3 py-2">
+            <span className="text-[10px] font-mono text-[#ffb3c2]">{errorMsg}</span>
+          </div>
+        )}
         {!activeRound ? (
           <>
             <div className="grid grid-cols-2 gap-3">

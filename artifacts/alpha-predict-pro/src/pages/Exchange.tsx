@@ -67,6 +67,7 @@ export default function Exchange() {
   const [pendingPack, setPendingPack] = useState<TcPack["id"] | null>(null);
   const [tonConnectUI] = useTonConnectUI();
   const tonAddress = useTonAddress();
+  const operatorWallet = (import.meta.env.VITE_KOINARA_TON_WALLET as string | undefined)?.trim();
 
   useEffect(() => {
     let aborted = false;
@@ -93,13 +94,12 @@ export default function Exchange() {
 
   const handleBuyPack = async (pack: TcPack) => {
     if (!user || busy) return;
-    if (!tonAddress) {
-      setToast({ kind: "err", msg: "Connect your TON wallet first." });
+    if (!operatorWallet) {
+      setToast({ kind: "err", msg: "TON checkout is coming soon. Pack tiers are live in preview." });
       return;
     }
-    const operatorWallet = (import.meta.env.VITE_KOINARA_TON_WALLET as string | undefined)?.trim();
-    if (!operatorWallet) {
-      setToast({ kind: "err", msg: "Pack purchases are not configured yet." });
+    if (!tonAddress) {
+      setToast({ kind: "err", msg: "Connect your TON wallet first." });
       return;
     }
 
@@ -185,6 +185,7 @@ export default function Exchange() {
           const Icon = PACK_ICON[pack.id];
           const color = PACK_COLOR[pack.id];
           const pending = pendingPack === pack.id;
+          const checkoutEnabled = !!operatorWallet;
           return (
             <div
               key={pack.id}
@@ -220,16 +221,24 @@ export default function Exchange() {
               </div>
               <button
                 onClick={() => handleBuyPack(pack)}
-                disabled={busy}
+                disabled={busy || !checkoutEnabled}
                 className="px-3 py-2 rounded-lg font-mono text-[11px] font-black border disabled:opacity-35"
                 style={{ borderColor: `${color}5c`, background: `${color}1a`, color }}
               >
-                {pending ? t("confirmingTx").toUpperCase() : t("buy").toUpperCase()}
+                {!checkoutEnabled ? "COMING SOON" : pending ? t("confirmingTx").toUpperCase() : t("buy").toUpperCase()}
               </button>
             </div>
           );
         })}
-        {!tonAddress && packs && (
+        {!operatorWallet && packs && (
+          <div className="rounded-xl border border-[#FFD700]/30 bg-[#FFD700]/10 px-3 py-2 flex items-center gap-2">
+            <Sparkles size={12} className="text-[#FFD700]" />
+            <span className="font-mono text-[10px] text-[#ffe9a6]">
+              4-tier TC packs are visible now. TON checkout will be enabled after wallet config is added.
+            </span>
+          </div>
+        )}
+        {!operatorWallet ? null : !tonAddress && packs && (
           <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-center gap-2">
             <Package size={12} className="text-white/50" />
             <span className="font-mono text-[10px] text-white/50">
