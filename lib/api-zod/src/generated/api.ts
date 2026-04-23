@@ -659,6 +659,14 @@ export const PurchaseGemBody = zod.object({
     "mystery_box",
     "daily_refill",
     "double_or_nothing",
+    "hot_streak",
+    "double_down",
+    "precision_lock",
+    "comeback_king",
+    "revenge_shield",
+    "safe_reveal",
+    "gem_magnet",
+    "second_chance",
   ]),
 });
 

@@ -583,4 +583,41 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
   });
 });
 
+/**
+ * Owner-only TC refill endpoint for testing purposes.
+ * Protected by OWNER_TELEGRAM_ID env var — only that specific Telegram ID can call it.
+ * Remove or disable this route before public launch.
+ */
+router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void> => {
+  const ownerTelegramId = process.env.OWNER_TELEGRAM_ID;
+  if (!ownerTelegramId) {
+    res.status(503).json({ error: "Owner refill not configured." });
+    return;
+  }
+
+  const { telegramId } = req.params;
+  if (telegramId !== ownerTelegramId) {
+    res.status(403).json({ error: "Forbidden." });
+    return;
+  }
+
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
+
+  const REFILL_AMOUNT = 999999;
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${REFILL_AMOUNT}` })
+    .where(eq(usersTable.telegramId, authedId))
+    .returning({ tradeCredits: usersTable.tradeCredits });
+
+  if (!updated) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+
+  res.json({ success: true, tcAdded: REFILL_AMOUNT, newTcBalance: updated.tradeCredits });
+});
+
 export default router;

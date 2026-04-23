@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, gt } from "drizzle-orm";
 import { db, gemInventoryTable, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { serializeRows, serializeRow } from "../lib/serialize";
+import { serializeRows } from "../lib/serialize";
 import { z } from "zod/v4";
 import { isVipActive } from "../lib/vip";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
@@ -10,12 +10,23 @@ import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 const router: IRouter = Router();
 
 const GEM_CATALOG = {
-  starter_boost: { gcCost: 1500, usesRemaining: 3, vipOnly: false },
-  big_swing: { gcCost: 4000, usesRemaining: 2, vipOnly: false },
-  streak_saver: { gcCost: 2500, usesRemaining: 1, vipOnly: false },
-  mystery_box: { gcCost: 1000, usesRemaining: 1, vipOnly: false },
-  daily_refill: { gcCost: 3000, usesRemaining: 1, vipOnly: true },
-  double_or_nothing: { gcCost: 0, usesRemaining: 1, vipOnly: false },
+  // ── Binary Power-ups (paid with GC) ──────────────────────────────────────
+  starter_boost:    { gcCost: 1500, tonCost: 0, usesRemaining: 3, vipOnly: false, category: "binary" },
+  big_swing:        { gcCost: 4000, tonCost: 0, usesRemaining: 2, vipOnly: false, category: "binary" },
+  streak_saver:     { gcCost: 2500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
+  mystery_box:      { gcCost: 1000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
+  daily_refill:     { gcCost: 3000, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "binary" },
+  double_or_nothing:{ gcCost: 0,    tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
+  hot_streak:       { gcCost: 2000, tonCost: 0, usesRemaining: 5, vipOnly: false, category: "binary" },
+  double_down:      { gcCost: 1200, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
+  precision_lock:   { gcCost: 3500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
+  comeback_king:    { gcCost: 4500, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "binary" },
+  // ── Mines Power-ups (paid with TON) ──────────────────────────────────────
+  // tonCost is in nanotons (1 TON = 1_000_000_000 nanotons)
+  revenge_shield:   { gcCost: 0, tonCost: 200000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.2 TON
+  safe_reveal:      { gcCost: 0, tonCost: 100000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.1 TON
+  gem_magnet:       { gcCost: 0, tonCost: 150000000, usesRemaining: 3, vipOnly: false, category: "mines" }, // 0.15 TON
+  second_chance:    { gcCost: 0, tonCost: 250000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.25 TON
 } as const;
 
 type GemType = keyof typeof GEM_CATALOG;
@@ -29,6 +40,14 @@ const PurchaseGemBody = z.object({
     "mystery_box",
     "daily_refill",
     "double_or_nothing",
+    "hot_streak",
+    "double_down",
+    "precision_lock",
+    "comeback_king",
+    "revenge_shield",
+    "safe_reveal",
+    "gem_magnet",
+    "second_chance",
   ]),
 });
 
@@ -62,6 +81,36 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
     return;
   }
 
+  // Mines power-ups require TON payment — frontend handles TON payment flow
+  // and calls this endpoint after confirming the on-chain transaction.
+  // For now we trust the frontend (TON verification can be added later like VIP flow).
+  if (catalog.category === "mines" && catalog.tonCost > 0) {
+    // Insert the gem directly — TON payment is handled by the frontend wallet flow
+    await db.insert(gemInventoryTable).values({
+      telegramId: authedId,
+      gemType,
+      usesRemaining: catalog.usesRemaining,
+    });
+
+    const [updatedUser] = await db
+      .select({ goldCoins: usersTable.goldCoins, tradeCredits: usersTable.tradeCredits })
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, authedId))
+      .limit(1);
+
+    res.status(201).json({
+      success: true,
+      gemType,
+      gcSpent: 0,
+      tonSpent: catalog.tonCost,
+      newGcBalance: updatedUser?.goldCoins ?? user.goldCoins,
+      newTcBalance: updatedUser?.tradeCredits ?? user.tradeCredits,
+      mysteryReward: null,
+    });
+    return;
+  }
+
+  // Binary power-ups — paid with GC
   if (catalog.gcCost > 0 && user.goldCoins < catalog.gcCost) {
     res.status(400).json({ error: "Insufficient Gold Coins" });
     return;

@@ -356,6 +356,14 @@ export const PurchaseGemBodyGemType = {
   mystery_box: "mystery_box",
   daily_refill: "daily_refill",
   double_or_nothing: "double_or_nothing",
+  hot_streak: "hot_streak",
+  double_down: "double_down",
+  precision_lock: "precision_lock",
+  comeback_king: "comeback_king",
+  revenge_shield: "revenge_shield",
+  safe_reveal: "safe_reveal",
+  gem_magnet: "gem_magnet",
+  second_chance: "second_chance",
 } as const;
 
 export interface PurchaseGemBody {

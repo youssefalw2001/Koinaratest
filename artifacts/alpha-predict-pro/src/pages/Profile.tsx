@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink, Clock } from "lucide-react";
-import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey } from "@workspace/api-client-react";
+import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { PageLoader, PageError } from "@/components/PageStatus";
@@ -18,7 +19,39 @@ const DAY7_MILESTONES = [
 
 export default function Profile() {
   const { user } = useTelegram();
+  const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [ownerRefilling, setOwnerRefilling] = useState(false);
+  const [ownerRefillMsg, setOwnerRefillMsg] = useState<string | null>(null);
+
+  // ── Owner-only TC refill (remove before public launch) ──────────────────
+  const OWNER_ID = import.meta.env.VITE_OWNER_TELEGRAM_ID as string | undefined;
+  const isOwner = !!OWNER_ID && user?.telegramId === OWNER_ID;
+
+  const handleOwnerRefill = async () => {
+    if (!user || !isOwner) return;
+    setOwnerRefilling(true);
+    setOwnerRefillMsg(null);
+    try {
+      const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+      const resp = await fetch(`${base}/api/users/${user.telegramId}/owner-refill-tc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setOwnerRefillMsg(`+${data.tcAdded.toLocaleString()} TC added! Balance: ${data.newTcBalance.toLocaleString()}`);
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      } else {
+        setOwnerRefillMsg(data.error ?? "Refill failed");
+      }
+    } catch {
+      setOwnerRefillMsg("Network error");
+    } finally {
+      setOwnerRefilling(false);
+      setTimeout(() => setOwnerRefillMsg(null), 4000);
+    }
+  };
 
   const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") }
@@ -407,6 +440,24 @@ export default function Profile() {
           <div className="font-mono text-xs text-white/40">
             Activate with TON plan in Wallet
           </div>
+        </div>
+      )}
+
+      {/* ⚠️ OWNER-ONLY TC REFILL — Remove before public launch */}
+      {isOwner && (
+        <div className="mt-4 p-4 rounded-2xl border-2 border-red-500/50 bg-red-500/5">
+          <div className="font-mono text-[9px] text-red-400/70 tracking-widest uppercase mb-2">Owner Dev Tools</div>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={handleOwnerRefill}
+            disabled={ownerRefilling}
+            className="w-full py-3 rounded-xl font-mono text-xs font-black border border-red-500/50 bg-red-500/10 text-red-400 disabled:opacity-50 transition-all"
+          >
+            {ownerRefilling ? "ADDING TC..." : "🔧 REFILL +999,999 TC"}
+          </motion.button>
+          {ownerRefillMsg && (
+            <div className="mt-2 font-mono text-[10px] text-red-300 text-center">{ownerRefillMsg}</div>
+          )}
         </div>
       )}
     </div>

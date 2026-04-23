@@ -24,7 +24,7 @@ const tabs = [
   { path: "/", icon: Zap, labelKey: "trade" as const },
   { path: "/mines", icon: Bomb, labelKey: "mines" as const },
   { path: "/leaderboard", icon: Trophy, labelKey: "leaderboard" as const },
-  { path: "/exchange", icon: Gem, labelKey: "shop" as const },
+  { path: "/exchange", icon: Gem, labelKey: "exchange" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
   { path: "/profile", icon: User, labelKey: "profile" as const },
 ];
