@@ -16,7 +16,6 @@ import { PageLoader } from "@/components/PageStatus";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 
-const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
 const FAST_CANDLE_MS = 5_000;

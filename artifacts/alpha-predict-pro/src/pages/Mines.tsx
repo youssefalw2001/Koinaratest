@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bomb, Gem, Zap, Info, Shield, Trophy, RotateCcw, ChevronRight, Lock, ChevronUp, ChevronDown } from "lucide-react";
+import { Bomb, Gem, Trophy, ChevronUp, ChevronDown } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
@@ -42,7 +42,7 @@ export default function Mines() {
   const [lastResult, setLastResult] = useState<MinesResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [clientSeed, setClientSeed] = useState(() => Math.random().toString(36).substring(7));
+  const [clientSeed] = useState(() => Math.random().toString(36).substring(7));
 
   const vip = isVipActive(user);
   const maxBet = vip ? 8000 : 2000;
