@@ -218,6 +218,7 @@ export default function Shop() {
           ? "Spend Gold Coins to amplify your GC gains. Active gems auto-apply to trades."
           : "Instant Trade Credit refills to get users back in the game immediately."}
       </p>
+      <p className="font-mono text-[10px] text-white/30 mb-3">Tip: switch between <span className="text-[#FFD700]">POWERUPS</span> and <span className="text-[#63D3FF]">TC PACKS</span> tabs.</p>
 
       {/* Tabs */}
       <div className="grid grid-cols-2 gap-2 mb-4">

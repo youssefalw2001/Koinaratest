@@ -359,7 +359,7 @@ export default function Terminal() {
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9px] font-black tracking-[0.22em] text-white/40 uppercase">Top Payouts</span>
-              <span className="text-[9px] font-mono text-[#FFD700]/70 uppercase">Live</span>
+              <span className="text-[9px] font-mono text-[#FFD700]/70 uppercase">Live board</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {(topLeaders.length ? topLeaders : [{ displayName: "Waiting...", payout: 0 }, { displayName: "Waiting...", payout: 0 }, { displayName: "Waiting...", payout: 0 }]).map((entry: any, idx: number) => (
