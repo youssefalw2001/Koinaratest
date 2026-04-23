@@ -26,7 +26,6 @@ const tabs = [
   { path: "/leaderboard", icon: Trophy, labelKey: "leaderboard" as const },
   { path: "/exchange", icon: Gem, labelKey: "exchange" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
-  { path: "/profile", icon: User, labelKey: "profile" as const },
 ];
 
 function useTrialCountdown(vipTrialExpiresAt?: string | null): string | null {
@@ -119,13 +118,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           </div>
-          <button
-            onClick={toggleLanguage}
-            className="pressable inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[9px] font-bold text-white/60 hover:text-white transition-colors"
-          >
-            <Languages size={11} />
-            {language === "en" ? "AR" : "EN"}
-          </button>
+          <div className="flex items-center gap-2">
+            <Link href="/profile">
+              <button
+                className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors"
+                aria-label="Profile"
+              >
+                <User size={14} className="text-white/60" />
+              </button>
+            </Link>
+            <button
+              onClick={toggleLanguage}
+              className="pressable inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[9px] font-bold text-white/60 hover:text-white transition-colors"
+            >
+              <Languages size={11} />
+              {language === "en" ? "AR" : "EN"}
+            </button>
+          </div>
         </div>
 
         {user && (

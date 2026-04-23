@@ -58,6 +58,16 @@ export default function Earn() {
   const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
   const [lastClaim, setLastClaim] = useState<{ tc: number; id: number } | null>(null);
 
+  // ── DEV TESTING REWARD (remove before live) ──────────────────────────────
+  const DEV_TC_REWARD = 1000;
+  const DEV_AD_DURATION = 5;
+  const [devAdState, setDevAdState] = useState<"idle" | "watching" | "done">("idle");
+  const [devAdCountdown, setDevAdCountdown] = useState(DEV_AD_DURATION);
+  const [showDevToast, setShowDevToast] = useState(false);
+  const devCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const devToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const [adState, setAdState] = useState<"idle" | "watching" | "done">("idle");
   const [adCountdown, setAdCountdown] = useState(AD_DURATION);
   const [adResult, setAdResult] = useState<{ tc: number; adsLeft: number } | null>(null);
@@ -124,10 +134,53 @@ export default function Earn() {
     }
   };
 
+  // DEV TESTING handlers (remove before live)
+  const handleDevStartAd = () => {
+    if (devAdState !== "idle") return;
+    setDevAdState("watching");
+    setDevAdCountdown(DEV_AD_DURATION);
+    devCountdownRef.current = setInterval(() => {
+      setDevAdCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(devCountdownRef.current!);
+          handleDevAdComplete();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleDevAdComplete = async () => {
+    if (!user) return;
+    setDevAdState("done");
+    try {
+      const res = await fetch(
+        `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api/users/${user.telegramId}/owner-refill-tc`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: DEV_TC_REWARD }) }
+      );
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+        setShowDevToast(true);
+        if (devToastTimerRef.current) clearTimeout(devToastTimerRef.current);
+        devToastTimerRef.current = setTimeout(() => {
+          setShowDevToast(false);
+          setDevAdState("idle");
+        }, 3000);
+      } else {
+        setDevAdState("idle");
+      }
+    } catch {
+      setDevAdState("idle");
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (devCountdownRef.current) clearInterval(devCountdownRef.current);
+      if (devToastTimerRef.current) clearTimeout(devToastTimerRef.current);
     };
   }, []);
 
@@ -395,6 +448,92 @@ export default function Earn() {
 
       {/* Quests Tab Content */}
       {activeTab === "quests" && <>
+
+      {/* ⚠ DEV TESTING REWARD — REMOVE BEFORE LIVE ⚠ */}
+      <div className="mb-4">
+        <div
+          className="p-4 rounded-2xl border-2 relative overflow-hidden"
+          style={{
+            borderColor: "#FF6B35",
+            background: "rgba(255,107,53,0.06)",
+            boxShadow: "0 0 20px rgba(255,107,53,0.2)",
+          }}
+        >
+          {/* Warning badge */}
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-center gap-1.5 py-1 font-mono text-[8px] font-black tracking-widest uppercase" style={{ background: "rgba(255,107,53,0.25)", color: "#FF6B35" }}>
+            ⚠ DEV TESTING — REMOVE BEFORE LIVE ⚠
+          </div>
+
+          <div className="flex items-center justify-between mt-5 mb-3">
+            <div className="flex items-center gap-2">
+              <Zap size={16} style={{ color: "#FF6B35" }} />
+              <span className="font-mono text-sm font-black text-white">Test Reward</span>
+              <span className="font-mono text-[8px] px-1.5 py-0.5 rounded border" style={{ color: "#FF6B35", borderColor: "rgba(255,107,53,0.4)", background: "rgba(255,107,53,0.1)" }}>TESTING</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs">🔵</span>
+              <span className="font-mono text-sm font-black" style={{ color: "#FF6B35" }}>+{DEV_TC_REWARD} TC</span>
+            </div>
+          </div>
+
+          <div className="font-mono text-[10px] text-white/40 mb-3">Simulates a 5-second ad. Unlimited uses. Credits {DEV_TC_REWARD} TC instantly.</div>
+
+          {devAdState === "idle" && (
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={handleDevStartAd}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-black border-2 transition-all"
+              style={{ borderColor: "#FF6B35", color: "#FF6B35", background: "rgba(255,107,53,0.12)", boxShadow: "0 0 15px rgba(255,107,53,0.2)" }}
+            >
+              <Play size={14} />
+              CLAIM {DEV_TC_REWARD} TC (5s)
+            </motion.button>
+          )}
+
+          {devAdState === "watching" && (
+            <div className="flex flex-col items-center py-2">
+              <div className="relative w-16 h-16 flex items-center justify-center mb-2">
+                <svg className="absolute inset-0" viewBox="0 0 64 64">
+                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+                  <circle
+                    cx="32" cy="32" r="28" fill="none" stroke="#FF6B35" strokeWidth="4" strokeLinecap="round"
+                    strokeDasharray={175.9}
+                    strokeDashoffset={175.9 * (devAdCountdown / DEV_AD_DURATION)}
+                    transform="rotate(-90 32 32)"
+                    style={{ transition: "stroke-dashoffset 1s linear", filter: "drop-shadow(0 0 4px #FF6B35)" }}
+                  />
+                </svg>
+                <span className="font-mono text-xl font-black text-white z-10">{devAdCountdown}</span>
+              </div>
+              <div className="font-mono text-xs text-white/50">Simulating ad...</div>
+            </div>
+          )}
+
+          {devAdState === "done" && (
+            <div className="flex flex-col items-center py-2 gap-1">
+              <CheckCircle2 size={28} style={{ color: "#FF6B35" }} />
+              <div className="font-mono text-sm font-black" style={{ color: "#FF6B35" }}>+{DEV_TC_REWARD} TC Credited!</div>
+            </div>
+          )}
+
+          {/* Dev toast */}
+          <AnimatePresence>
+            {showDevToast && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+                className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/80 backdrop-blur-sm"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <CheckCircle2 size={32} style={{ color: "#FF6B35" }} />
+                  <span className="font-mono text-lg font-black" style={{ color: "#FF6B35" }}>+{DEV_TC_REWARD} TC</span>
+                  <span className="font-mono text-[10px] text-white/50">Credited to your account</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+      {/* END DEV TESTING REWARD */}
 
       {/* Ad Reward Section */}
       <div className="mb-6">
