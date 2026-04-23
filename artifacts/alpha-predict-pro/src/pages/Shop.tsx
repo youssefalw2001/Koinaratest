@@ -430,12 +430,13 @@ export default function Shop() {
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
-                        className="py-2 rounded-xl font-mono text-[10px] font-black border"
+                      <Link
+                        href="/exchange"
+                        className="py-2 rounded-xl font-mono text-[10px] font-black border flex items-center justify-center"
                         style={{ borderColor: `${pack.accent}66`, color: pack.accent, background: `${pack.accent}14` }}
                       >
                         BUY NOW
-                      </button>
+                      </Link>
                       <Link href="/wallet" className="py-2 rounded-xl font-mono text-[10px] font-black border border-white/10 text-white/60 bg-black/20 flex items-center justify-center gap-1.5">
                         <Wallet size={12} />
                         FUND
