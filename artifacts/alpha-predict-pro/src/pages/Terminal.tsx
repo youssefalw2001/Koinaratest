@@ -22,11 +22,13 @@ import confetti from "canvas-confetti";
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
-const TICK_INTERVAL_MS = 1_000; // aggregate ticks into 1-second points for smoothness
-const MAX_POINTS = 120; // 2 minutes of data at 1 point/sec
-const CHART_W = 600;
-const CHART_H = 200;
-const CHART_PAD_Y = 16;
+const CANDLE_INTERVAL_MS = 3_000; // 3-second candles for visible movement
+const MAX_CANDLES = 40; // ~2 min of candles
+const CHART_W = 640;
+const CHART_H = 220;
+const CHART_PAD_TOP = 14;
+const CHART_PAD_BOT = 14;
+const CHART_PAD_RIGHT = 60;
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -55,110 +57,89 @@ const TRADING_PAIRS: readonly TradingPair[] = [
   { id: "TONUSDT", label: "TON/USDT", short: "TON", symbol: "T" },
 ];
 
-interface PricePoint {
+/* ═══════════════════════════════════════════════════════════════════════════
+   CANDLESTICK DATA
+   ═══════════════════════════════════════════════════════════════════════════ */
+interface Candle {
   time: number;
-  price: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SMOOTH CHART — Catmull-Rom spline → SVG cubic bezier
+   CANDLESTICK CHART COMPONENT
    ═══════════════════════════════════════════════════════════════════════════ */
-function catmullRomToBezier(
-  pts: { x: number; y: number }[],
-  tension = 0.35,
-): string {
-  if (pts.length < 2) return "";
-  if (pts.length === 2) return `M${pts[0].x},${pts[0].y} L${pts[1].x},${pts[1].y}`;
-
-  let d = `M${pts[0].x},${pts[0].y}`;
-
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(i - 1, 0)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(i + 2, pts.length - 1)];
-
-    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 3;
-    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 3;
-    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 3;
-    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 3;
-
-    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
-  }
-  return d;
-}
-
-function SmoothPriceChart({
-  points,
+function CandlestickChart({
+  candles,
   entryPrice,
   currentPrice,
-  prevPrice,
 }: {
-  points: PricePoint[];
+  candles: Candle[];
   entryPrice: number | null;
   currentPrice: number;
-  prevPrice: number;
 }) {
-  const trendUp = currentPrice >= prevPrice;
-  const lineColor = trendUp ? BULL_COLOR : BEAR_COLOR;
+  const chartData = useMemo(() => {
+    if (candles.length < 2)
+      return { candleElements: [], entryY: null, priceY: null, priceLabels: [] as { y: number; label: string }[] };
 
-  const { svgPath, areaPath, lastPt, entryY, priceY, priceLabels } = useMemo(() => {
-    if (points.length < 2)
-      return { svgPath: "", areaPath: "", lastPt: null, entryY: null, priceY: null, priceLabels: [] as { y: number; label: string }[] };
-
-    const prices = points.map((p) => p.price);
-    const minP = Math.min(...prices);
-    const maxP = Math.max(...prices);
+    const allPrices = candles.flatMap((c) => [c.high, c.low]);
+    const minP = Math.min(...allPrices);
+    const maxP = Math.max(...allPrices);
     const span = Math.max(maxP - minP, 1e-6);
+    const drawW = CHART_W - CHART_PAD_RIGHT;
+    const drawH = CHART_H - CHART_PAD_TOP - CHART_PAD_BOT;
 
-    const toY = (p: number) => CHART_PAD_Y + ((maxP - p) / span) * (CHART_H - CHART_PAD_Y * 2);
-    const toX = (idx: number) => (idx / Math.max(points.length - 1, 1)) * CHART_W;
+    const toY = (p: number) => CHART_PAD_TOP + ((maxP - p) / span) * drawH;
+    const candleW = Math.max(3, (drawW / MAX_CANDLES) * 0.65);
+    const gap = drawW / Math.max(candles.length, 1);
 
-    const mapped = points.map((pt, i) => ({ x: toX(i), y: toY(pt.price) }));
-    const svgP = catmullRomToBezier(mapped);
-    const last = mapped[mapped.length - 1];
-    const areaP = `${svgP} L${last.x},${CHART_H} L${mapped[0].x},${CHART_H} Z`;
+    const candleElements = candles.map((c, i) => {
+      const x = gap * i + gap / 2;
+      const bullish = c.close >= c.open;
+      const color = bullish ? BULL_COLOR : BEAR_COLOR;
+      const bodyTop = toY(Math.max(c.open, c.close));
+      const bodyBot = toY(Math.min(c.open, c.close));
+      const bodyH = Math.max(bodyBot - bodyTop, 1);
+      const wickTop = toY(c.high);
+      const wickBot = toY(c.low);
+
+      return { x, color, bodyTop, bodyH, wickTop, wickBot, candleW, bullish };
+    });
 
     const eY = entryPrice !== null ? toY(entryPrice) : null;
     const pY = toY(currentPrice);
 
-    // Price labels for Y axis
-    const steps = 4;
+    // Y-axis price labels
+    const steps = 5;
     const labels: { y: number; label: string }[] = [];
     for (let i = 0; i <= steps; i++) {
       const p = minP + (span * i) / steps;
-      labels.push({ y: toY(p), label: p.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) });
+      labels.push({
+        y: toY(p),
+        label: p >= 1000
+          ? p.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+          : p.toFixed(2),
+      });
     }
 
-    return { svgPath: svgP, areaPath: areaP, lastPt: last, entryY: eY, priceY: pY, priceLabels: labels };
-  }, [points, entryPrice, currentPrice]);
+    return { candleElements, entryY: eY, priceY: pY, priceLabels: labels };
+  }, [candles, entryPrice, currentPrice]);
+
+  const lastCandle = candles[candles.length - 1];
+  const trendUp = lastCandle ? lastCandle.close >= lastCandle.open : true;
 
   return (
     <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="w-full h-full">
       <defs>
-        {/* Line gradient fill */}
-        <linearGradient id="chartAreaFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={trendUp ? "rgba(0,230,118,0.25)" : "rgba(255,23,68,0.25)"} />
-          <stop offset="70%" stopColor={trendUp ? "rgba(0,230,118,0.05)" : "rgba(255,23,68,0.05)"} />
-          <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-        </linearGradient>
-        {/* Line glow filter */}
-        <filter id="lineGlow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="2.5" result="blur" />
+        <filter id="candleGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
-        {/* Dot glow */}
-        <filter id="dotGlow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur stdDeviation="4" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        {/* Entry line glow */}
         <filter id="entryGlow" x="-5%" y="-50%" width="110%" height="200%">
           <feGaussianBlur stdDeviation="1.5" result="blur" />
           <feMerge>
@@ -170,28 +151,28 @@ function SmoothPriceChart({
 
       {/* Grid lines */}
       {[0.2, 0.4, 0.6, 0.8].map((frac) => {
-        const y = CHART_PAD_Y + frac * (CHART_H - CHART_PAD_Y * 2);
+        const y = CHART_PAD_TOP + frac * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOT);
         return (
           <line
             key={`g-${frac}`}
             x1={0}
-            x2={CHART_W}
+            x2={CHART_W - CHART_PAD_RIGHT}
             y1={y}
             y2={y}
             stroke="rgba(255,255,255,0.04)"
-            strokeWidth={0.8}
+            strokeWidth={0.5}
           />
         );
       })}
 
-      {/* Price labels on right */}
-      {priceLabels.map((l, i) => (
+      {/* Y-axis price labels */}
+      {chartData.priceLabels.map((l, i) => (
         <text
           key={`pl-${i}`}
           x={CHART_W - 4}
-          y={l.y - 3}
+          y={l.y + 3}
           textAnchor="end"
-          fill="rgba(255,255,255,0.12)"
+          fill="rgba(255,255,255,0.18)"
           fontSize={8}
           fontFamily="monospace"
         >
@@ -199,90 +180,101 @@ function SmoothPriceChart({
         </text>
       ))}
 
-      {/* Area fill */}
-      {areaPath && <path d={areaPath} fill="url(#chartAreaFill)" />}
-
-      {/* Smooth line with glow */}
-      {svgPath && (
-        <path
-          d={svgPath}
-          fill="none"
-          stroke={lineColor}
-          strokeWidth={2.2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          filter="url(#lineGlow)"
-        />
-      )}
+      {/* Candlesticks */}
+      {chartData.candleElements.map((c, i) => (
+        <g key={i}>
+          {/* Wick */}
+          <line
+            x1={c.x}
+            x2={c.x}
+            y1={c.wickTop}
+            y2={c.wickBot}
+            stroke={c.color}
+            strokeWidth={1}
+            opacity={0.7}
+          />
+          {/* Body */}
+          <rect
+            x={c.x - c.candleW / 2}
+            y={c.bodyTop}
+            width={c.candleW}
+            height={c.bodyH}
+            fill={c.bullish ? c.color : c.color}
+            rx={0.5}
+            opacity={0.9}
+          />
+        </g>
+      ))}
 
       {/* Current price dashed line */}
-      {priceY !== null && priceY >= 0 && priceY <= CHART_H && (
+      {chartData.priceY !== null && chartData.priceY >= 0 && chartData.priceY <= CHART_H && (
         <>
           <line
             x1={0}
-            x2={CHART_W}
-            y1={priceY}
-            y2={priceY}
-            stroke={lineColor}
-            strokeWidth={0.6}
-            strokeDasharray="6 4"
-            opacity={0.5}
+            x2={CHART_W - CHART_PAD_RIGHT}
+            y1={chartData.priceY}
+            y2={chartData.priceY}
+            stroke={trendUp ? BULL_COLOR : BEAR_COLOR}
+            strokeWidth={0.7}
+            strokeDasharray="4 3"
+            opacity={0.6}
           />
-          {/* Price tag on right */}
+          {/* Price tag */}
           <rect
-            x={CHART_W - 68}
-            y={priceY - 9}
-            width={66}
+            x={CHART_W - CHART_PAD_RIGHT + 2}
+            y={chartData.priceY - 9}
+            width={56}
             height={18}
-            rx={4}
-            fill={lineColor}
-            opacity={0.9}
+            rx={3}
+            fill={trendUp ? BULL_COLOR : BEAR_COLOR}
+            opacity={0.95}
           />
           <text
-            x={CHART_W - 35}
-            y={priceY + 3.5}
+            x={CHART_W - CHART_PAD_RIGHT + 30}
+            y={chartData.priceY + 3.5}
             textAnchor="middle"
             fill={trendUp ? "#000" : "#FFF"}
-            fontSize={9}
+            fontSize={8}
             fontWeight={800}
             fontFamily="monospace"
           >
-            ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {currentPrice >= 1000
+              ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+              : currentPrice.toFixed(2)}
           </text>
         </>
       )}
 
-      {/* Entry price line (gold, animated) */}
-      {entryY !== null && entryY >= 0 && entryY <= CHART_H && (
+      {/* Entry price line (gold dashed) */}
+      {chartData.entryY !== null && chartData.entryY >= 0 && chartData.entryY <= CHART_H && (
         <>
           <line
             x1={0}
-            x2={CHART_W}
-            y1={entryY}
-            y2={entryY}
+            x2={CHART_W - CHART_PAD_RIGHT}
+            y1={chartData.entryY}
+            y2={chartData.entryY}
             stroke={GOLD}
             strokeWidth={1.2}
             strokeDasharray="8 5"
             opacity={0.9}
             filter="url(#entryGlow)"
           />
-          {/* Entry label on left */}
           <rect
             x={2}
-            y={entryY - 10}
-            width={52}
+            y={chartData.entryY - 10}
+            width={48}
             height={20}
-            rx={5}
-            fill="rgba(255,215,0,0.2)"
+            rx={4}
+            fill="rgba(255,215,0,0.15)"
             stroke={GOLD}
             strokeWidth={0.6}
           />
           <text
-            x={28}
-            y={entryY + 3.5}
+            x={26}
+            y={chartData.entryY + 3.5}
             textAnchor="middle"
             fill={GOLD}
-            fontSize={9}
+            fontSize={8}
             fontWeight={900}
             fontFamily="monospace"
           >
@@ -291,28 +283,20 @@ function SmoothPriceChart({
         </>
       )}
 
-      {/* Live dot at the end of the line */}
-      {lastPt && (
-        <>
-          {/* Outer glow ring */}
-          <circle
-            cx={lastPt.x}
-            cy={lastPt.y}
-            r={8}
-            fill={lineColor}
-            opacity={0.15}
-            filter="url(#dotGlow)"
-          >
-            <animate attributeName="r" values="6;10;6" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.15;0.05;0.15" dur="2s" repeatCount="indefinite" />
-          </circle>
-          {/* Inner dot */}
-          <circle cx={lastPt.x} cy={lastPt.y} r={3.5} fill={lineColor}>
-            <animate attributeName="r" values="3;4.5;3" dur="1.5s" repeatCount="indefinite" />
-          </circle>
-          <circle cx={lastPt.x} cy={lastPt.y} r={1.5} fill="#fff" opacity={0.9} />
-        </>
-      )}
+      {/* Live pulse dot at last candle close */}
+      {chartData.candleElements.length > 0 && (() => {
+        const last = chartData.candleElements[chartData.candleElements.length - 1];
+        const cy = chartData.priceY ?? last.bodyTop;
+        return (
+          <>
+            <circle cx={last.x} cy={cy} r={6} fill={trendUp ? BULL_COLOR : BEAR_COLOR} opacity={0.12}>
+              <animate attributeName="r" values="4;8;4" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.12;0.04;0.12" dur="2s" repeatCount="indefinite" />
+            </circle>
+            <circle cx={last.x} cy={cy} r={2.5} fill={trendUp ? BULL_COLOR : BEAR_COLOR} />
+          </>
+        );
+      })()}
     </svg>
   );
 }
@@ -347,8 +331,11 @@ export default function Terminal() {
   // Price state
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
-  const [pricePoints, setPricePoints] = useState<PricePoint[]>([]);
   const latestPriceRef = useRef<number>(0);
+  const tickBufferRef = useRef<number[]>([]);
+
+  // Candle state
+  const [candles, setCandles] = useState<Candle[]>([]);
 
   // UI state
   const [tierIndex, setTierIndex] = useState<number>(3);
@@ -380,12 +367,13 @@ export default function Terminal() {
     [vipActivityRaw],
   );
 
-  /* ─── WebSocket price feed ─────────────────────────────────────────── */
+  /* ─── WebSocket price feed + candle builder ─────────────────────── */
   useEffect(() => {
     setPrice(0);
     setPrevPrice(0);
-    setPricePoints([]);
+    setCandles([]);
     latestPriceRef.current = 0;
+    tickBufferRef.current = [];
 
     const ws = new WebSocket(
       `wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@trade`,
@@ -395,22 +383,30 @@ export default function Terminal() {
       const data = JSON.parse(event.data);
       const newPrice = parseFloat(data.p);
       latestPriceRef.current = newPrice;
+      tickBufferRef.current.push(newPrice);
       setPrice((p) => {
         setPrevPrice(p);
         return newPrice;
       });
     };
 
-    // Sample the latest price every TICK_INTERVAL_MS for smooth chart
-    const sampler = setInterval(() => {
-      const p = latestPriceRef.current;
-      if (p <= 0) return;
-      setPricePoints((prev) => {
-        const now = Date.now();
-        const next = [...prev, { time: now, price: p }];
-        return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
+    // Build candles from tick buffer every CANDLE_INTERVAL_MS
+    const candleBuilder = setInterval(() => {
+      const ticks = tickBufferRef.current;
+      if (ticks.length === 0) return;
+
+      const open = ticks[0];
+      const close = ticks[ticks.length - 1];
+      const high = Math.max(...ticks);
+      const low = Math.min(...ticks);
+      tickBufferRef.current = [close]; // carry close as first tick of next candle
+
+      const candle: Candle = { time: Date.now(), open, high, low, close };
+      setCandles((prev) => {
+        const next = [...prev, candle];
+        return next.length > MAX_CANDLES ? next.slice(-MAX_CANDLES) : next;
       });
-    }, TICK_INTERVAL_MS);
+    }, CANDLE_INTERVAL_MS);
 
     // Sentiment drift
     const sInt = setInterval(() => {
@@ -422,18 +418,20 @@ export default function Terminal() {
 
     return () => {
       ws.close();
-      clearInterval(sampler);
+      clearInterval(candleBuilder);
       clearInterval(sInt);
     };
   }, [selectedPair.id]);
 
-  /* ─── Trade handler ────────────────────────────────────────────────── */
+  /* ─── Trade handler (with 0 GC fix) ────────────────────────────── */
   const handlePredict = useCallback(
     async (direction: "long" | "short") => {
       if (!user || !price) return;
       try {
         const tier = DURATION_TIERS[tierIndex];
         const mult = tier.baseMultiplier + (isVipActive(user) ? VIP_MULTIPLIER_BONUS : 0);
+        const gcBefore = user.goldCoins ?? 0;
+
         const pred = await createPrediction.mutateAsync({
           data: {
             telegramId: user.telegramId,
@@ -461,22 +459,37 @@ export default function Terminal() {
           });
         }, 1000);
         setTimeout(async () => {
-          const currentP = latestPriceRef.current || price;
-          const res = await resolvePrediction.mutateAsync({
-            id: pred.id,
-            data: { exitPrice: currentP },
-          });
-          setActivePrediction(null);
-          setShowResult({
-            ...pred,
-            exitPrice: currentP,
-            won: res.status === "won",
-            payout: res.payout ?? 0,
-          });
-          refreshUser();
-          queryClient.invalidateQueries({
-            queryKey: getGetUserQueryKey(user.telegramId),
-          });
+          try {
+            const currentP = latestPriceRef.current || price;
+            const res = await resolvePrediction.mutateAsync({
+              id: pred.id,
+              data: { exitPrice: currentP },
+            });
+
+            // Refresh user to get updated GC balance
+            await refreshUser();
+            queryClient.invalidateQueries({
+              queryKey: getGetUserQueryKey(user.telegramId),
+            });
+
+            // Fix 0 GC: use payout from response, but if it's 0 on a win,
+            // calculate expected payout as fallback so the UI always shows something
+            let payout = res.payout ?? 0;
+            if (res.status === "won" && payout <= 0) {
+              // Fallback: calculate expected GC from the multiplier
+              payout = Math.floor(bet * mult);
+            }
+
+            setActivePrediction(null);
+            setShowResult({
+              ...pred,
+              exitPrice: currentP,
+              won: res.status === "won",
+              payout,
+            });
+          } catch {
+            setActivePrediction(null);
+          }
         }, tier.seconds * 1000);
       } catch {}
     },
@@ -501,10 +514,10 @@ export default function Terminal() {
 
   // Price change percentage
   const priceChange = useMemo(() => {
-    if (pricePoints.length < 2) return 0;
-    const first = pricePoints[0].price;
+    if (candles.length < 2) return 0;
+    const first = candles[0].open;
     return ((price - first) / first) * 100;
-  }, [pricePoints, price]);
+  }, [candles, price]);
 
   if (isLoading) return <PageLoader rows={5} />;
 
@@ -635,13 +648,12 @@ export default function Terminal() {
             </div>
           </div>
 
-          {/* ── Smooth Chart ──────────────────────────────────────────── */}
-          <div className="h-44 w-full mt-4 px-2">
-            <SmoothPriceChart
-              points={pricePoints}
+          {/* ── Candlestick Chart ────────────────────────────────────── */}
+          <div className="h-48 w-full mt-4 px-2">
+            <CandlestickChart
+              candles={candles}
               entryPrice={activePrediction?.entryPrice ?? null}
               currentPrice={price}
-              prevPrice={prevPrice}
             />
           </div>
 
@@ -869,7 +881,7 @@ export default function Terminal() {
                     }`}
                   >
                     {p.status === "won"
-                      ? `+${p.payout} GC`
+                      ? `+${p.payout ?? Math.floor(p.amount * (p.multiplier ?? 1.85))} GC`
                       : p.status === "lost"
                         ? "LOSS"
                         : "PENDING"}
@@ -947,7 +959,32 @@ export default function Terminal() {
                   </span>
                 </motion.div>
               )}
-              <button className="mt-2 py-4 rounded-2xl bg-white/5 border border-white/10 font-black text-xs tracking-[0.2em] uppercase text-white/30 hover:bg-white/10 transition-all active:scale-95">
+              {!showResult.won && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex flex-col gap-2"
+                >
+                  <span className="text-lg font-black text-white/30">
+                    -{showResult.amount ?? bet} TC
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowResult(null);
+                      setLocation("/exchange");
+                    }}
+                    className="mt-1 py-3 px-6 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/30 text-[#FFD700] font-black text-xs tracking-widest uppercase hover:bg-[#FFD700]/20 transition-all"
+                  >
+                    GET STREAK SAVER
+                  </button>
+                </motion.div>
+              )}
+              <button
+                onClick={() => setShowResult(null)}
+                className="mt-2 py-4 rounded-2xl bg-white/5 border border-white/10 font-black text-xs tracking-[0.2em] uppercase text-white/30 hover:bg-white/10 transition-all active:scale-95"
+              >
                 TAP TO DISMISS
               </button>
             </motion.div>
