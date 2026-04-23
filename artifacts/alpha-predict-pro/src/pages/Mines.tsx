@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bomb, Gem, Zap, Info, Shield, Trophy, RotateCcw, ChevronRight, Lock, ChevronUp, ChevronDown } from "lucide-react";
+import { Bomb, Gem, Trophy, ChevronUp, ChevronDown, Sparkles } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
@@ -40,16 +40,19 @@ export default function Mines() {
   const [activeRound, setActiveRound] = useState<ActiveRound | null>(null);
   const [lastResult, setLastResult] = useState<MinesResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clientSeed, setClientSeed] = useState(() => Math.random().toString(36).substring(7));
 
   const vip = isVipActive(user);
   const maxBet = vip ? 8000 : 2000;
 
+  const initData = (window as any)?.Telegram?.WebApp?.initData || "";
+
   const fetchActive = useCallback(async () => {
     if (!user) return;
     try {
       const res = await fetch(`${API_BASE}/active/${user.telegramId}`, {
-        headers: { "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "x-telegram-init-data": initData },
       });
       const data = await res.json();
       if (data.active) {
@@ -59,37 +62,44 @@ export default function Mines() {
         setBet(data.active.bet);
       }
     } catch {}
-  }, [user]);
+  }, [initData, user]);
 
   useEffect(() => { fetchActive(); }, [fetchActive]);
 
   const handleStart = async () => {
     if (!user || loading) return;
     setLoading(true);
+    setError(null);
     setLastResult(null);
     try {
       const res = await fetch(`${API_BASE}/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": initData },
         body: JSON.stringify({ telegramId: user.telegramId, gridSize, minesCount, bet, clientSeed }),
       });
       const data = await res.json();
       if (res.ok) {
         setActiveRound(data);
+        setClientSeed(Math.random().toString(36).substring(7));
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      } else {
+        setError(data?.error || "Could not start round. Please try again.");
       }
-    } catch {}
+    } catch {
+      setError("Network error while starting round.");
+    }
     setLoading(false);
   };
 
   const handleReveal = async (tile: number) => {
     if (!activeRound || loading) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/reveal`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": initData },
         body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId, tile }),
       });
       const data = await res.json();
@@ -102,18 +112,23 @@ export default function Mines() {
         } else {
           setActiveRound({ ...activeRound, revealed: data.revealed, multiplier: data.multiplier });
         }
+      } else {
+        setError(data?.error || "Could not reveal tile.");
       }
-    } catch {}
+    } catch {
+      setError("Network error while revealing tile.");
+    }
     setLoading(false);
   };
 
   const handleCashout = async () => {
     if (!activeRound || loading) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/cashout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": (window as any).Telegram.WebApp.initData || "" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": initData },
         body: JSON.stringify({ telegramId: user!.telegramId, roundId: activeRound.roundId }),
       });
       const data = await res.json();
@@ -123,8 +138,12 @@ export default function Mines() {
         confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#FFD700", "#FFF9E0", "#B8860B"] });
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user!.telegramId) });
+      } else {
+        setError(data?.error || "Could not cash out.");
       }
-    } catch {}
+    } catch {
+      setError("Network error while cashing out.");
+    }
     setLoading(false);
   };
 
@@ -163,6 +182,8 @@ export default function Mines() {
         .tension-active { animation: pulse-tension 1.5s ease-in-out infinite; }
         .grid-glow { box-shadow: 0 0 40px rgba(255, 215, 0, 0.05); }
         .gold-text-gradient { background: linear-gradient(135deg, #FFD700 0%, #B8860B 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        @keyframes breathe { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-1px); } }
+        .start-btn-anim { animation: breathe 1.7s ease-in-out infinite; }
       `}</style>
 
       <div className="flex items-center justify-between mb-6">
@@ -213,7 +234,12 @@ export default function Mines() {
               </div>
             </div>
 
-            <button onClick={handleStart} disabled={loading || (user?.tradeCredits ?? 0) < bet} className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#B8860B] text-black font-black text-sm tracking-widest shadow-[0_0_30px_rgba(255,215,0,0.2)] disabled:opacity-30 uppercase">Start Round</button>
+            <button onClick={handleStart} disabled={loading || (user?.tradeCredits ?? 0) < bet} className="start-btn-anim w-full py-4 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#B8860B] text-black font-black text-sm tracking-widest shadow-[0_0_30px_rgba(255,215,0,0.2)] disabled:opacity-30 uppercase">
+              <span className="inline-flex items-center gap-2">
+                <Sparkles size={14} />
+                {loading ? "Starting..." : "Start Round"}
+              </span>
+            </button>
           </>
         ) : (
           <div className="flex flex-col gap-3">
@@ -241,15 +267,37 @@ export default function Mines() {
           const isLastClicked = lastResult?.revealed?.slice(-1)[0] === i;
           const isGhostMine = !activeRound && lastResult?.mines?.includes(i) && !isLastClicked;
           return (
-            <motion.button key={i} whileTap={!activeRound || isRevealed ? {} : { scale: 0.9 }} onClick={() => !isRevealed && handleReveal(i)} disabled={!activeRound || isRevealed} className={`relative rounded-xl flex items-center justify-center transition-all duration-300 overflow-hidden ${isRevealed ? "bg-[#FFD700]/10 border-[#FFD700]/30" : isMine ? "bg-[#FF1744]/20 border-[#FF1744]/50" : isGhostMine ? "bg-white/[0.05] border-white/[0.1] opacity-40" : "bg-white/[0.05] border-white/[0.1] hover:bg-white/[0.08]"} border`}>
-              {isRevealed && <Gem size={20} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,0.5)]" />}
-              {isMine && <Bomb size={20} className={isLastClicked ? "text-[#FF1744]" : "text-white/40"} />}
+            <motion.button
+              key={i}
+              initial={{ opacity: 0.8, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2, delay: i * 0.008 }}
+              whileTap={!activeRound || isRevealed ? {} : { scale: 0.9 }}
+              onClick={() => !isRevealed && handleReveal(i)}
+              disabled={!activeRound || isRevealed}
+              className={`relative rounded-xl flex items-center justify-center transition-all duration-300 overflow-hidden ${isRevealed ? "bg-[#FFD700]/10 border-[#FFD700]/30" : isMine ? "bg-[#FF1744]/20 border-[#FF1744]/50" : isGhostMine ? "bg-white/[0.05] border-white/[0.1] opacity-40" : "bg-white/[0.05] border-white/[0.1] hover:bg-white/[0.08]"} border`}>
+              {isRevealed && (
+                <motion.div initial={{ scale: 0.2, rotate: -18, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} transition={{ type: "spring", damping: 14, stiffness: 220 }}>
+                  <Gem size={20} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,0.5)]" />
+                </motion.div>
+              )}
+              {isMine && (
+                <motion.div initial={{ scale: 0.3, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", damping: 16, stiffness: 220 }}>
+                  <Bomb size={20} className={isLastClicked ? "text-[#FF1744]" : "text-white/40"} />
+                </motion.div>
+              )}
               {isGhostMine && <Bomb size={14} className="text-white/20" />}
               {activeRound && !isRevealed && <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.02] to-transparent" />}
             </motion.button>
           );
         })}
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 rounded-xl border border-[#FF1744]/40 bg-[#FF1744]/10 text-xs text-[#ffd6df]">
+          {error}
+        </div>
+      )}
 
       <AnimatePresence>
         {lastResult && (
