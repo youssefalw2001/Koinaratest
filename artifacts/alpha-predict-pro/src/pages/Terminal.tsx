@@ -57,32 +57,32 @@ interface Candle {
   close: number;
 }
 
-function CandlestickChart({ candles, price, prevPrice }: { candles: Candle[]; price: number; prevPrice: number }) {
+function LinePriceChart({
+  candles,
+  price,
+  prevPrice,
+  entryPrice,
+}: {
+  candles: Candle[];
+  price: number;
+  prevPrice: number;
+  entryPrice: number | null;
+}) {
   const chart = useMemo(() => {
-    if (!candles.length) return { points: [], min: 0, max: 0 };
-    const min = Math.min(...candles.map(c => c.low));
-    const max = Math.max(...candles.map(c => c.high));
+    if (!candles.length) return { points: [], path: "", areaPath: "", min: 0, max: 0 };
+    const closes = candles.map(c => c.close);
+    const min = Math.min(...closes);
+    const max = Math.max(...closes);
     const span = Math.max(max - min, 1e-6);
-    const candleCount = Math.max(candles.length, 20);
-    const slot = 100 / candleCount;
-    const bodyWidth = Math.max(slot * 0.5, 0.9);
+    const sampleCount = Math.max(candles.length - 1, 1);
     const points = candles.map((c, idx) => {
-      const x = (idx + 0.5) * slot;
-      const openY = 100 - ((c.open - min) / span) * 100;
-      const closeY = 100 - ((c.close - min) / span) * 100;
-      const highY = 100 - ((c.high - min) / span) * 100;
-      const lowY = 100 - ((c.low - min) / span) * 100;
-      return {
-        x,
-        bodyY: Math.min(openY, closeY),
-        bodyH: Math.max(Math.abs(openY - closeY), 0.9),
-        highY,
-        lowY,
-        bodyWidth,
-        isBull: c.close >= c.open,
-      };
+      const x = (idx / sampleCount) * 100;
+      const y = 100 - ((c.close - min) / span) * 100;
+      return { x, y };
     });
-    return { points, min, max };
+    const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+    const areaPath = `${path} L 100 100 L 0 100 Z`;
+    return { points, path, areaPath, min, max };
   }, [candles]);
 
   const priceY = useMemo(() => {
@@ -90,33 +90,36 @@ function CandlestickChart({ candles, price, prevPrice }: { candles: Candle[]; pr
     const span = Math.max(chart.max - chart.min, 1e-6);
     return 100 - ((price - chart.min) / span) * 100;
   }, [chart, price]);
+  const entryY = useMemo(() => {
+    if (!chart.points.length || entryPrice === null) return null;
+    const span = Math.max(chart.max - chart.min, 1e-6);
+    return 100 - ((entryPrice - chart.min) / span) * 100;
+  }, [chart, entryPrice]);
+  const lastPoint = chart.points[chart.points.length - 1];
+  const trendUp = price >= prevPrice;
 
   return (
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+      <defs>
+        <linearGradient id="lineFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={trendUp ? "rgba(0,230,118,0.35)" : "rgba(255,23,68,0.35)"} />
+          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+        </linearGradient>
+      </defs>
       {[20, 40, 60, 80].map((y) => (
         <line key={`grid-${y}`} x1={0} x2={100} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth={0.25} />
       ))}
-      {chart.points.map((point, index) => (
-        <g key={`candle-${index}`}>
-          <line
-            x1={point.x}
-            x2={point.x}
-            y1={point.highY}
-            y2={point.lowY}
-            stroke={point.isBull ? BULL_COLOR : BEAR_COLOR}
-            strokeWidth={0.4}
-            opacity={0.9}
-          />
-          <rect
-            x={point.x - point.bodyWidth / 2}
-            y={point.bodyY}
-            width={point.bodyWidth}
-            height={point.bodyH}
-            fill={point.isBull ? BULL_COLOR : BEAR_COLOR}
-            rx={0.25}
-          />
-        </g>
-      ))}
+      {!!chart.path && <path d={chart.areaPath} fill="url(#lineFill)" opacity={0.8} />}
+      {!!chart.path && (
+        <path
+          d={chart.path}
+          fill="none"
+          stroke={trendUp ? BULL_COLOR : BEAR_COLOR}
+          strokeWidth={1.1}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      )}
       {priceY !== null && priceY >= 0 && priceY <= 100 && (
         <line
           x1={0}
@@ -128,6 +131,30 @@ function CandlestickChart({ candles, price, prevPrice }: { candles: Candle[]; pr
           strokeDasharray="1.2 1.2"
           opacity={0.75}
         />
+      )}
+      {entryY !== null && entryY >= 0 && entryY <= 100 && (
+        <>
+          <line
+            x1={0}
+            x2={100}
+            y1={entryY}
+            y2={entryY}
+            stroke={GOLD}
+            strokeWidth={0.45}
+            strokeDasharray="2 1.4"
+            opacity={0.95}
+          />
+          <rect x={0.8} y={Math.max(0, entryY - 2.8)} width={15} height={5.6} rx={1.2} fill="rgba(255, 215, 0, 0.18)" />
+          <text x={2.1} y={Math.min(98, Math.max(4, entryY + 1.2))} fill={GOLD} fontSize={3.3} fontWeight={700}>
+            ENTRY
+          </text>
+        </>
+      )}
+      {lastPoint && (
+        <>
+          <circle cx={lastPoint.x} cy={lastPoint.y} r={1.5} fill={trendUp ? BULL_COLOR : BEAR_COLOR} />
+          <circle cx={lastPoint.x} cy={lastPoint.y} r={2.9} fill={trendUp ? "rgba(0,230,118,0.15)" : "rgba(255,23,68,0.15)"} />
+        </>
       )}
     </svg>
   );
@@ -166,6 +193,12 @@ export default function Terminal() {
   const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user, queryKey: ["user-stats", user?.telegramId] } });
 
   const vipActivity = useMemo(() => Array.isArray(vipActivityRaw) ? vipActivityRaw : [], [vipActivityRaw]);
+  const topLeaders = useMemo(
+    () => [...vipActivity]
+      .sort((a: any, b: any) => Number(b?.payout ?? 0) - Number(a?.payout ?? 0))
+      .slice(0, 3),
+    [vipActivity],
+  );
 
   // Candle Engine & Sentiment Generator
   useEffect(() => {
@@ -223,7 +256,7 @@ export default function Terminal() {
       const pred = await createPrediction.mutateAsync({
         data: { telegramId: user.telegramId, direction, amount: bet, entryPrice: price, duration: tier.seconds, multiplier: mult }
       });
-      setActivePrediction({ ...pred, duration: tier.seconds });
+      setActivePrediction({ ...pred, duration: tier.seconds, entryPrice: price, openedAt: Date.now() });
       setCountdown(tier.seconds);
       const timer = setInterval(() => {
         setCountdown(c => {
@@ -322,9 +355,28 @@ export default function Terminal() {
             </div>
           </div>
 
-          {/* Candlestick Chart */}
+          {/* Top Leaderboard (restored) */}
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[9px] font-black tracking-[0.22em] text-white/40 uppercase">Top Payouts</span>
+              <span className="text-[9px] font-mono text-[#FFD700]/70 uppercase">Live board</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(topLeaders.length ? topLeaders : [{ displayName: "Waiting...", payout: 0 }, { displayName: "Waiting...", payout: 0 }, { displayName: "Waiting...", payout: 0 }]).map((entry: any, idx: number) => (
+                <div key={`${entry.displayName}-${idx}`} className="rounded-xl border border-white/10 bg-black/25 p-2">
+                  <div className="flex items-center gap-1.5">
+                    <Crown size={10} className={`${idx === 0 ? "text-[#FFD700]" : idx === 1 ? "text-[#8BC3FF]" : "text-[#ff8fb2]"}`} />
+                    <span className="font-mono text-[9px] text-white/70 truncate">{entry.displayName}</span>
+                  </div>
+                  <div className="mt-1 font-mono text-[10px] font-black text-[#FFD700]">{Number(entry.payout ?? 0).toFixed(0)} GC</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Line Chart */}
           <div className="h-40 w-full mt-6 candle-container">
-            <CandlestickChart candles={candles} price={price} prevPrice={prevPrice} />
+            <LinePriceChart candles={candles} price={price} prevPrice={prevPrice} entryPrice={activePrediction?.entryPrice ?? null} />
           </div>
 
           {/* Sentiment Bar */}

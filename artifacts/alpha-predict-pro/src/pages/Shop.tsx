@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDownUp, Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle, ChevronRight } from "lucide-react";
+import { ArrowDownUp, Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle, ChevronRight, Wallet, Rocket, Flame, Star } from "lucide-react";
 import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,6 +20,21 @@ interface GemDef {
   color: string;
   vipOnly: boolean;
   badge?: string;
+}
+
+type ShopTab = "powerups" | "tc_packs";
+
+interface TcPackDef {
+  id: "micro" | "starter" | "pro" | "whale";
+  name: string;
+  price: string;
+  tcAmount: number;
+  bonus?: string;
+  goal: string;
+  accent: string;
+  badge?: string;
+  tonOnly?: boolean;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties; className?: string }>;
 }
 
 const GEMS: GemDef[] = [
@@ -78,10 +93,57 @@ const GEMS: GemDef[] = [
   },
 ];
 
+const TC_PACKS: TcPackDef[] = [
+  {
+    id: "micro",
+    name: "Micro Pack",
+    price: "$0.99",
+    tcAmount: 7000,
+    goal: "Emergency Refill · high volume, low friction.",
+    accent: "#63D3FF",
+    badge: "FAST REFILL",
+    icon: Zap,
+  },
+  {
+    id: "starter",
+    name: "Starter Pack",
+    price: "$2.99",
+    tcAmount: 30000,
+    bonus: "Includes 1 Power-up",
+    goal: "First real conversion with a pity item to keep momentum.",
+    accent: "#B794F4",
+    badge: "BEST START",
+    icon: Star,
+  },
+  {
+    id: "pro",
+    name: "Pro Pack",
+    price: "$9.99",
+    tcAmount: 150000,
+    goal: "High extraction. Whale-feeling balance for a full day.",
+    accent: "#FFD166",
+    badge: "MOST POPULAR",
+    icon: Rocket,
+  },
+  {
+    id: "whale",
+    name: "Whale Pack",
+    price: "$49.99",
+    tcAmount: 1000000,
+    bonus: "Includes VIP bonus perks",
+    goal: "Maximum extraction focus for GCC (Saudi/UAE) heavy users.",
+    accent: "#00F5A0",
+    badge: "TON ONLY",
+    tonOnly: true,
+    icon: Flame,
+  },
+];
+
 export default function Shop() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
   const vip = isVipActive(user);
+  const [activeTab, setActiveTab] = useState<ShopTab>("tc_packs");
   const [confirming, setConfirming] = useState<GemType | null>(null);
   const [lastResult, setLastResult] = useState<{ name: string; mysteryReward?: { type: string; amount?: number; gem?: string } | null } | null>(null);
 
@@ -148,10 +210,31 @@ export default function Shop() {
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         <Gem size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
-        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Gem Shop</span>
+        <span className="font-mono text-xs text-white/60 tracking-[0.18em] uppercase">Elite Shop</span>
       </div>
-      <h1 className="text-2xl font-black text-white mb-1 tracking-[0.08em]">Powerups</h1>
-      <p className="font-mono text-xs text-white/40 mb-2">Spend Gold Coins to amplify your GC gains. Active gems auto-apply to trades.</p>
+      <h1 className="text-2xl font-black text-white mb-1 tracking-[0.08em]">{activeTab === "powerups" ? "Powerups" : "TC Packs"}</h1>
+      <p className="font-mono text-xs text-white/40 mb-2">
+        {activeTab === "powerups"
+          ? "Spend Gold Coins to amplify your GC gains. Active gems auto-apply to trades."
+          : "Instant Trade Credit refills to get users back in the game immediately."}
+      </p>
+      <p className="font-mono text-[10px] text-white/30 mb-3">Tip: switch between <span className="text-[#FFD700]">POWERUPS</span> and <span className="text-[#63D3FF]">TC PACKS</span> tabs.</p>
+
+      {/* Tabs */}
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <button
+          onClick={() => setActiveTab("powerups")}
+          className={`py-2.5 rounded-xl border font-mono text-[11px] font-black tracking-widest transition-all ${activeTab === "powerups" ? "text-[#FFD700] border-[#FFD700]/60 bg-[#FFD700]/10 shadow-[0_0_16px_rgba(255,215,0,0.15)]" : "text-white/40 border-white/10 bg-white/[0.02]"}`}
+        >
+          POWERUPS
+        </button>
+        <button
+          onClick={() => setActiveTab("tc_packs")}
+          className={`py-2.5 rounded-xl border font-mono text-[11px] font-black tracking-widest transition-all ${activeTab === "tc_packs" ? "text-[#63D3FF] border-[#63D3FF]/60 bg-[#63D3FF]/10 shadow-[0_0_16px_rgba(99,211,255,0.15)]" : "text-white/40 border-white/10 bg-white/[0.02]"}`}
+        >
+          TC PACKS • NEW
+        </button>
+      </div>
 
       {/* Balance */}
       {user && (
@@ -163,7 +246,7 @@ export default function Shop() {
       )}
 
       {/* Active Gems Summary */}
-      {safeActiveGems.length > 0 && (
+      {activeTab === "powerups" && safeActiveGems.length > 0 && (
         <div className="mb-5 p-3 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/5">
           <div className="font-mono text-[10px] text-[#f5c518] tracking-widest uppercase mb-2">Active Powerups</div>
           <div className="flex flex-wrap gap-2">
@@ -178,7 +261,7 @@ export default function Shop() {
         </div>
       )}
 
-      {/* Gem Grid */}
+      {activeTab === "powerups" ? (
       <div className="space-y-3">
         {GEMS.map((gem) => {
           const Icon = gem.icon;
@@ -295,6 +378,80 @@ export default function Shop() {
           );
         })}
       </div>
+      ) : (
+        <div className="space-y-3">
+          {TC_PACKS.map((pack) => {
+            const Icon = pack.icon;
+            return (
+              <motion.div
+                key={pack.id}
+                layout
+                className="relative p-4 rounded-2xl border overflow-hidden"
+                style={{
+                  borderColor: `${pack.accent}66`,
+                  background: `linear-gradient(160deg, ${pack.accent}18 0%, rgba(0,0,0,0.35) 70%)`,
+                  boxShadow: `0 0 26px ${pack.accent}26`,
+                }}
+              >
+                {pack.badge && (
+                  <div
+                    className="absolute top-3 right-3 font-mono text-[8px] font-black px-2 py-0.5 rounded"
+                    style={{ background: `${pack.accent}28`, color: pack.accent, border: `1px solid ${pack.accent}60` }}
+                  >
+                    {pack.badge}
+                  </div>
+                )}
+
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ background: `${pack.accent}20`, border: `1px solid ${pack.accent}60` }}
+                  >
+                    <Icon size={18} style={{ color: pack.accent }} />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-sm font-black text-white">{pack.name}</span>
+                      <span className="font-mono text-xs font-black" style={{ color: pack.accent }}>
+                        {pack.price}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="font-mono text-[11px] font-black text-white">{pack.tcAmount.toLocaleString()} TC</span>
+                      {pack.bonus && (
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[9px] text-[#FFD700] border border-[#FFD700]/30 bg-[#FFD700]/10">
+                          {pack.bonus}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-[10px] text-white/55 mt-2 leading-relaxed">
+                      {pack.goal}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <Link
+                        href="/exchange"
+                        className="py-2 rounded-xl font-mono text-[10px] font-black border flex items-center justify-center"
+                        style={{ borderColor: `${pack.accent}66`, color: pack.accent, background: `${pack.accent}14` }}
+                      >
+                        BUY NOW
+                      </Link>
+                      <Link href="/wallet" className="py-2 rounded-xl font-mono text-[10px] font-black border border-white/10 text-white/60 bg-black/20 flex items-center justify-center gap-1.5">
+                        <Wallet size={12} />
+                        FUND
+                      </Link>
+                    </div>
+                    {pack.tonOnly && (
+                      <div className="mt-2 font-mono text-[9px] text-[#00F5A0] tracking-widest uppercase">TON NETWORK ONLY</div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
