@@ -12,6 +12,7 @@ type TranslationKey =
   | "shop"
   | "wallet"
   | "profile"
+  | "leaderboard"
   | "vip"
   | "language"
   | "english"
@@ -102,6 +103,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
     shop: "Shop",
     wallet: "Wallet",
     profile: "Profile",
+    leaderboard: "Leaderboard",
     vip: "VIP",
     language: "Language",
     english: "English",
@@ -192,6 +194,7 @@ const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
     shop: "المتجر",
     wallet: "المحفظة",
     profile: "الملف",
+    leaderboard: "المتصدرين",
     vip: "النخبة",
     language: "اللغة",
     english: "الإنجليزية",

@@ -12,6 +12,7 @@ import {
   Languages,
   Sparkles,
   Bomb,
+  Trophy,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -22,8 +23,8 @@ import { useLanguage } from "@/lib/language";
 const tabs = [
   { path: "/", icon: Zap, labelKey: "trade" as const },
   { path: "/mines", icon: Bomb, labelKey: "mines" as const },
-  { path: "/earn", icon: Gift, labelKey: "earn" as const },
-  { path: "/shop", icon: Gem, labelKey: "shop" as const },
+  { path: "/leaderboard", icon: Trophy, labelKey: "leaderboard" as const },
+  { path: "/exchange", icon: Gem, labelKey: "shop" as const },
   { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
   { path: "/profile", icon: User, labelKey: "profile" as const },
 ];
