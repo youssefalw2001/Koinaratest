@@ -38,6 +38,7 @@ export const minesRoundPassesTable = pgTable("mines_round_passes", {
 }, (table) => [
   index("idx_mines_passes_telegram_id").on(table.telegramId),
   index("idx_mines_passes_tier").on(table.tier),
+  uniqueIndex("uq_mines_passes_tx_hash").on(table.txHash),
 ]);
 
 export type MinesRoundPass = typeof minesRoundPassesTable.$inferSelect;

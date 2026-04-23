@@ -387,7 +387,18 @@ router.post("/mines/passes/purchase", minesRateLimiter, async (req, res): Promis
     res.status(400).json({ error: verification.err ?? "Payment verification failed." });
     return;
   }
-
+  // ── Idempotency guard: reject replayed tx hashes ──
+  if (verification.txHash) {
+    const existing = await db
+      .select({ id: minesRoundPassesTable.id })
+      .from(minesRoundPassesTable)
+      .where(eq(minesRoundPassesTable.txHash, verification.txHash))
+      .limit(1);
+    if (existing.length > 0) {
+      res.status(409).json({ error: "This transaction has already been used to purchase passes." });
+      return;
+    }
+  }
   try {
     const [pass] = await db
       .insert(minesRoundPassesTable)
@@ -398,18 +409,21 @@ router.post("/mines/passes/purchase", minesRateLimiter, async (req, res): Promis
         txHash: verification.txHash ?? null,
       })
       .returning();
-
     logger.info(
       { telegramId, tier, packSize, txHash: verification.txHash },
       "Mines round pass purchased",
     );
-
     res.status(201).json({
       passId: pass.id,
       tier,
       remaining: pass.remaining,
     });
-  } catch (err) {
+  } catch (err: any) {
+    // Catch DB-level unique constraint violation as a second layer of protection
+    if (err?.code === "23505" || err?.message?.includes("uq_mines_passes_tx_hash")) {
+      res.status(409).json({ error: "This transaction has already been used to purchase passes." });
+      return;
+    }
     logger.error({ err, telegramId, tier }, "Mines pass purchase failed");
     res.status(500).json({ error: "Failed to purchase round pass." });
   }
@@ -1005,15 +1019,8 @@ router.post("/mines/cashout", minesRateLimiter, async (req, res): Promise<void> 
             .where(eq(usersTable.telegramId, telegramId));
         }
 
-        // For Gold tier, also return the TC payout (bet × multiplier)
-        let tcPayout = 0;
-        if (round.tier === "gold") {
-          tcPayout = Math.floor(round.bet * round.multiplier);
-          await tx
-            .update(usersTable)
-            .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${tcPayout}` })
-            .where(eq(usersTable.telegramId, telegramId));
-        }
+        // Gold tier: TC was the bet currency, GC is the reward — no TC refund on win
+        const tcPayout = 0;
 
         const [updated] = await tx
           .update(minesRoundsTable)
