@@ -277,7 +277,7 @@ export const UpgradeToVipParams = zod.object({
 });
 
 export const UpgradeToVipBody = zod.object({
-  plan: zod.enum(["weekly", "monthly"]),
+  plan: zod.enum(["monthly"]),
   senderAddress: zod
     .string()
     .nullish()
