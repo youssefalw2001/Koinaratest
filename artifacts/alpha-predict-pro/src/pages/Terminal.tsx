@@ -1,18 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { TrendingUp, TrendingDown, Zap, Clock, Crown, Flame, Gem, Shield, RotateCcw, Share2, Users, ChevronDown } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Cell,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-} from "recharts";
+import { TrendingUp, TrendingDown, Zap, Crown, Users, ChevronDown, Wallet, ArrowRight } from "lucide-react";
 import {
   useCreatePrediction,
   useResolvePrediction,
@@ -30,6 +19,8 @@ import confetti from "canvas-confetti";
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
+const FAST_CANDLE_MS = 5_000;
+const MAX_CHART_CANDLES = 60;
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -66,6 +57,82 @@ interface Candle {
   close: number;
 }
 
+function CandlestickChart({ candles, price, prevPrice }: { candles: Candle[]; price: number; prevPrice: number }) {
+  const chart = useMemo(() => {
+    if (!candles.length) return { points: [], min: 0, max: 0 };
+    const min = Math.min(...candles.map(c => c.low));
+    const max = Math.max(...candles.map(c => c.high));
+    const span = Math.max(max - min, 1e-6);
+    const candleCount = Math.max(candles.length, 20);
+    const slot = 100 / candleCount;
+    const bodyWidth = Math.max(slot * 0.5, 0.9);
+    const points = candles.map((c, idx) => {
+      const x = (idx + 0.5) * slot;
+      const openY = 100 - ((c.open - min) / span) * 100;
+      const closeY = 100 - ((c.close - min) / span) * 100;
+      const highY = 100 - ((c.high - min) / span) * 100;
+      const lowY = 100 - ((c.low - min) / span) * 100;
+      return {
+        x,
+        bodyY: Math.min(openY, closeY),
+        bodyH: Math.max(Math.abs(openY - closeY), 0.9),
+        highY,
+        lowY,
+        bodyWidth,
+        isBull: c.close >= c.open,
+      };
+    });
+    return { points, min, max };
+  }, [candles]);
+
+  const priceY = useMemo(() => {
+    if (!chart.points.length) return null;
+    const span = Math.max(chart.max - chart.min, 1e-6);
+    return 100 - ((price - chart.min) / span) * 100;
+  }, [chart, price]);
+
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+      {[20, 40, 60, 80].map((y) => (
+        <line key={`grid-${y}`} x1={0} x2={100} y1={y} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth={0.25} />
+      ))}
+      {chart.points.map((point, index) => (
+        <g key={`candle-${index}`}>
+          <line
+            x1={point.x}
+            x2={point.x}
+            y1={point.highY}
+            y2={point.lowY}
+            stroke={point.isBull ? BULL_COLOR : BEAR_COLOR}
+            strokeWidth={0.4}
+            opacity={0.9}
+          />
+          <rect
+            x={point.x - point.bodyWidth / 2}
+            y={point.bodyY}
+            width={point.bodyWidth}
+            height={point.bodyH}
+            fill={point.isBull ? BULL_COLOR : BEAR_COLOR}
+            rx={0.25}
+          />
+        </g>
+      ))}
+      {priceY !== null && priceY >= 0 && priceY <= 100 && (
+        <line
+          x1={0}
+          x2={100}
+          y1={priceY}
+          y2={priceY}
+          stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR}
+          strokeWidth={0.35}
+          strokeDasharray="1.2 1.2"
+          opacity={0.75}
+        />
+      )}
+    </svg>
+  );
+}
+
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "recently";
   const t = new Date(iso).getTime();
@@ -78,6 +145,7 @@ function timeAgo(iso: string | null | undefined): string {
 
 export default function Terminal() {
   const { user, isLoading, refreshUser } = useTelegram();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
@@ -88,9 +156,9 @@ export default function Terminal() {
   const [activePrediction, setActivePrediction] = useState<any>(null);
   const [countdown, setCountdown] = useState(0);
   const [showResult, setShowResult] = useState<any>(null);
+  const [showTopUpPrompt, setShowTopUpPrompt] = useState(false);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [showPairMenu, setShowPairMenu] = useState(false);
-  const [candleTimer, setCandleTimer] = useState(60);
   const [sentiment, setSentiment] = useState(55); // Default 55% bullish
 
   const createPrediction = useCreatePrediction();
@@ -105,35 +173,37 @@ export default function Terminal() {
   useEffect(() => {
     setPrice(0);
     setCandles([]);
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@kline_1m`);
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@trade`);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      const k = data.k;
-      const newPrice = parseFloat(k.c);
+      const newPrice = parseFloat(data.p);
+      const tradeTime = Number(data.T || Date.now());
+      const bucketTime = Math.floor(tradeTime / FAST_CANDLE_MS) * FAST_CANDLE_MS;
       setPrice(p => { setPrevPrice(p); return newPrice; });
-      
-      const newCandle: Candle = {
-        time: k.t,
-        open: parseFloat(k.o),
-        high: parseFloat(k.h),
-        low: parseFloat(k.l),
-        close: parseFloat(k.c),
-      };
-      
+
       setCandles(prev => {
         const last = prev[prev.length - 1];
-        if (last && last.time === newCandle.time) {
+        if (last && last.time === bucketTime) {
           const updated = [...prev];
-          updated[updated.length - 1] = newCandle;
+          updated[updated.length - 1] = {
+            ...last,
+            high: Math.max(last.high, newPrice),
+            low: Math.min(last.low, newPrice),
+            close: newPrice,
+          };
           return updated;
         }
-        return [...prev, newCandle].slice(-20);
+        const open = last?.close ?? newPrice;
+        const newCandle: Candle = {
+          time: bucketTime,
+          open,
+          high: Math.max(open, newPrice),
+          low: Math.min(open, newPrice),
+          close: newPrice,
+        };
+        return [...prev, newCandle].slice(-MAX_CHART_CANDLES);
       });
 
-      // Update candle timer based on current minute progress
-      const now = Date.now();
-      const secondsPassed = Math.floor((now - k.t) / 1000);
-      setCandleTimer(Math.max(0, 60 - secondsPassed));
     };
 
     // Randomize sentiment occasionally for "Live" feel
@@ -174,24 +244,25 @@ export default function Terminal() {
   };
 
   const vip = isVipActive(user);
+  const balanceTc = user?.tradeCredits ?? 0;
+  const shortfall = Math.max(0, bet - balanceTc);
   const referralCount = (userStats as any)?.referralCount ?? 0;
   const is5kLocked = !vip && referralCount < 5;
+
+  const handleTradeIntent = (direction: "long" | "short") => {
+    if (!user) return;
+    if (balanceTc < bet) {
+      setShowTopUpPrompt(true);
+      return;
+    }
+    handlePredict(direction);
+  };
 
   useEffect(() => {
     if (showResult?.won) {
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#FFD700", "#FFF9E0", "#B8860B"] });
     }
   }, [showResult]);
-
-  const chartData = useMemo(() => {
-    return candles.map(c => ({
-      ...c,
-      bottom: Math.min(c.open, c.close),
-      top: Math.max(c.open, c.close),
-      height: Math.abs(c.open - c.close) || 0.01,
-      isBull: c.close >= c.open
-    }));
-  }, [candles]);
 
   if (isLoading) return <PageLoader rows={5} />;
 
@@ -227,10 +298,6 @@ export default function Terminal() {
               <ChevronDown size={14} className="text-[#FFD700]/50" />
             </button>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <Clock size={10} className="text-white/20" />
-                <span className="text-[10px] font-mono text-white/40 font-black">{candleTimer}s</span>
-              </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
                 <span className="text-[10px] font-mono text-white/30 tracking-widest uppercase">Live</span>
@@ -270,29 +337,7 @@ export default function Terminal() {
 
           {/* Candlestick Chart */}
           <div className="h-40 w-full mt-6 candle-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData}>
-                <YAxis hide domain={["auto", "auto"]} />
-                <Bar dataKey="high" fill="none">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`wick-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} opacity={0.3} />
-                  ))}
-                </Bar>
-                <Bar dataKey="height" stackId="a">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`body-${index}`} fill={entry.isBull ? BULL_COLOR : BEAR_COLOR} />
-                  ))}
-                </Bar>
-                {price > 0 && (
-                  <ReferenceLine 
-                    y={price} 
-                    stroke={price >= prevPrice ? BULL_COLOR : BEAR_COLOR} 
-                    strokeDasharray="3 3" 
-                    opacity={0.5} 
-                  />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+            <CandlestickChart candles={candles} price={price} prevPrice={prevPrice} />
           </div>
 
           {/* Sentiment Bar */}
@@ -334,14 +379,14 @@ export default function Terminal() {
             </div>
 
             <div className="grid grid-cols-2 gap-4 mt-2">
-              <button onClick={() => handlePredict("long")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#00E676]/10 active:scale-95">
+              <button onClick={() => handleTradeIntent("long")} disabled={!user} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#00E676]/10 active:scale-95">
                 <div className="relative z-10 flex items-center justify-center gap-2">
                   <TrendingUp size={24} />
                   LONG
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-[#00E676]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
-              <button onClick={() => handlePredict("short")} disabled={!user || (user.tradeCredits ?? 0) < bet} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#FF1744]/10 active:scale-95">
+              <button onClick={() => handleTradeIntent("short")} disabled={!user} className="group relative py-6 rounded-[32px] border-2 font-black text-2xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-widest overflow-hidden transition-all hover:bg-[#FF1744]/10 active:scale-95">
                 <div className="relative z-10 flex items-center justify-center gap-2">
                   <TrendingDown size={24} />
                   SHORT
@@ -399,6 +444,39 @@ export default function Terminal() {
 
       {/* Result Modal */}
       <AnimatePresence>
+        {showTopUpPrompt && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-end justify-center bg-black/90 backdrop-blur-xl p-4" onClick={() => setShowTopUpPrompt(false)}>
+            <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} className="w-full max-w-sm rounded-[32px] border border-[#FFD700]/30 bg-[#09090e] p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#FFD700]/15 border border-[#FFD700]/30 flex items-center justify-center">
+                  <Wallet size={18} className="text-[#FFD700]" />
+                </div>
+                <div>
+                  <div className="text-xs font-black tracking-[0.2em] text-[#FFD700] uppercase">Low Balance</div>
+                  <div className="text-lg font-black text-white">Need {shortfall.toLocaleString()} TC more</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[500, 1000, 2500].map((amount) => (
+                  <button
+                    key={amount}
+                    onClick={() => { setBet(Math.max(bet, amount)); setLocation("/exchange"); }}
+                    className="py-2 rounded-xl border border-[#4DA3FF]/30 bg-[#4DA3FF]/10 text-[#8BC3FF] text-[11px] font-black font-mono"
+                  >
+                    +{amount.toLocaleString()} TC
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setLocation("/exchange")} className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#FFB300] text-black font-black text-sm tracking-wider flex items-center justify-center gap-2">
+                BUY TC PACKS (4 TIERS · TON)
+                <ArrowRight size={14} />
+              </button>
+              <button onClick={() => { setBet(Math.max(50, Math.min(balanceTc, bet))); setShowTopUpPrompt(false); }} className="w-full py-3 rounded-2xl border border-white/10 text-white/60 font-black text-xs tracking-[0.2em]">
+                USE LOWER BET
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
         {showResult && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 backdrop-blur-xl p-6" onClick={() => setShowResult(null)}>
             <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} className={`w-full max-w-sm p-12 rounded-[48px] border-2 text-center flex flex-col gap-8 ${showResult.won ? "border-[#FFD700] bg-gradient-to-b from-[#FFD700]/10 to-transparent shadow-[0_0_100px_rgba(255,215,0,0.2)]" : "border-white/10 bg-white/5"}`}>
