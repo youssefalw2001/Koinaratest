@@ -3,6 +3,16 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Crown, Users, ChevronDown } from "lucide-react";
 import {
+  createChart,
+  CrosshairMode,
+  LineStyle,
+  ColorType,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+  type IPriceLine,
+} from "lightweight-charts";
+import {
   useCreatePrediction,
   useResolvePrediction,
   useGetUserPredictions,
@@ -24,11 +34,6 @@ const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
 const CANDLE_INTERVAL_MS = 3_000; // 3-second candles for visible movement
 const MAX_CANDLES = 40; // ~2 min of candles
-const CHART_W = 640;
-const CHART_H = 220;
-const CHART_PAD_TOP = 14;
-const CHART_PAD_BOT = 14;
-const CHART_PAD_RIGHT = 60;
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -69,236 +74,166 @@ interface Candle {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CANDLESTICK CHART COMPONENT
+   HELPERS — aggregate 1s Binance klines into 3s candles
+   ═══════════════════════════════════════════════════════════════════════════ */
+function aggregateTo3s(klines: any[][]): { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] {
+  const out: { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] = [];
+  for (let i = 0; i + 2 < klines.length; i += 3) {
+    out.push({
+      time: Math.floor(Number(klines[i][0]) / 1000) as UTCTimestamp,
+      open: parseFloat(klines[i][1]),
+      high: Math.max(parseFloat(klines[i][2]), parseFloat(klines[i + 1][2]), parseFloat(klines[i + 2][2])),
+      low: Math.min(parseFloat(klines[i][3]), parseFloat(klines[i + 1][3]), parseFloat(klines[i + 2][3])),
+      close: parseFloat(klines[i + 2][4]),
+    });
+  }
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CANDLESTICK CHART — lightweight-charts (TradingView canvas renderer)
    ═══════════════════════════════════════════════════════════════════════════ */
 function CandlestickChart({
   candles,
+  liveCandle,
   entryPrice,
-  currentPrice,
+  pair,
 }: {
   candles: Candle[];
+  liveCandle: Candle | null;
   entryPrice: number | null;
-  currentPrice: number;
+  pair: string;
 }) {
-  const chartData = useMemo(() => {
-    if (candles.length < 2)
-      return { candleElements: [], entryY: null, priceY: null, priceLabels: [] as { y: number; label: string }[] };
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const entryLineRef = useRef<IPriceLine | null>(null);
 
-    const allPrices = candles.flatMap((c) => [c.high, c.low]);
-    const minP = Math.min(...allPrices);
-    const maxP = Math.max(...allPrices);
-    const span = Math.max(maxP - minP, 1e-6);
-    const drawW = CHART_W - CHART_PAD_RIGHT;
-    const drawH = CHART_H - CHART_PAD_TOP - CHART_PAD_BOT;
+  // Create chart once on mount, destroy on unmount
+  useEffect(() => {
+    if (!containerRef.current) return;
 
-    const toY = (p: number) => CHART_PAD_TOP + ((maxP - p) / span) * drawH;
-    const candleW = Math.max(3, (drawW / MAX_CANDLES) * 0.65);
-    const gap = drawW / Math.max(candles.length, 1);
-
-    const candleElements = candles.map((c, i) => {
-      const x = gap * i + gap / 2;
-      const bullish = c.close >= c.open;
-      const color = bullish ? BULL_COLOR : BEAR_COLOR;
-      const bodyTop = toY(Math.max(c.open, c.close));
-      const bodyBot = toY(Math.min(c.open, c.close));
-      const bodyH = Math.max(bodyBot - bodyTop, 1);
-      const wickTop = toY(c.high);
-      const wickBot = toY(c.low);
-
-      return { x, color, bodyTop, bodyH, wickTop, wickBot, candleW, bullish };
+    const chart = createChart(containerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "rgba(255,255,255,0.3)",
+        fontFamily: "monospace",
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.04)" },
+        horzLines: { color: "rgba(255,255,255,0.04)" },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.08, bottom: 0.08 },
+      },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: true,
+      },
+      handleScroll: false,
+      handleScale: false,
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
     });
 
-    const eY = entryPrice !== null ? toY(entryPrice) : null;
-    const pY = toY(currentPrice);
+    const series = chart.addCandlestickSeries({
+      upColor: "#00E676",
+      downColor: "#FF1744",
+      borderUpColor: "#00E676",
+      borderDownColor: "#FF1744",
+      wickUpColor: "rgba(0,230,118,0.55)",
+      wickDownColor: "rgba(255,23,68,0.55)",
+    });
 
-    // Y-axis price labels
-    const steps = 5;
-    const labels: { y: number; label: string }[] = [];
-    for (let i = 0; i <= steps; i++) {
-      const p = minP + (span * i) / steps;
-      labels.push({
-        y: toY(p),
-        label: p >= 1000
-          ? p.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-          : p.toFixed(2),
-      });
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    });
+    ro.observe(containerRef.current);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      entryLineRef.current = null;
+    };
+  }, []);
+
+  // Re-seed with historical data whenever trading pair changes
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    seriesRef.current.setData([]);
+
+    fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1s&limit=120`)
+      .then((r) => r.json())
+      .then((klines: any[][]) => {
+        if (!seriesRef.current) return;
+        seriesRef.current.setData(aggregateTo3s(klines));
+        chartRef.current?.timeScale().fitContent();
+      })
+      .catch(() => {});
+  }, [pair]);
+
+  // Append each newly finalized 3s candle
+  useEffect(() => {
+    if (!seriesRef.current || candles.length === 0) return;
+    const last = candles[candles.length - 1];
+    seriesRef.current.update({
+      time: Math.floor(last.time / 1000) as UTCTimestamp,
+      open: last.open,
+      high: last.high,
+      low: last.low,
+      close: last.close,
+    });
+  }, [candles]);
+
+  // Live-update the currently forming candle on every price tick
+  useEffect(() => {
+    if (!seriesRef.current || !liveCandle) return;
+    seriesRef.current.update({
+      time: Math.floor(liveCandle.time / 1000) as UTCTimestamp,
+      open: liveCandle.open,
+      high: liveCandle.high,
+      low: liveCandle.low,
+      close: liveCandle.close,
+    });
+  }, [liveCandle]);
+
+  // Add / remove the gold entry price line
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+
+    if (entryLineRef.current) {
+      series.removePriceLine(entryLineRef.current);
+      entryLineRef.current = null;
     }
 
-    return { candleElements, entryY: eY, priceY: pY, priceLabels: labels };
-  }, [candles, entryPrice, currentPrice]);
+    if (entryPrice !== null) {
+      entryLineRef.current = series.createPriceLine({
+        price: entryPrice,
+        color: "#FFD700",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "ENTRY",
+      });
+    }
+  }, [entryPrice]);
 
-  const lastCandle = candles[candles.length - 1];
-  const trendUp = lastCandle ? lastCandle.close >= lastCandle.open : true;
-
-  return (
-    <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="w-full h-full">
-      <defs>
-        <filter id="candleGlow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        <filter id="entryGlow" x="-5%" y="-50%" width="110%" height="200%">
-          <feGaussianBlur stdDeviation="1.5" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-
-      {/* Grid lines */}
-      {[0.2, 0.4, 0.6, 0.8].map((frac) => {
-        const y = CHART_PAD_TOP + frac * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOT);
-        return (
-          <line
-            key={`g-${frac}`}
-            x1={0}
-            x2={CHART_W - CHART_PAD_RIGHT}
-            y1={y}
-            y2={y}
-            stroke="rgba(255,255,255,0.04)"
-            strokeWidth={0.5}
-          />
-        );
-      })}
-
-      {/* Y-axis price labels */}
-      {chartData.priceLabels.map((l, i) => (
-        <text
-          key={`pl-${i}`}
-          x={CHART_W - 4}
-          y={l.y + 3}
-          textAnchor="end"
-          fill="rgba(255,255,255,0.18)"
-          fontSize={8}
-          fontFamily="monospace"
-        >
-          {l.label}
-        </text>
-      ))}
-
-      {/* Candlesticks */}
-      {chartData.candleElements.map((c, i) => (
-        <g key={i}>
-          {/* Wick */}
-          <line
-            x1={c.x}
-            x2={c.x}
-            y1={c.wickTop}
-            y2={c.wickBot}
-            stroke={c.color}
-            strokeWidth={1}
-            opacity={0.7}
-          />
-          {/* Body */}
-          <rect
-            x={c.x - c.candleW / 2}
-            y={c.bodyTop}
-            width={c.candleW}
-            height={c.bodyH}
-            fill={c.bullish ? c.color : c.color}
-            rx={0.5}
-            opacity={0.9}
-          />
-        </g>
-      ))}
-
-      {/* Current price dashed line */}
-      {chartData.priceY !== null && chartData.priceY >= 0 && chartData.priceY <= CHART_H && (
-        <>
-          <line
-            x1={0}
-            x2={CHART_W - CHART_PAD_RIGHT}
-            y1={chartData.priceY}
-            y2={chartData.priceY}
-            stroke={trendUp ? BULL_COLOR : BEAR_COLOR}
-            strokeWidth={0.7}
-            strokeDasharray="4 3"
-            opacity={0.6}
-          />
-          {/* Price tag */}
-          <rect
-            x={CHART_W - CHART_PAD_RIGHT + 2}
-            y={chartData.priceY - 9}
-            width={56}
-            height={18}
-            rx={3}
-            fill={trendUp ? BULL_COLOR : BEAR_COLOR}
-            opacity={0.95}
-          />
-          <text
-            x={CHART_W - CHART_PAD_RIGHT + 30}
-            y={chartData.priceY + 3.5}
-            textAnchor="middle"
-            fill={trendUp ? "#000" : "#FFF"}
-            fontSize={8}
-            fontWeight={800}
-            fontFamily="monospace"
-          >
-            {currentPrice >= 1000
-              ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-              : currentPrice.toFixed(2)}
-          </text>
-        </>
-      )}
-
-      {/* Entry price line (gold dashed) */}
-      {chartData.entryY !== null && chartData.entryY >= 0 && chartData.entryY <= CHART_H && (
-        <>
-          <line
-            x1={0}
-            x2={CHART_W - CHART_PAD_RIGHT}
-            y1={chartData.entryY}
-            y2={chartData.entryY}
-            stroke={GOLD}
-            strokeWidth={1.2}
-            strokeDasharray="8 5"
-            opacity={0.9}
-            filter="url(#entryGlow)"
-          />
-          <rect
-            x={2}
-            y={chartData.entryY - 10}
-            width={48}
-            height={20}
-            rx={4}
-            fill="rgba(255,215,0,0.15)"
-            stroke={GOLD}
-            strokeWidth={0.6}
-          />
-          <text
-            x={26}
-            y={chartData.entryY + 3.5}
-            textAnchor="middle"
-            fill={GOLD}
-            fontSize={8}
-            fontWeight={900}
-            fontFamily="monospace"
-          >
-            ENTRY
-          </text>
-        </>
-      )}
-
-      {/* Live pulse dot at last candle close */}
-      {chartData.candleElements.length > 0 && (() => {
-        const last = chartData.candleElements[chartData.candleElements.length - 1];
-        const cy = chartData.priceY ?? last.bodyTop;
-        return (
-          <>
-            <circle cx={last.x} cy={cy} r={6} fill={trendUp ? BULL_COLOR : BEAR_COLOR} opacity={0.12}>
-              <animate attributeName="r" values="4;8;4" dur="2s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.12;0.04;0.12" dur="2s" repeatCount="indefinite" />
-            </circle>
-            <circle cx={last.x} cy={cy} r={2.5} fill={trendUp ? BULL_COLOR : BEAR_COLOR} />
-          </>
-        );
-      })()}
-    </svg>
-  );
+  return <div ref={containerRef} className="w-full h-full" />;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -336,6 +271,7 @@ export default function Terminal() {
 
   // Candle state
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [liveCandle, setLiveCandle] = useState<Candle | null>(null);
 
   // UI state
   const [tierIndex, setTierIndex] = useState<number>(3);
@@ -372,6 +308,7 @@ export default function Terminal() {
     setPrice(0);
     setPrevPrice(0);
     setCandles([]);
+    setLiveCandle(null);
     latestPriceRef.current = 0;
     tickBufferRef.current = [];
 
@@ -387,6 +324,15 @@ export default function Terminal() {
       setPrice((p) => {
         setPrevPrice(p);
         return newPrice;
+      });
+      // Keep the forming candle's OHLC current on every tick
+      const ticks = tickBufferRef.current;
+      setLiveCandle({
+        time: Math.floor(Date.now() / 3000) * 3000,
+        open: ticks[0],
+        high: Math.max(...ticks),
+        low: Math.min(...ticks),
+        close: ticks[ticks.length - 1],
       });
     };
 
@@ -648,11 +594,12 @@ export default function Terminal() {
           </div>
 
           {/* ── Candlestick Chart ────────────────────────────────────── */}
-          <div className="h-48 w-full mt-4 px-2">
+          <div className="h-52 w-full mt-4">
             <CandlestickChart
               candles={candles}
+              liveCandle={liveCandle}
               entryPrice={activePrediction?.entryPrice ?? null}
-              currentPrice={price}
+              pair={selectedPair.id}
             />
           </div>
 
