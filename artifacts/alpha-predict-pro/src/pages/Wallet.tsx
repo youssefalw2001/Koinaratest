@@ -506,7 +506,7 @@ export default function WalletPage() {
                 <span className="font-mono text-[11px] text-white">${usdGross.toFixed(4)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-mono text-[11px] text-white/40">Platform fee (2.5%)</span>
+                <span className="font-mono text-[11px] text-white/40">Platform fee (4.5%)</span>
                 <span className="font-mono text-[11px] text-[#ff2d78]">-${feeUsd.toFixed(4)}</span>
               </div>
               <div className="flex justify-between">
@@ -739,7 +739,7 @@ export default function WalletPage() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 240, opacity: 0.8 }}
               transition={{ type: "spring", stiffness: 260, damping: 28 }}
-              className="w-full max-w-[420px] p-6 rounded-t-3xl border-t-2 border-[#FFD700]/65"
+              className="w-full max-w-[420px] p-6 rounded-t-3xl border-t-2 border-[#FFD700]/65 overflow-y-auto max-h-[88vh]"
               style={{
                 background: "radial-gradient(120% 120% at 50% 0%, rgba(255,215,0,0.12), rgba(10,10,15,0.98) 42%, #0a0a0f 100%)",
                 boxShadow: "0 -28px 90px rgba(255,215,0,0.24)",

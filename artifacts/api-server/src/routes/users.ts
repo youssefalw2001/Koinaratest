@@ -584,4 +584,34 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
 });
 
 
+// ── Owner-only TC refill (dev/testing — guarded by OWNER_TELEGRAM_ID env var)
+router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void> => {
+  const ownerEnvId = process.env.OWNER_TELEGRAM_ID;
+  if (!ownerEnvId) {
+    res.status(503).json({ error: "Owner tools are not configured on this server." });
+    return;
+  }
+
+  const { telegramId } = req.params;
+  if (telegramId !== ownerEnvId) {
+    res.status(403).json({ error: "Forbidden." });
+    return;
+  }
+
+  const TC_REFILL = 999_999;
+  const [updated] = await db
+    .update(usersTable)
+    .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${TC_REFILL}` })
+    .where(eq(usersTable.telegramId, telegramId))
+    .returning({ newTcBalance: usersTable.tradeCredits });
+
+  if (!updated) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+
+  res.json({ success: true, tcAdded: TC_REFILL, newTcBalance: updated.newTcBalance });
+});
+
+
 export default router;
