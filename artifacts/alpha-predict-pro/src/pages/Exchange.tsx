@@ -263,7 +263,7 @@ const TC_PACKS: TcPackDef[] = [
     price: "$49.99",
     tcAmount: 1000000,
     bonus: "Includes VIP bonus perks",
-    goal: "Maximum extraction focus for GCC (Saudi/UAE) heavy users.",
+    goal: "Maximum extraction focus for GCC (Saudi/UAE) heavy users. VIP recommended — unlocks $100/week withdrawals to match full extraction potential.",
     accent: "#00F5A0",
     badge: "TON ONLY",
     tonOnly: true,
