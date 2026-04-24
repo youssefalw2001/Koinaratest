@@ -198,7 +198,7 @@ const MINES_GEMS: GemDef[] = [
   {
     id: "gem_magnet",
     name: "Gem Magnet",
-    description: "Your next 3 revealed tiles give 1.5× the normal multiplier boost",
+    description: "Your next 3 revealed tiles give 1.25× the normal multiplier boost",
     tagline: "0.15 TON · Amplify every safe step you take.",
     gcCost: 0,
     tonCost: 0.15,
@@ -271,6 +271,8 @@ const TC_PACKS: TcPackDef[] = [
   },
 ];
 
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
+
 export default function Exchange() {
   const { user } = useTelegram();
   const queryClient = useQueryClient();
@@ -279,8 +281,42 @@ export default function Exchange() {
   const [powerupTab, setPowerupTab] = useState<PowerupTab>("binary");
   const [confirming, setConfirming] = useState<GemType | null>(null);
   const [lastResult, setLastResult] = useState<{ name: string; mysteryReward?: { type: string; amount?: number; gem?: string } | null } | null>(null);
+  const [tcPackBuying, setTcPackBuying] = useState<string | null>(null);
+  const [tcPackError, setTcPackError] = useState<string | null>(null);
 
   const purchaseMutation = usePurchaseGem();
+
+  const handleTcPackBuy = async (pack: TcPackDef) => {
+    if (!user) return;
+    const walletAddress = (user as { walletAddress?: string }).walletAddress;
+    if (!walletAddress) {
+      setTcPackError("Connect your TON wallet first to purchase TC packs.");
+      setTimeout(() => setTcPackError(null), 4000);
+      return;
+    }
+    setTcPackBuying(pack.id);
+    setTcPackError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/exchange/tc-pack/purchase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegramId: user.telegramId,
+          packId: pack.id,
+          senderAddress: walletAddress,
+        }),
+      });
+      const data = await resp.json() as { tcAwarded?: number; error?: string };
+      if (!resp.ok) throw new Error(data.error ?? "Purchase failed");
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      setLastResult({ name: pack.name });
+    } catch (err) {
+      setTcPackError(err instanceof Error ? err.message : "Purchase failed. Please retry.");
+      setTimeout(() => setTcPackError(null), 5000);
+    } finally {
+      setTcPackBuying(null);
+    }
+  };
 
   const { data: activeGems, isLoading: gemsLoading, isError: gemsError, refetch: refetchGems } = useGetActiveGems(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetActiveGemsQueryKey(user?.telegramId ?? "") },
@@ -319,6 +355,21 @@ export default function Exchange() {
 
   return (
     <div className="flex flex-col min-h-screen bg-black p-4 pb-8">
+      {/* TC Pack error toast */}
+      <AnimatePresence>
+        {tcPackError && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl border border-red-500/40 bg-black/90 backdrop-blur shadow-[0_0_30px_rgba(239,68,68,0.2)] min-w-[220px]"
+          >
+            <X size={18} className="text-red-400 shrink-0" />
+            <div className="font-mono text-sm text-red-400">{tcPackError}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Toast */}
       <AnimatePresence>
         {lastResult && (
@@ -627,10 +678,12 @@ export default function Exchange() {
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
-                        className="py-2 rounded-xl font-mono text-[10px] font-black border"
+                        disabled={tcPackBuying === pack.id}
+                        onClick={() => handleTcPackBuy(pack)}
+                        className="py-2 rounded-xl font-mono text-[10px] font-black border disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ borderColor: `${pack.accent}66`, color: pack.accent, background: `${pack.accent}14` }}
                       >
-                        BUY NOW
+                        {tcPackBuying === pack.id ? "VERIFYING…" : "BUY NOW"}
                       </button>
                       <Link href="/wallet" className="py-2 rounded-xl font-mono text-[10px] font-black border border-white/10 text-white/60 bg-black/20 flex items-center justify-center gap-1.5">
                         <Wallet size={12} />

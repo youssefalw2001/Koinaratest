@@ -1006,14 +1006,20 @@ router.post("/mines/cashout", minesRateLimiter, async (req, res): Promise<void> 
         // Apply daily GC cap
         const gcPayout = Math.min(rawPayout, gcRemaining);
 
-        // Credit GC to user
+        // Credit GC to user — use SQL increment for dailyGcFromMines to avoid
+        // race condition when two cashouts resolve concurrently.
         if (gcPayout > 0) {
           await tx
             .update(usersTable)
             .set({
               goldCoins: sql`${usersTable.goldCoins} + ${gcPayout}`,
               totalGcEarned: sql`${usersTable.totalGcEarned} + ${gcPayout}`,
-              dailyGcFromMines: gcEarnedToday + gcPayout,
+              dailyGcFromMines: sql`
+                CASE
+                  WHEN ${usersTable.dailyGcFromMinesDate} = ${today}
+                  THEN LEAST(${usersTable.dailyGcFromMines} + ${gcPayout}, ${dailyCap})
+                  ELSE ${gcPayout}
+                END`,
               dailyGcFromMinesDate: today,
             })
             .where(eq(usersTable.telegramId, telegramId));

@@ -23,6 +23,7 @@ export const minesRoundsTable = pgTable("mines_rounds", {
 }, (table) => [
   index("idx_mines_rounds_telegram_id").on(table.telegramId),
   index("idx_mines_rounds_status").on(table.status),
+  index("idx_mines_rounds_telegram_status").on(table.telegramId, table.status),
 ]);
 
 export type MinesRound = typeof minesRoundsTable.$inferSelect;

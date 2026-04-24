@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, sql, lte } from "drizzle-orm";
 import { db, contentSubmissionsTable, usersTable } from "@workspace/db";
 import { serializeRows, serializeRow } from "../lib/serialize";
@@ -6,6 +6,20 @@ import { z } from "zod/v4";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { logger } from "../lib/logger";
 import crypto from "crypto";
+
+function requireAdmin(req: Request, res: Response): boolean {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret) {
+    res.status(503).json({ error: "Admin endpoints are not configured on this server." });
+    return false;
+  }
+  const authHeader = req.headers.authorization ?? "";
+  if (authHeader !== `Bearer ${adminSecret}`) {
+    res.status(401).json({ error: "Unauthorized." });
+    return false;
+  }
+  return true;
+}
 
 const router: IRouter = Router();
 
@@ -57,9 +71,9 @@ async function isUrlLive(url: string): Promise<boolean> {
   }
 }
 
-function dailyFingerprint(telegramId: string, platform: string): string {
+function dailyFingerprint(telegramId: string, platform: string, index: number): string {
   const today = new Date().toISOString().slice(0, 10);
-  return crypto.createHash("sha256").update(`${telegramId}:${platform}:${today}`).digest("hex");
+  return crypto.createHash("sha256").update(`${telegramId}:${platform}:${today}:${index}`).digest("hex");
 }
 
 async function todayContentGc(telegramId: string): Promise<number> {
@@ -129,7 +143,6 @@ router.post("/content/submit", async (req, res): Promise<void> => {
   }
 
   // Anti-spam: daily limit per platform
-  const fingerprint = dailyFingerprint(authedId, platform);
   const dailyLimit = DAILY_LIMITS[platform] ?? 1;
 
   const todayStart = new Date();
@@ -151,6 +164,10 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     });
     return;
   }
+
+  // Fingerprint includes the slot index so each allowed submission gets a unique key.
+  // This lets WhatsApp (limit=2) get two distinct constraint slots instead of colliding.
+  const fingerprint = dailyFingerprint(authedId, platform, todaySubmissions.length);
 
   // Daily GC cap check
   const gcEarnedToday = await todayContentGc(authedId);
@@ -311,8 +328,10 @@ router.get("/content/status/:submissionId", async (req, res): Promise<void> => {
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /content/deletion-check — Cron endpoint: verify posts still live
 // after 6 hours. If deleted, claw back GC. Run every 30 minutes.
+// Requires admin Authorization header to prevent external abuse.
 // ═══════════════════════════════════════════════════════════════════════════
-router.post("/content/deletion-check", async (_req, res): Promise<void> => {
+router.post("/content/deletion-check", async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
   const now = new Date();
 
   const dueSubmissions = await db

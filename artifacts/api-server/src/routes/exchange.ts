@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
-import { db, usersTable, tcPackTxHashesTable } from "@workspace/db";
+import { db, usersTable, tcPackTxHashesTable, platformDailyStatsTable } from "@workspace/db";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
@@ -11,48 +11,53 @@ const router: IRouter = Router();
 // ---------- TC Pack definitions ----------
 
 type TcPack = {
-  id: "small" | "medium" | "large" | "jumbo";
+  id: "micro" | "starter" | "pro" | "whale";
   label: string;
   priceTonNano: bigint;
   priceTonLabel: string;
+  priceUsdLabel: string;    // display-only USD price shown in the UI
   tcAwarded: number;
   bonusPct: number;
 };
 
-// Psychological pricing: bigger packs offer escalating bonus TC.
-// Nanotons = 10^9 tons. Keep prices in bigint to avoid float rounding.
+// Prices in TON (nanotons). USD labels are for display only — actual payment is on-chain TON.
+// TON prices approximate: micro≈$0.99, starter≈$2.99, pro≈$9.99, whale≈$49.99 at current rates.
 const TC_PACKS: readonly TcPack[] = [
   {
-    id: "small",
-    label: "Starter Pack",
-    priceTonNano: 500_000_000n,      // 0.5 TON
-    priceTonLabel: "0.5",
-    tcAwarded: 1_000,
+    id: "micro",
+    label: "Micro Pack",
+    priceTonNano: 200_000_000n,      // ~0.2 TON ≈ $0.99
+    priceTonLabel: "0.2",
+    priceUsdLabel: "$0.99",
+    tcAwarded: 7_000,
     bonusPct: 0,
   },
   {
-    id: "medium",
-    label: "Trader Pack",
-    priceTonNano: 1_000_000_000n,    // 1.0 TON
-    priceTonLabel: "1.0",
-    tcAwarded: 2_500,                // 1000 base + 500 bonus vs 2 packs of small
-    bonusPct: 25,
+    id: "starter",
+    label: "Starter Pack",
+    priceTonNano: 600_000_000n,      // ~0.6 TON ≈ $2.99
+    priceTonLabel: "0.6",
+    priceUsdLabel: "$2.99",
+    tcAwarded: 30_000,
+    bonusPct: 0,
   },
   {
-    id: "large",
+    id: "pro",
+    label: "Pro Pack",
+    priceTonNano: 2_000_000_000n,    // ~2.0 TON ≈ $9.99
+    priceTonLabel: "2.0",
+    priceUsdLabel: "$9.99",
+    tcAwarded: 150_000,
+    bonusPct: 0,
+  },
+  {
+    id: "whale",
     label: "Whale Pack",
-    priceTonNano: 2_500_000_000n,    // 2.5 TON
-    priceTonLabel: "2.5",
-    tcAwarded: 7_500,
-    bonusPct: 50,
-  },
-  {
-    id: "jumbo",
-    label: "Jumbo Vault",
-    priceTonNano: 5_000_000_000n,    // 5.0 TON
-    priceTonLabel: "5.0",
-    tcAwarded: 20_000,
-    bonusPct: 100,
+    priceTonNano: 10_000_000_000n,   // ~10.0 TON ≈ $49.99
+    priceTonLabel: "10.0",
+    priceUsdLabel: "$49.99",
+    tcAwarded: 1_000_000,
+    bonusPct: 0,
   },
 ];
 
@@ -75,6 +80,7 @@ router.get("/exchange/tc-packs", (_req, res): void => {
       label: p.label,
       priceTon: p.priceTonLabel,
       priceTonNano: p.priceTonNano.toString(),
+      priceUsd: p.priceUsdLabel,
       tcAwarded: p.tcAwarded,
       bonusPct: p.bonusPct,
     })),
@@ -85,7 +91,7 @@ router.get("/exchange/tc-packs", (_req, res): void => {
 
 const TcPackPurchaseBody = z.object({
   telegramId: z.string().min(1),
-  packId: z.enum(["small", "medium", "large", "jumbo"]),
+  packId: z.enum(["micro", "starter", "pro", "whale"]),
   senderAddress: z.string().min(1),
 });
 
@@ -228,6 +234,17 @@ router.post(
           .update(usersTable)
           .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${pack.tcAwarded}` })
           .where(eq(usersTable.telegramId, telegramId));
+
+        // Track revenue so the daily payout cap reflects TC pack sales
+        const todayDate = new Date().toISOString().split("T")[0];
+        const packRevenueGc = Math.floor(Number(pack.priceTonNano) / 1e9 * 2500);
+        await tx
+          .insert(platformDailyStatsTable)
+          .values({ date: todayDate, totalRevenueGc: packRevenueGc })
+          .onConflictDoUpdate({
+            target: platformDailyStatsTable.date,
+            set: { totalRevenueGc: sql`platform_daily_stats.total_revenue_gc + ${packRevenueGc}` },
+          });
 
         const [updated] = await tx
           .select({
