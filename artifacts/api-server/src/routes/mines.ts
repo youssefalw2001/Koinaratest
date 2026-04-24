@@ -22,7 +22,7 @@ const minesRateLimiter = createRouteRateLimiter("mines-action", {
 });
 
 // ─── Game config ───────────────────────────────────────────────────────────
-const HOUSE_EDGE_MULT = 0.965; // 3.5% house edge (both TC and GC modes)
+const HOUSE_EDGE_MULT = 0.945; // 5.5% house edge (both TC and GC modes)
 const GEM_MAGNET_BOOST = 1.25;
 const GEM_MAGNET_TILES = 3;
 

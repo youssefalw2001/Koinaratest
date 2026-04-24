@@ -19,7 +19,7 @@ const VIP_MIN_GC       = 2500;   // $1.00
 const FREE_WEEKLY_MAX_USD = 25;   // $25/week
 const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 
-const FEE_PCT = 0.025;  // 2.5% fee
+const FEE_PCT = 0.045;  // 4.5% fee
 
 const DAILY_PAYOUT_RATIO = 0.5;
 const WITHDRAWAL_COOLDOWN_MS = 3 * 60_000;

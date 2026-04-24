@@ -15,6 +15,9 @@ export const contentSubmissionsTable = pgTable("content_submissions", {
   // URL of the content (must be publicly accessible)
   url: text("url").notNull(),
 
+  // Caption the user included in their post (must contain required promo text)
+  caption: text("caption"),
+
   // Status: pending → verified → rewarded | deleted | rejected | expired
   //   pending   = just submitted, awaiting URL verification
   //   verified  = URL confirmed live, GC credited, waiting for 6hr deletion check

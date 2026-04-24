@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
-const HOUSE_EDGE_MULT = 0.965;
+const HOUSE_EDGE_MULT = 0.945;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type GameMode = "tc" | "gc";
