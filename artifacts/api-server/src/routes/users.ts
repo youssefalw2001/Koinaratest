@@ -583,34 +583,5 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
   });
 });
 
-/**
- * DEV TESTING — Open TC refill endpoint. No owner check.
- * ⚠ REMOVE THIS ROUTE BEFORE PUBLIC LAUNCH ⚠
- */
-router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void> => {
-  const { telegramId } = req.params;
-
-  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
-  if (!authedId) return;
-
-  // Use requested amount from body, default to 1000 TC
-  const requestedAmount = typeof req.body?.amount === "number" && req.body.amount > 0
-    ? Math.min(req.body.amount, 100000) // cap at 100k per call for safety
-    : 1000;
-  const REFILL_AMOUNT = requestedAmount;
-
-  const [updated] = await db
-    .update(usersTable)
-    .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${REFILL_AMOUNT}` })
-    .where(eq(usersTable.telegramId, authedId))
-    .returning({ tradeCredits: usersTable.tradeCredits });
-
-  if (!updated) {
-    res.status(404).json({ error: "User not found." });
-    return;
-  }
-
-  res.json({ success: true, tcAdded: REFILL_AMOUNT, newTcBalance: updated.tradeCredits });
-});
 
 export default router;
