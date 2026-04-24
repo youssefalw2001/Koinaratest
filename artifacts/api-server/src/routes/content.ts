@@ -4,6 +4,7 @@ import { db, contentSubmissionsTable, usersTable } from "@workspace/db";
 import { serializeRows, serializeRow } from "../lib/serialize";
 import { z } from "zod/v4";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
+import { isVipActive } from "../lib/vip";
 import { logger } from "../lib/logger";
 import crypto from "crypto";
 
@@ -26,12 +27,12 @@ const router: IRouter = Router();
 // ─── Reward Configuration ──────────────────────────────────────────────────
 const REWARDS: Record<string, Record<string, number>> = {
   story: {
-    whatsapp: 800,
+    whatsapp: 640,
   },
   post: {
-    tiktok: 2000,
-    instagram: 1500,
-    youtube: 2500,
+    tiktok: 1_600,
+    instagram: 1_200,
+    youtube: 2_000,
   },
 };
 
@@ -42,8 +43,20 @@ const DAILY_LIMITS: Record<string, number> = {
   youtube: 1,
 };
 
-const DAILY_CONTENT_GC_CAP = 5000;
-const DELETION_CHECK_HOURS = 6;
+const DAILY_CONTENT_GC_CAP_FREE = 3_000;
+const DAILY_CONTENT_GC_CAP_VIP  = 5_000;
+const DELETION_CHECK_HOURS = 24;
+
+// Required promotional keywords — post caption must include at least one phrase
+const REQUIRED_CAPTION_KEYWORDS = [
+  "koinara",
+  "koinaraapp",
+];
+
+function validateCaption(caption: string): boolean {
+  const lower = caption.toLowerCase();
+  return REQUIRED_CAPTION_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 // ─── URL Validation Patterns ────────────────────────────────────────────────
 const URL_PATTERNS: Record<string, RegExp> = {
@@ -100,6 +113,7 @@ const SubmitContentBody = z.object({
   platform: z.enum(["tiktok", "instagram", "youtube", "whatsapp"]),
   postType: z.enum(["story", "post"]),
   url: z.string().min(5),
+  caption: z.string().min(10).max(1000),
 });
 
 router.post("/content/submit", async (req, res): Promise<void> => {
@@ -112,7 +126,15 @@ router.post("/content/submit", async (req, res): Promise<void> => {
   const authedId = resolveAuthenticatedTelegramId(req, res, parsed.data.telegramId);
   if (!authedId) return;
 
-  const { platform, postType, url } = parsed.data;
+  const { platform, postType, url, caption } = parsed.data;
+
+  // Validate caption contains required promotional keywords
+  if (!validateCaption(caption)) {
+    res.status(400).json({
+      error: `Your caption must mention Koinara (e.g. "I earn $3–7/week on Koinara!"). Copy the required text and try again.`,
+    });
+    return;
+  }
 
   // Validate platform + postType combination
   if (postType === "story" && platform !== "whatsapp") {
@@ -169,11 +191,12 @@ router.post("/content/submit", async (req, res): Promise<void> => {
   // This lets WhatsApp (limit=2) get two distinct constraint slots instead of colliding.
   const fingerprint = dailyFingerprint(authedId, platform, todaySubmissions.length);
 
-  // Daily GC cap check
+  // Daily GC cap check (VIP gets higher cap)
+  const dailyCap = isVipActive(user) ? DAILY_CONTENT_GC_CAP_VIP : DAILY_CONTENT_GC_CAP_FREE;
   const gcEarnedToday = await todayContentGc(authedId);
-  if (gcEarnedToday >= DAILY_CONTENT_GC_CAP) {
+  if (gcEarnedToday >= dailyCap) {
     res.status(429).json({
-      error: `You have reached the daily content reward cap (${DAILY_CONTENT_GC_CAP} GC). Come back tomorrow!`,
+      error: `You have reached the daily content reward cap (${dailyCap} GC). Come back tomorrow!`,
     });
     return;
   }
@@ -195,7 +218,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     return;
   }
 
-  const cappedReward = Math.min(gcReward, DAILY_CONTENT_GC_CAP - gcEarnedToday);
+  const cappedReward = Math.min(gcReward, dailyCap - gcEarnedToday);
 
   const now = new Date();
   const deletionCheckAt = new Date(now.getTime() + DELETION_CHECK_HOURS * 60 * 60 * 1000);
@@ -208,6 +231,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
         platform,
         postType,
         url,
+        caption,
         status: "verified",
         gcAwarded: cappedReward,
         verifiedAt: now,
@@ -229,7 +253,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     }
 
     logger.info(
-      { telegramId: authedId, platform, postType, gcReward: cappedReward, url },
+      { telegramId: authedId, platform, postType, gcReward: cappedReward, url, caption },
       "Content submitted and verified",
     );
 
@@ -240,9 +264,9 @@ router.post("/content/submit", async (req, res): Promise<void> => {
       gcAwarded: cappedReward,
       status: "verified",
       deletionCheckAt: deletionCheckAt.toISOString(),
-      message: `+${cappedReward} GC! Keep your post live for 6 hours to keep the reward.`,
+      message: `+${cappedReward} GC! Keep your post live for 24 hours to keep the reward.`,
       dailyGcFromContent: gcEarnedToday + cappedReward,
-      dailyGcCap: DAILY_CONTENT_GC_CAP,
+      dailyGcCap: dailyCap,
     });
   } catch (err: any) {
     if (err?.code === "23505" && err?.constraint?.includes("uq_content_url")) {
@@ -272,7 +296,7 @@ router.get("/content/:telegramId", async (req, res): Promise<void> => {
   if (!authedId) return;
 
   const [requestUser] = await db
-    .select({ telegramId: usersTable.telegramId })
+    .select()
     .from(usersTable)
     .where(eq(usersTable.telegramId, authedId))
     .limit(1);
@@ -288,16 +312,18 @@ router.get("/content/:telegramId", async (req, res): Promise<void> => {
     .orderBy(contentSubmissionsTable.createdAt);
 
   const gcEarnedToday = await todayContentGc(authedId);
+  const dailyCap = isVipActive(requestUser) ? DAILY_CONTENT_GC_CAP_VIP : DAILY_CONTENT_GC_CAP_FREE;
 
   res.json({
     submissions: serializeRows(submissions as Record<string, unknown>[]),
     dailyGcFromContent: gcEarnedToday,
-    dailyGcCap: DAILY_CONTENT_GC_CAP,
+    dailyGcCap: dailyCap,
     rewards: {
       story: { whatsapp: REWARDS.story.whatsapp },
       post: { tiktok: REWARDS.post.tiktok, instagram: REWARDS.post.instagram, youtube: REWARDS.post.youtube },
     },
     dailyLimits: DAILY_LIMITS,
+    requiredCaptionKeywords: REQUIRED_CAPTION_KEYWORDS,
   });
 });
 
@@ -385,7 +411,7 @@ router.post("/content/deletion-check", async (req, res): Promise<void> => {
       clawedBack++;
       logger.info(
         { telegramId: sub.telegramId, submissionId: sub.id, gcClawedBack: sub.gcAwarded },
-        "Content deleted within 6hrs — GC clawed back",
+        "Content deleted within 24hrs — GC clawed back",
       );
     }
   }
