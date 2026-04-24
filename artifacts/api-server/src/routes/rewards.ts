@@ -14,7 +14,7 @@ const router: IRouter = Router();
 
 const BASE_DAILY_TC = 100;
 const STREAK_BONUS_TC = 10;
-const VIP_BASE_DAILY_TC = 150;
+const VIP_BASE_DAILY_TC = 1_500;
 const VIP_STREAK_BONUS_TC = 15;
 
 const AD_TC_FREE = 80;

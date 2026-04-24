@@ -35,7 +35,7 @@ const MILESTONE_GC = 10000;
 
 // Monthly only — $5.99 at ~1.7 TON
 const TON_MONTHLY_AMOUNT = "1700000000";
-const TON_VERIFY_AMOUNT  = "20000000"; // 0.02 TON ≈ $1.99 verification fee
+const TON_VERIFY_AMOUNT  = "400000000"; // 0.4 TON ≈ $1.99 verification fee
 const KOINARA_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || undefined;
 type WalletTab = "withdraw" | "history";
 
@@ -161,7 +161,7 @@ export default function WalletPage() {
     }
   };
 
-  // ── Free tier verification fee (0.02 TON)
+  // ── Free tier verification fee (0.4 TON ≈ $1.99)
   const handleVerifyIdentity = async () => {
     if (!walletAddress || !KOINARA_TON_WALLET || !user) return;
     setVerifyPending(true);
@@ -398,7 +398,7 @@ export default function WalletPage() {
                 <span className="font-mono text-xs font-black text-[#ff2d78]">ONE-TIME VERIFICATION REQUIRED</span>
               </div>
               <div className="font-mono text-[11px] text-white/50 mb-3">
-                A one-time $1.99 verification fee (0.02 TON) is required to unlock USDT withdrawals for free accounts.
+                A one-time $1.99 verification fee (0.4 TON) is required to unlock USDT withdrawals for free accounts.
                 VIP users skip this step.
               </div>
               {!walletAddress ? (
@@ -421,7 +421,7 @@ export default function WalletPage() {
                   {verifyPending ? (
                     <><Loader2 size={14} className="animate-spin" /> WAITING FOR TX...</>
                   ) : (
-                    <>VERIFY IDENTITY — 0.02 TON ($1.99)</>
+                    <>VERIFY IDENTITY — 0.4 TON ($1.99)</>
                   )}
                 </button>
               )}
@@ -557,7 +557,14 @@ export default function WalletPage() {
           {withdrawError && (
             <div className="flex items-start gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/8">
               <XCircle size={12} className="text-red-400 shrink-0 mt-0.5" />
-              <span className="font-mono text-[11px] text-red-400">{withdrawError}</span>
+              <span className="font-mono text-[11px] text-red-400">
+                {withdrawError}
+                {withdrawError.toLowerCase().includes("daily payout limit") && (
+                  <span className="block mt-1 text-white/40">
+                    Payouts open after the platform&apos;s first day of revenue. Come back tomorrow!
+                  </span>
+                )}
+              </span>
             </div>
           )}
 
@@ -743,7 +750,7 @@ export default function WalletPage() {
                 <Crown size={36} className="text-[#FFD700] mb-2 drop-shadow-[0_0_16px_#FFD700]" />
                 <div className="font-mono text-xl font-black text-white mb-1 tracking-[0.12em]">ACTIVATE VIP</div>
                 <div className="font-mono text-xs text-white/40 mb-4">
-                  $4.99/wk · $14.99/mo · cancel anytime
+                  $5.99/mo · cancel anytime
                 </div>
 
                 {/* Perks */}
@@ -755,7 +762,7 @@ export default function WalletPage() {
                     "$100/week limit",
                     "~4hr payout time",
                     "1,500 TC daily bonus",
-                    "6,000 GC daily cap",
+                    "20,000 GC daily cap",
                     "25 ads/day",
                   ].map(perk => (
                     <div key={perk} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#FFD700]/25 bg-[#FFD700]/8">

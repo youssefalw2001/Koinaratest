@@ -27,7 +27,7 @@ const WITHDRAWAL_MAX_24H_COUNT = 6;
 
 // ─── TON verification (verify-fee endpoint) ─────────────────────────────────
 const TONAPI_BASE = "https://tonapi.io/v2";
-const TON_VERIFY_NANO = BigInt("20000000"); // 0.02 TON ≈ $1.99 verification fee
+const TON_VERIFY_NANO = BigInt("400000000"); // 0.4 TON ≈ $1.99 verification fee
 
 type TonApiAccount = { address: string };
 type TonApiTx = {
