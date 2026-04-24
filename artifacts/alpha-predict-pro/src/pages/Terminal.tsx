@@ -190,25 +190,29 @@ function CandlestickChart({
   useEffect(() => {
     if (!seriesRef.current || candles.length === 0) return;
     const last = candles[candles.length - 1];
-    seriesRef.current.update({
-      time: Math.floor(last.time / 1000) as UTCTimestamp,
-      open: last.open,
-      high: last.high,
-      low: last.low,
-      close: last.close,
-    });
+    try {
+      seriesRef.current.update({
+        time: Math.floor(last.time / 1000) as UTCTimestamp,
+        open: last.open,
+        high: last.high,
+        low: last.low,
+        close: last.close,
+      });
+    } catch {}
   }, [candles]);
 
   // Live-update the currently forming candle on every price tick
   useEffect(() => {
     if (!seriesRef.current || !liveCandle) return;
-    seriesRef.current.update({
-      time: Math.floor(liveCandle.time / 1000) as UTCTimestamp,
-      open: liveCandle.open,
-      high: liveCandle.high,
-      low: liveCandle.low,
-      close: liveCandle.close,
-    });
+    try {
+      seriesRef.current.update({
+        time: Math.floor(liveCandle.time / 1000) as UTCTimestamp,
+        open: liveCandle.open,
+        high: liveCandle.high,
+        low: liveCandle.low,
+        close: liveCandle.close,
+      });
+    } catch {}
   }, [liveCandle]);
 
   // Add / remove the gold entry price line
@@ -347,7 +351,8 @@ export default function Terminal() {
       const low = Math.min(...ticks);
       tickBufferRef.current = [close]; // carry close as first tick of next candle
 
-      const candle: Candle = { time: Date.now(), open, high, low, close };
+      // Align to the same 3s boundary used by liveCandle so series.update() never goes backwards
+      const candle: Candle = { time: Math.floor(Date.now() / CANDLE_INTERVAL_MS) * CANDLE_INTERVAL_MS, open, high, low, close };
       setCandles((prev) => {
         const next = [...prev, candle];
         return next.length > MAX_CANDLES ? next.slice(-MAX_CANDLES) : next;
