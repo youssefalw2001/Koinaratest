@@ -15,6 +15,8 @@ const SIM_BASE: Record<SupportedSymbol, number> = {
   SOLUSDT: 180,
   BNBUSDT: 650,
   XRPUSDT: 2.2,
+  PAXGUSDT: 2_700,
+  TONUSDT: 4.5,
 };
 const simState = new Map<SupportedSymbol, SimState>();
 
@@ -28,7 +30,7 @@ function getSimulatedPrice(symbol: SupportedSymbol): number {
   const drift = (Math.random() - 0.48) * vol * elapsedSec * 4;
   const next = Math.max(base * 0.5, base + drift);
   simState.set(symbol, { price: next, at: now });
-  return Number(next.toFixed(symbol === "XRPUSDT" ? 4 : 2));
+  return Number(next.toFixed(["XRPUSDT", "TONUSDT"].includes(symbol) ? 4 : 2));
 }
 
 function isSupportedSymbol(s: string): s is SupportedSymbol {
