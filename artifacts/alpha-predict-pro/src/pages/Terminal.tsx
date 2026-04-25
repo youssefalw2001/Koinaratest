@@ -319,7 +319,7 @@ export default function Terminal() {
     tickBufferRef.current = [];
 
     const ws = new WebSocket(
-      `wss://stream.binance.com:9443/ws/${selectedPair.id.toLowerCase()}@trade`,
+      `wss://stream.binance.com:443/ws/${selectedPair.id.toLowerCase()}@trade`,
     );
 
     ws.onmessage = (event) => {
@@ -569,10 +569,10 @@ export default function Terminal() {
                 initial={{ opacity: 0.7, y: 2 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={`text-[36px] font-black tracking-tight tabular-nums leading-none ${
-                  trendUp ? "text-[#00E676]" : "text-[#FF1744]"
+                  price === 0 ? "text-white/20" : trendUp ? "text-[#00E676]" : "text-[#FF1744]"
                 }`}
               >
-                ${formatPrice(price)}
+                {price === 0 ? "Connecting…" : `$${formatPrice(price)}`}
               </motion.span>
               <div className="flex items-center gap-2 mt-1.5">
                 <span
@@ -697,7 +697,7 @@ export default function Terminal() {
             <div className="grid grid-cols-2 gap-3 mt-1">
               <button
                 onClick={() => handlePredict("long")}
-                disabled={!user || (user.tradeCredits ?? 0) < bet}
+                disabled={!user || !price || (user.tradeCredits ?? 0) < bet}
                 className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden transition-all hover:bg-[#00E676]/10 active:scale-[0.97]"
               >
                 <div className="relative z-10 flex items-center justify-center gap-2">
@@ -708,7 +708,7 @@ export default function Terminal() {
               </button>
               <button
                 onClick={() => handlePredict("short")}
-                disabled={!user || (user.tradeCredits ?? 0) < bet}
+                disabled={!user || !price || (user.tradeCredits ?? 0) < bet}
                 className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden transition-all hover:bg-[#FF1744]/10 active:scale-[0.97]"
               >
                 <div className="relative z-10 flex items-center justify-center gap-2">
