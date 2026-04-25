@@ -179,8 +179,8 @@ function CandlestickChart({
 
     fetch(`${API_BASE}/market/klines/${pair}?interval=1s&limit=120`)
       .then((r) => r.json())
-      .then((klines: any[][]) => {
-        if (!seriesRef.current) return;
+      .then((klines: any) => {
+        if (!seriesRef.current || !Array.isArray(klines) || klines.length === 0) return;
         seriesRef.current.setData(aggregateTo3s(klines));
         chartRef.current?.timeScale().fitContent();
       })
