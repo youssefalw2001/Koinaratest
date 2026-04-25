@@ -66,6 +66,36 @@ router.get("/market/pairs", (_req, res): void => {
   res.json({ pairs: SUPPORTED_SYMBOLS });
 });
 
+router.get("/market/stream/:symbol", (req, res): void => {
+  const symbol = String(req.params.symbol).toUpperCase();
+  if (!isSupportedSymbol(symbol)) {
+    res.status(400).json({ error: "Unsupported symbol" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-store");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Content-Encoding", "identity");
+  res.flushHeaders();
+
+  let active = true;
+
+  const tick = async () => {
+    if (!active) return;
+    try {
+      const live = await getSymbolPrice(symbol);
+      const price = live ?? getSimulatedPrice(symbol);
+      res.write(`data: ${JSON.stringify({ price })}\n\n`);
+    } catch {}
+    if (active) setTimeout(tick, 500);
+  };
+
+  tick();
+  req.on("close", () => { active = false; });
+});
+
 router.get("/market/klines/:symbol", async (req, res): Promise<void> => {
   const symbol = String(req.params.symbol).toUpperCase();
   if (!isSupportedSymbol(symbol)) {

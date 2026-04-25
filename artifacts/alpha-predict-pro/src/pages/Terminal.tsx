@@ -319,13 +319,11 @@ export default function Terminal() {
     latestPriceRef.current = 0;
     tickBufferRef.current = [];
 
-    // Poll our backend price proxy every 1 second (avoids Binance being blocked in Telegram WebView)
-    const pricePoll = setInterval(async () => {
+    // SSE stream — server pushes price every 500ms (pure HTTP, works in Telegram WebView)
+    const es = new EventSource(`${API_BASE}/market/stream/${selectedPair.id}`);
+    es.onmessage = (event) => {
       try {
-        const r = await fetch(`${API_BASE}/market/price?symbol=${selectedPair.id}`);
-        if (!r.ok) return;
-        const data = await r.json();
-        const newPrice = parseFloat(data.price);
+        const { price: newPrice } = JSON.parse(event.data);
         if (!Number.isFinite(newPrice) || newPrice <= 0) return;
         latestPriceRef.current = newPrice;
         tickBufferRef.current.push(newPrice);
@@ -342,7 +340,7 @@ export default function Terminal() {
           close: ticks[ticks.length - 1],
         });
       } catch {}
-    }, 1000);
+    };
 
     // Build candles from tick buffer every CANDLE_INTERVAL_MS
     const candleBuilder = setInterval(() => {
@@ -372,7 +370,7 @@ export default function Terminal() {
     }, 5000);
 
     return () => {
-      clearInterval(pricePoll);
+      es.close();
       clearInterval(candleBuilder);
       clearInterval(sInt);
     };
@@ -420,10 +418,13 @@ export default function Terminal() {
               data: { exitPrice: currentP },
             });
 
-            // Refresh user to get updated GC balance
+            // Refresh user balance and predictions list
             await refreshUser();
             queryClient.invalidateQueries({
               queryKey: getGetUserQueryKey(user.telegramId),
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["predictions", user.telegramId],
             });
 
             const payout = res.payout ?? 0;

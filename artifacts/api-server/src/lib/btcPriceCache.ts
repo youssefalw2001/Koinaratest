@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 
-const CACHE_MAX_AGE_MS = 1_500;
+const CACHE_MAX_AGE_MS = 450;
 
 export const SUPPORTED_SYMBOLS = [
   "BTCUSDT",
