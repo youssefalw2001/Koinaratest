@@ -105,6 +105,7 @@ export interface User {
   /** @nullable */
   dailyGcDate?: string | null;
   weeklyWithdrawnGc: number;
+  affiliateCommissionGc: number;
   createdAt: string;
 }
 
@@ -340,10 +341,8 @@ export interface UpdateWithdrawalStatusBody {
 
 export interface ReferralStatsResponse {
   referralCount: number;
-  pendingGc: number;
-  isUnlocked: boolean;
-  /** @nullable */
-  unlocksAt?: string | null;
+  indirectCount: number;
+  commissionEarned: number;
 }
 
 export type PurchaseGemBodyGemType =

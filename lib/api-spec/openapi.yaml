@@ -796,6 +796,8 @@ components:
           type: ["string", "null"]
         weeklyWithdrawnGc:
           type: integer
+        affiliateCommissionGc:
+          type: integer
         createdAt:
           type: string
       required:
@@ -809,6 +811,7 @@ components:
         - loginStreak
         - dailyGcEarned
         - weeklyWithdrawnGc
+        - affiliateCommissionGc
         - createdAt
 
     UserStats:
@@ -1231,16 +1234,14 @@ components:
       properties:
         referralCount:
           type: integer
-        pendingGc:
+        indirectCount:
           type: integer
-        isUnlocked:
-          type: boolean
-        unlocksAt:
-          type: ["string", "null"]
+        commissionEarned:
+          type: integer
       required:
         - referralCount
-        - pendingGc
-        - isUnlocked
+        - indirectCount
+        - commissionEarned
 
     PurchaseGemBody:
       type: object

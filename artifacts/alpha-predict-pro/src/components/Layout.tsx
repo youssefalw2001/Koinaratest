@@ -60,11 +60,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const paidVipCountdown = getVipCountdownLabel(user?.vipExpiresAt);
   const tickerItems = useMemo(
     () => [
-      "Aisha withdrew 42.50 USDT",
-      "Faisal withdrew 19.80 USDT",
-      "Youssef withdrew 77.10 USDT",
-      "Mona withdrew 28.25 USDT",
-      "Noura withdrew 54.90 USDT",
+      "Arjun withdrew 42.50 USDT",
+      "Priya withdrew 19.80 USDT",
+      "Rahul withdrew 77.10 USDT",
+      "Neha withdrew 28.25 USDT",
+      "Vikram withdrew 54.90 USDT",
+      "Divya withdrew 33.40 USDT",
     ],
     [],
   );

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, count, sql, desc } from "drizzle-orm";
+import { eq, count, sql, desc, inArray } from "drizzle-orm";
 import { db, usersTable, predictionsTable, vipTxHashesTable, platformDailyStatsTable } from "@workspace/db";
 import {
   RegisterUserBody,
@@ -21,6 +21,9 @@ import { serializeRow } from "../lib/serialize";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
+
+const L1_COMMISSION_GC = 3_000;
+const L2_COMMISSION_GC = 750;
 
 // Read lazily so tests can set/unset the env var at runtime.
 const getKoinaraWallet = () => process.env.KOINARA_TON_WALLET;
@@ -429,14 +432,42 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
         set: { totalRevenueGc: sql`platform_daily_stats.total_revenue_gc + ${vipRevenueGc}` },
       });
 
-    // Referral reward: when a referred user purchases a paid VIP plan, notify the referrer
-    // by setting referralVipRewardPending=true. The referrer's client polls user state and
-    // triggers a free 24h VIP trial for the referrer as a thank-you.
+    // Affiliate commissions: credit L1 (direct referrer) 3,000 GC and L2 (referrer's referrer) 750 GC.
+    // Only VIP affiliates earn commissions — non-VIP referrers are skipped silently.
     if (user.referredBy) {
-      await db
-        .update(usersTable)
-        .set({ referralVipRewardPending: true })
-        .where(eq(usersTable.telegramId, user.referredBy));
+      const [l1] = await db
+        .select({ telegramId: usersTable.telegramId, isVip: usersTable.isVip, vipExpiresAt: usersTable.vipExpiresAt, referredBy: usersTable.referredBy })
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, user.referredBy))
+        .limit(1);
+
+      if (l1) {
+        const l1IsVip = !!(l1.isVip && l1.vipExpiresAt && new Date(l1.vipExpiresAt) > now);
+        if (l1IsVip) {
+          await db
+            .update(usersTable)
+            .set({ affiliateCommissionGc: sql`${usersTable.affiliateCommissionGc} + ${L1_COMMISSION_GC}` })
+            .where(eq(usersTable.telegramId, l1.telegramId));
+        }
+
+        if (l1.referredBy) {
+          const [l2] = await db
+            .select({ telegramId: usersTable.telegramId, isVip: usersTable.isVip, vipExpiresAt: usersTable.vipExpiresAt })
+            .from(usersTable)
+            .where(eq(usersTable.telegramId, l1.referredBy))
+            .limit(1);
+
+          if (l2) {
+            const l2IsVip = !!(l2.isVip && l2.vipExpiresAt && new Date(l2.vipExpiresAt) > now);
+            if (l2IsVip) {
+              await db
+                .update(usersTable)
+                .set({ affiliateCommissionGc: sql`${usersTable.affiliateCommissionGc} + ${L2_COMMISSION_GC}` })
+                .where(eq(usersTable.telegramId, l2.telegramId));
+            }
+          }
+        }
+      }
     }
 
     res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
@@ -550,8 +581,7 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
   const [user] = await db
     .select({
       telegramId: usersTable.telegramId,
-      referralEarnings: usersTable.referralEarnings,
-      referralEarningsUnlockedAt: usersTable.referralEarningsUnlockedAt,
+      affiliateCommissionGc: usersTable.affiliateCommissionGc,
     })
     .from(usersTable)
     .where(eq(usersTable.telegramId, authedId))
@@ -568,18 +598,26 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
     .where(eq(usersTable.referredBy, authedId));
   const referralCount = Number(referralCountResult[0]?.cnt ?? 0);
 
-  const now = new Date();
-  const isUnlocked =
-    user.referralEarningsUnlockedAt != null &&
-    new Date(user.referralEarningsUnlockedAt) <= now;
+  // Count indirect referrals (L2): users referred by this user's direct referrals
+  const directReferralIds = await db
+    .select({ telegramId: usersTable.telegramId })
+    .from(usersTable)
+    .where(eq(usersTable.referredBy, authedId));
+
+  let indirectCount = 0;
+  if (directReferralIds.length > 0) {
+    const ids = directReferralIds.map(r => r.telegramId);
+    const indirectResult = await db
+      .select({ cnt: count() })
+      .from(usersTable)
+      .where(inArray(usersTable.referredBy, ids));
+    indirectCount = Number(indirectResult[0]?.cnt ?? 0);
+  }
 
   res.json({
     referralCount,
-    pendingGc: user.referralEarnings ?? 0,
-    isUnlocked,
-    unlocksAt: user.referralEarningsUnlockedAt
-      ? new Date(user.referralEarningsUnlockedAt).toISOString()
-      : null,
+    indirectCount,
+    commissionEarned: user.affiliateCommissionGc ?? 0,
   });
 });
 
