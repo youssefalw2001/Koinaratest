@@ -29,6 +29,7 @@ import confetti from "canvas-confetti";
 /* ═══════════════════════════════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════════════════════════════ */
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
@@ -176,7 +177,7 @@ function CandlestickChart({
     if (!seriesRef.current) return;
     seriesRef.current.setData([]);
 
-    fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1s&limit=120`)
+    fetch(`${API_BASE}/market/klines/${pair}?interval=1s&limit=120`)
       .then((r) => r.json())
       .then((klines: any[][]) => {
         if (!seriesRef.current) return;
@@ -318,29 +319,30 @@ export default function Terminal() {
     latestPriceRef.current = 0;
     tickBufferRef.current = [];
 
-    const ws = new WebSocket(
-      `wss://stream.binance.com:443/ws/${selectedPair.id.toLowerCase()}@trade`,
-    );
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const newPrice = parseFloat(data.p);
-      latestPriceRef.current = newPrice;
-      tickBufferRef.current.push(newPrice);
-      setPrice((p) => {
-        setPrevPrice(p);
-        return newPrice;
-      });
-      // Keep the forming candle's OHLC current on every tick
-      const ticks = tickBufferRef.current;
-      setLiveCandle({
-        time: Math.floor(Date.now() / 3000) * 3000,
-        open: ticks[0],
-        high: Math.max(...ticks),
-        low: Math.min(...ticks),
-        close: ticks[ticks.length - 1],
-      });
-    };
+    // Poll our backend price proxy every 1 second (avoids Binance being blocked in Telegram WebView)
+    const pricePoll = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/market/price?symbol=${selectedPair.id}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        const newPrice = parseFloat(data.price);
+        if (!Number.isFinite(newPrice) || newPrice <= 0) return;
+        latestPriceRef.current = newPrice;
+        tickBufferRef.current.push(newPrice);
+        setPrice((p) => {
+          setPrevPrice(p);
+          return newPrice;
+        });
+        const ticks = tickBufferRef.current;
+        setLiveCandle({
+          time: Math.floor(Date.now() / 3000) * 3000,
+          open: ticks[0],
+          high: Math.max(...ticks),
+          low: Math.min(...ticks),
+          close: ticks[ticks.length - 1],
+        });
+      } catch {}
+    }, 1000);
 
     // Build candles from tick buffer every CANDLE_INTERVAL_MS
     const candleBuilder = setInterval(() => {
@@ -370,7 +372,7 @@ export default function Terminal() {
     }, 5000);
 
     return () => {
-      ws.close();
+      clearInterval(pricePoll);
       clearInterval(candleBuilder);
       clearInterval(sInt);
     };

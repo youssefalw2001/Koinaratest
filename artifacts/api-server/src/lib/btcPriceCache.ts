@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 
-const CACHE_MAX_AGE_MS = 30_000;
+const CACHE_MAX_AGE_MS = 1_500;
 
 export const SUPPORTED_SYMBOLS = [
   "BTCUSDT",
@@ -8,6 +8,8 @@ export const SUPPORTED_SYMBOLS = [
   "SOLUSDT",
   "BNBUSDT",
   "XRPUSDT",
+  "PAXGUSDT",
+  "TONUSDT",
 ] as const;
 export type SupportedSymbol = (typeof SUPPORTED_SYMBOLS)[number];
 
