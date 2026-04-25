@@ -5,12 +5,8 @@ import { logger } from "./logger";
 
 export const GC_RATIO = 1.85;
 const DEFAULT_MULTIPLIER = 1.85;
-// Daily caps scale with the mix of durations: short rounds let users rack up
-// wins much faster than the legacy 60s-only flow. Keep VIP at a comfortable
-// 6k/day; lift the free tier to 2k so casual play with 6s bets doesn't hit
-// the ceiling after a single session.
-export const DAILY_GC_CAP_FREE = 2000;
-export const DAILY_GC_CAP_VIP = 6000;
+export const DAILY_GC_CAP_FREE = 10000;
+export const DAILY_GC_CAP_VIP = 30000;
 
 export interface ResolveOutcome {
   ok: boolean;

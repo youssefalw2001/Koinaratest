@@ -198,6 +198,7 @@ function CandlestickChart({
         low: last.low,
         close: last.close,
       });
+      chartRef.current?.timeScale().scrollToRealTime();
     } catch {}
   }, [candles]);
 
@@ -212,6 +213,7 @@ function CandlestickChart({
         low: liveCandle.low,
         close: liveCandle.close,
       });
+      chartRef.current?.timeScale().scrollToRealTime();
     } catch {}
   }, [liveCandle]);
 
@@ -422,13 +424,7 @@ export default function Terminal() {
               queryKey: getGetUserQueryKey(user.telegramId),
             });
 
-            // Fix 0 GC: use payout from response, but if it's 0 on a win,
-            // calculate expected payout as fallback so the UI always shows something
-            let payout = res.payout ?? 0;
-            if (res.status === "won" && payout <= 0) {
-              // Fallback: calculate expected GC from the multiplier
-              payout = Math.floor(bet * mult);
-            }
+            const payout = res.payout ?? 0;
 
             setActivePrediction(null);
             setShowResult({

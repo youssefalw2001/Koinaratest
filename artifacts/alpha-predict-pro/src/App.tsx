@@ -87,7 +87,7 @@ function VipPromoModal() {
               <div className="w-full space-y-2 mb-5">
                 {[
                   "2× payout on every winning trade",
-                  "3,000 GC daily earning cap",
+                  "10,000 GC daily earning cap",
                   "Withdraw GC as real USDT",
                   "25 ad rewards per day",
                 ].map(perk => (
