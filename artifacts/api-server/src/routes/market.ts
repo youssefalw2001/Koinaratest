@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import {
   getBtcPrice,
   getSymbolPrice,
+  fetchKlines,
+  generateSyntheticKlines,
   SUPPORTED_SYMBOLS,
   type SupportedSymbol,
 } from "../lib/btcPriceCache";
@@ -10,13 +12,13 @@ const router: IRouter = Router();
 
 type SimState = { price: number; at: number };
 const SIM_BASE: Record<SupportedSymbol, number> = {
-  BTCUSDT: 104_000,
-  ETHUSDT: 3_300,
-  SOLUSDT: 180,
-  BNBUSDT: 650,
-  XRPUSDT: 2.2,
-  PAXGUSDT: 2_700,
-  TONUSDT: 4.5,
+  BTCUSDT: 77_000,
+  ETHUSDT: 1_600,
+  SOLUSDT: 130,
+  BNBUSDT: 580,
+  XRPUSDT: 2.0,
+  PAXGUSDT: 3_200,
+  TONUSDT: 3.2,
 };
 const simState = new Map<SupportedSymbol, SimState>();
 
@@ -104,16 +106,17 @@ router.get("/market/klines/:symbol", async (req, res): Promise<void> => {
   }
   const interval = String(req.query.interval ?? "1s");
   const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit ?? "120"), 10)));
-  try {
-    const r = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
-    );
-    if (!r.ok) throw new Error(`Binance HTTP ${r.status}`);
-    const data = await r.json();
-    res.json(data);
-  } catch {
-    res.status(502).json({ error: "Failed to fetch klines from Binance" });
+
+  // Try all Binance hosts
+  const klines = await fetchKlines(symbol, interval, limit);
+  if (klines) {
+    res.json(klines);
+    return;
   }
+
+  // Fallback: synthetic candles anchored to current real price
+  const basePrice = (await getSymbolPrice(symbol)) ?? getSimulatedPrice(symbol);
+  res.json(generateSyntheticKlines(basePrice, limit, 1000));
 });
 
 export default router;
