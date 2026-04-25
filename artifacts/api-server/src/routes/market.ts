@@ -91,7 +91,7 @@ router.get("/market/stream/:symbol", (req, res): void => {
       const price = live ?? getSimulatedPrice(symbol);
       res.write(`data: ${JSON.stringify({ price })}\n\n`);
     } catch {}
-    if (active) setTimeout(tick, 500);
+    if (active) setTimeout(tick, 300);
   };
 
   tick();

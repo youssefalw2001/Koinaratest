@@ -23,6 +23,15 @@ const COINBASE_PAIR: Partial<Record<SupportedSymbol, string>> = {
   TONUSDT: "TON-USD",
 };
 
+// Kraken returns last actual trade price — much faster than Coinbase spot
+const KRAKEN_PAIR: Partial<Record<SupportedSymbol, string>> = {
+  BTCUSDT: "XBTUSD",
+  ETHUSDT: "ETHUSD",
+  SOLUSDT: "SOLUSD",
+  XRPUSDT: "XRPUSD",
+  PAXGUSDT: "PAXGUSD",
+};
+
 type CacheEntry = { price: number; at: number };
 const cache = new Map<string, CacheEntry>();
 
@@ -33,6 +42,22 @@ async function fetchWithTimeout(url: string, timeoutMs = 2500): Promise<Response
     return await fetch(url, { signal: controller.signal });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function tryKraken(symbol: SupportedSymbol): Promise<number | null> {
+  const pair = KRAKEN_PAIR[symbol];
+  if (!pair) return null;
+  try {
+    const res = await fetchWithTimeout(`https://api.kraken.com/0/public/Ticker?pair=${pair}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { error: string[]; result: Record<string, { c: string[] }> };
+    if (data.error?.length) return null;
+    const ticker = Object.values(data.result)[0];
+    const price = ticker?.c?.[0] ? parseFloat(ticker.c[0]) : NaN;
+    return Number.isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
   }
 }
 
@@ -70,7 +95,10 @@ export async function getSymbolPrice(symbol: SupportedSymbol): Promise<number | 
     return cached.price;
   }
 
-  const price = (await tryBinance(symbol)) ?? (await tryCoinbase(symbol));
+  const price =
+    (await tryKraken(symbol)) ??
+    (await tryBinance(symbol)) ??
+    (await tryCoinbase(symbol));
 
   if (price !== null) {
     cache.set(symbol, { price, at: now });
