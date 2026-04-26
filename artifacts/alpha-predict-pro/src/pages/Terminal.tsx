@@ -15,6 +15,7 @@ import { useTelegram } from "@/lib/TelegramProvider";
 import { PageLoader } from "@/components/PageStatus";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
+import { createChart, ColorType, CrosshairMode } from "lightweight-charts";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -23,8 +24,6 @@ const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replac
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
-const PRICE_POLL_MS = 500; // fallback REST poll interval
-const MAX_POINTS = 600;   // ~90s at 6 prices/sec from WS
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -47,212 +46,25 @@ interface TradingPair {
 }
 const TRADING_PAIRS: readonly TradingPair[] = [
   { id: "BTCUSDT", label: "BTC/USDT", short: "BTC", symbol: "₿" },
+  { id: "ETHUSDT", label: "ETH/USDT", short: "ETH", symbol: "Ξ" },
+  { id: "SOLUSDT", label: "SOL/USDT", short: "SOL", symbol: "◎" },
+  { id: "BNBUSDT", label: "BNB/USDT", short: "BNB", symbol: "◈" },
+  { id: "XRPUSDT", label: "XRP/USDT", short: "XRP", symbol: "✕" },
 ];
+
+const SYMBOLS: Record<string, string> = {
+  "BTC/USDT": "BTCUSDT",
+  "ETH/USDT": "ETHUSDT",
+  "SOL/USDT": "SOLUSDT",
+  "BNB/USDT": "BNBUSDT",
+  "XRP/USDT": "XRPUSDT",
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════════════════════ */
 function truncateToTwoDecimals(rawPrice: number): number {
   return Math.trunc(rawPrice * 100) / 100;
-}
-
-async function fetchCoinCapPrice(): Promise<number> {
-  const res = await fetch("https://api.coincap.io/v2/assets/bitcoin");
-  const data = await res.json();
-  return parseFloat(data?.data?.priceUsd);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   CANVAS LINE CHART
-   ═══════════════════════════════════════════════════════════════════════════ */
-function CanvasLineChart({
-  priceHistory,
-  priceTimestamps,
-  livePrice,
-  tierSeconds,
-  entryPrice,
-  direction,
-}: {
-  priceHistory: number[];
-  priceTimestamps: number[];
-  livePrice: number;
-  tierSeconds: number;
-  entryPrice: number | null;
-  direction: "long" | "short" | null;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const displayPriceRef = useRef<number>(0);
-  const rafRef = useRef<number>(0);
-
-  const draw = useCallback((displayPrice: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const parent = canvas.parentElement;
-    if (!parent) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
-    if (w <= 0 || h <= 0) return;
-
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    if (priceHistory.length < 2) return;
-
-    // Y-axis: fixed 0.15% band anchored to current price — small moves fill the chart
-    const anchorPrice = priceHistory[priceHistory.length - 1];
-    const spread = anchorPrice * 0.0015;
-    const chartMin = anchorPrice - spread;
-    const chartMax = anchorPrice + spread;
-    const chartRange = Math.max(0.01, chartMax - chartMin);
-
-    const firstPrice = priceHistory[0];
-    const latestPrice = displayPrice > 0 ? displayPrice : anchorPrice;
-    const lineColor = latestPrice >= firstPrice ? BULL_COLOR : BEAR_COLOR;
-    const lineColorRgb = latestPrice >= firstPrice ? "0,230,118" : "255,23,68";
-
-    const getX = (index: number) =>
-      priceHistory.length === 1 ? 0 : (index / (priceHistory.length - 1)) * w;
-    const getY = (value: number) =>
-      h - Math.max(0, Math.min(h, ((value - chartMin) / chartRange) * h));
-
-    // Grid lines
-    for (let i = 1; i <= 4; i += 1) {
-      const y = (h / 5) * i;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.strokeStyle = "rgba(255,255,255,0.07)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    // Entry area fill (behind line)
-    if (entryPrice !== null && direction !== null) {
-      const entryY = getY(entryPrice);
-      const winning =
-        (direction === "long" && latestPrice > entryPrice) ||
-        (direction === "short" && latestPrice < entryPrice);
-      const fillColor = winning ? "0,230,118" : "255,23,68";
-      ctx.save();
-      ctx.beginPath();
-      priceHistory.forEach((pt, i) => {
-        const x = getX(i);
-        const y = getY(pt);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.lineTo(w, entryY);
-      ctx.lineTo(0, entryY);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${fillColor},0.12)`;
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Gradient area fill under line
-    const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, `rgba(${lineColorRgb},0.28)`);
-    gradient.addColorStop(1, `rgba(${lineColorRgb},0)`);
-    ctx.beginPath();
-    priceHistory.forEach((pt, i) => {
-      const x = getX(i); const y = getY(pt);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-    ctx.fillStyle = gradient; ctx.fill();
-
-    // Smooth price line
-    ctx.beginPath();
-    priceHistory.forEach((pt, i) => {
-      const x = getX(i); const y = getY(pt);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.stroke();
-
-    // Time-bucketed candlesticks
-    const numCandles = tierSeconds === 6 ? 6 : 10;
-    const bucketMs = (tierSeconds * 1000) / numCandles;
-    const windowStart = Date.now() - tierSeconds * 1000;
-    const slotW = w / numCandles;
-    const bodyW = Math.min(8, slotW - 2);
-
-    for (let slot = 0; slot < numCandles; slot++) {
-      const bStart = windowStart + slot * bucketMs;
-      const bEnd = bStart + bucketMs;
-      const pts: number[] = [];
-      priceHistory.forEach((p, idx) => {
-        const t = priceTimestamps[idx];
-        if (t !== undefined && t >= bStart && t < bEnd) pts.push(p);
-      });
-      if (pts.length === 0) continue;
-      const open = pts[0];
-      const close = pts[pts.length - 1];
-      const high = Math.max(...pts);
-      const low = Math.min(...pts);
-      const color = close >= open ? BULL_COLOR : BEAR_COLOR;
-      const cx = slot * slotW + slotW / 2;
-      // wick (1px)
-      ctx.beginPath();
-      ctx.moveTo(cx, getY(high));
-      ctx.lineTo(cx, getY(low));
-      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
-      // body
-      const bTop = getY(Math.max(open, close));
-      const bBot = getY(Math.min(open, close));
-      const bH = Math.max(1, bBot - bTop);
-      ctx.fillStyle = color;
-      ctx.fillRect(cx - bodyW / 2, bTop, bodyW, bH);
-    }
-
-    // Latest price dot
-    const lastX = getX(priceHistory.length - 1);
-    const lastY = getY(latestPrice);
-    ctx.beginPath();
-    ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
-    ctx.fillStyle = lineColor; ctx.fill();
-
-    // Entry dashed line + label
-    if (entryPrice !== null) {
-      const entryY = getY(entryPrice);
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = GOLD; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(0, entryY); ctx.lineTo(w, entryY); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.font = "bold 9px monospace"; ctx.fillStyle = GOLD;
-      ctx.textAlign = "right";
-      ctx.fillText(`Entry $${formatPrice(entryPrice)}`, w - 6, entryY - 4);
-      ctx.textAlign = "left";
-    }
-  }, [priceHistory, priceTimestamps, tierSeconds, entryPrice, direction]);
-
-  // Full redraw on history/entry change
-  useEffect(() => {
-    draw(livePrice);
-  }, [priceHistory, priceTimestamps, tierSeconds, entryPrice, direction, draw, livePrice]);
-
-  // RAF smooth animation toward livePrice
-  useEffect(() => {
-    if (livePrice <= 0) return;
-    if (displayPriceRef.current === 0) displayPriceRef.current = livePrice;
-    cancelAnimationFrame(rafRef.current);
-    const animate = () => {
-      displayPriceRef.current += (livePrice - displayPriceRef.current) * 0.1;
-      draw(displayPriceRef.current);
-      if (Math.abs(livePrice - displayPriceRef.current) > 0.01)
-        rafRef.current = requestAnimationFrame(animate);
-    };
-    rafRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [livePrice, draw]);
-
-  return <canvas ref={canvasRef} className="w-full h-full" />;
 }
 
 /* ─── Animated price number (counts smoothly from old to new) ─── */
@@ -317,14 +129,17 @@ export default function Terminal() {
   const [, setLocation] = useLocation();
 
   // Price state
-  const [price, setPrice] = useState<number>(0);
+  const [price, setCurrentPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const latestPriceRef = useRef<number>(0);
-  const [priceHistory, setPriceHistory] = useState<number[]>([]);
-  const priceHistoryRef = useRef<number[]>([]);
-  const [priceTimestamps, setPriceTimestamps] = useState<number[]>([]);
-  const priceTimestampsRef = useRef<number[]>([]);
-  const lastPushRef = useRef<number>(0); // throttle: ms of last push
+  const [priceChange, setPriceChange] = useState(0);
+  const firstPriceRef = useRef(0);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<any>(null);
+  const candleSeriesRef = useRef<any>(null);
+  const lineSeriesRef = useRef<any>(null);
+  const priceRef = useRef<number>(0);
+  const updateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // UI state
   const [tierIndex, setTierIndex] = useState<number>(3);
@@ -379,101 +194,124 @@ export default function Terminal() {
     fetchBinaryPowerups();
   }, [fetchBinaryPowerups, showResult]);
 
-  /* ─── Price feed: Binance WS → CoinCap WS → CoinCap REST ──────── */
-  useEffect(() => {
-    setPrice(0);
-    setPrevPrice(0);
-    setPriceHistory([]);
-    setPriceTimestamps([]);
-    latestPriceRef.current = 0;
-    priceHistoryRef.current = [];
-    priceTimestampsRef.current = [];
-    lastPushRef.current = 0;
-
-    let ws: WebSocket | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    let connectTimer: ReturnType<typeof setTimeout> | null = null;
-    let wsSeq = 0;
-    let destroyed = false;
-
-    const pushPrice = (rawPrice: number) => {
-      const nextPrice = truncateToTwoDecimals(rawPrice);
-      if (!Number.isFinite(nextPrice) || nextPrice <= 0) return;
-      const now = Date.now();
-      if (now - lastPushRef.current < 150) return; // ~6 prices/sec max
-      lastPushRef.current = now;
-      setPrevPrice(latestPriceRef.current);
-      setPrice(nextPrice);
-      latestPriceRef.current = nextPrice;
-      const nextHistory = [...priceHistoryRef.current, nextPrice].slice(-MAX_POINTS);
-      const nextTs = [...priceTimestampsRef.current, now].slice(-MAX_POINTS);
-      priceHistoryRef.current = nextHistory;
-      priceTimestampsRef.current = nextTs;
-      setPriceHistory(nextHistory);
-      setPriceTimestamps(nextTs);
+  const animatePrice = useCallback((from: number, to: number) => {
+    const start = performance.now();
+    const duration = 800;
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const current = from + (to - from) * progress;
+      setCurrentPrice(current);
+      if (progress < 1) requestAnimationFrame(tick);
     };
+    requestAnimationFrame(tick);
+  }, []);
 
-    const startPolling = () => {
-      if (destroyed || pollTimer !== null) return;
-      const poll = async () => {
-        if (destroyed) return;
-        try {
-          const p = await fetchCoinCapPrice();
-          if (Number.isFinite(p) && p > 0) pushPrice(p);
-        } catch {}
-      };
-      poll();
-      pollTimer = setInterval(poll, PRICE_POLL_MS);
-    };
-
-    const openWs = (
-      url: string,
-      parseMsg: (raw: string) => number | null,
-      onFail: () => void,
-    ) => {
-      ws?.close();
-      const seq = ++wsSeq;
-      try {
-        const socket = new WebSocket(url);
-        ws = socket;
-        let gotData = false;
-        let failed = false;
-        const fail = () => {
-          if (failed || seq !== wsSeq || destroyed) return;
-          failed = true;
-          onFail();
-        };
-        socket.onmessage = (e) => {
-          if (seq !== wsSeq) return;
-          gotData = true;
-          if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
-          const p = parseMsg(e.data);
-          if (p !== null && Number.isFinite(p) && p > 0) pushPrice(p);
-        };
-        socket.onerror = () => { if (!gotData) fail(); };
-        socket.onclose = () => { if (!gotData) fail(); };
-        connectTimer = setTimeout(() => { if (!gotData) { socket.close(); fail(); } }, 3000);
-      } catch { onFail(); }
-    };
-
-    const tryCoincapWs = () => {
-      openWs(
-        "wss://ws.coincap.io/prices?assets=bitcoin",
-        (raw) => {
-          try { const d = JSON.parse(raw); return parseFloat(d?.bitcoin) || null; } catch { return null; }
-        },
-        startPolling,
-      );
-    };
-
-    // 1. Try Binance aggTrade WebSocket
-    openWs(
-      "wss://stream.binance.com/ws/btcusdt@aggTrade",
-      (raw) => {
-        try { const d = JSON.parse(raw); return parseFloat(d?.p) || null; } catch { return null; }
-      },
-      tryCoincapWs,
+  const loadInitialCandles = useCallback(async (symbol: string) => {
+    const response = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=60`,
     );
+    const data = await response.json();
+    const candles = data.map((k: any[]) => ({
+      time: Math.floor(k[0] / 1000),
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+    }));
+    candleSeriesRef.current?.setData(candles);
+    const last = candles[candles.length - 1];
+    if (!last) return;
+    const close = truncateToTwoDecimals(last.close);
+    firstPriceRef.current = close;
+    priceRef.current = close;
+    latestPriceRef.current = close;
+    setPrevPrice(close);
+    setCurrentPrice(close);
+    setPriceChange(0);
+  }, []);
+
+  const stopPriceFeed = useCallback(() => {
+    if (updateIntervalRef.current) clearInterval(updateIntervalRef.current);
+    updateIntervalRef.current = null;
+  }, []);
+
+  const startPriceFeed = useCallback((symbol: string) => {
+    stopPriceFeed();
+    loadInitialCandles(symbol);
+    updateIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+        const data = await res.json();
+        const parsed = parseFloat(data.price);
+        if (!Number.isFinite(parsed) || parsed <= 0) return;
+        const nextPrice = truncateToTwoDecimals(parsed);
+        const now = Math.floor(Date.now() / 1000);
+        const minuteStart = Math.floor(now / 60) * 60;
+        const openPrice = priceRef.current || nextPrice;
+
+        candleSeriesRef.current?.update({
+          time: minuteStart,
+          open: openPrice,
+          high: Math.max(openPrice, nextPrice),
+          low: Math.min(openPrice, nextPrice),
+          close: nextPrice,
+        });
+
+        setPrevPrice(latestPriceRef.current || nextPrice);
+        animatePrice(priceRef.current || nextPrice, nextPrice);
+        priceRef.current = nextPrice;
+        latestPriceRef.current = nextPrice;
+        const firstPrice = firstPriceRef.current || nextPrice;
+        setPriceChange(((nextPrice - firstPrice) / firstPrice) * 100);
+      } catch {}
+    }, 1000);
+  }, [animatePrice, loadInitialCandles, stopPriceFeed]);
+
+  /* ─── Lightweight chart + Binance fetch feed ──────── */
+  useEffect(() => {
+    setCurrentPrice(0);
+    setPrevPrice(0);
+    setPriceChange(0);
+    latestPriceRef.current = 0;
+    firstPriceRef.current = 0;
+    priceRef.current = 0;
+    stopPriceFeed();
+
+    if (!chartContainerRef.current) return;
+    chartRef.current?.remove();
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "rgba(255,255,255,0.4)",
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.05)" },
+        horzLines: { color: "rgba(255,255,255,0.05)" },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.1)",
+        timeVisible: true,
+        secondsVisible: true,
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: 200,
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: "#00e676",
+      downColor: "#ff1744",
+      borderUpColor: "#00e676",
+      borderDownColor: "#ff1744",
+      wickUpColor: "#00e676",
+      wickDownColor: "#ff1744",
+    });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    const symbol = SYMBOLS[selectedPair.label] ?? selectedPair.id;
+    startPriceFeed(symbol);
 
     // Sentiment drift
     const sInt = setInterval(() => {
@@ -484,13 +322,40 @@ export default function Terminal() {
     }, 5000);
 
     return () => {
-      destroyed = true;
-      ws?.close();
-      if (connectTimer) clearTimeout(connectTimer);
-      if (pollTimer) clearInterval(pollTimer);
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      lineSeriesRef.current = null;
+      stopPriceFeed();
       clearInterval(sInt);
     };
-  }, [selectedPair.id]);
+  }, [selectedPair.id, selectedPair.label, startPriceFeed, stopPriceFeed]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (!activePrediction) {
+      if (lineSeriesRef.current) {
+        chart.removeSeries(lineSeriesRef.current);
+        lineSeriesRef.current = null;
+      }
+      return;
+    }
+    if (lineSeriesRef.current) chart.removeSeries(lineSeriesRef.current);
+    const entryLine = chart.addLineSeries({
+      color: "#ffd740",
+      lineWidth: 1,
+      lineStyle: 1,
+      title: "Entry",
+    });
+    const tradeStartTime = Math.floor((activePrediction.openedAt ?? Date.now()) / 1000);
+    const entryPrice = activePrediction.entryPrice;
+    entryLine.setData([
+      { time: tradeStartTime, value: entryPrice },
+      { time: Math.floor(Date.now() / 1000) + 3600, value: entryPrice },
+    ]);
+    lineSeriesRef.current = entryLine;
+  }, [activePrediction]);
 
   /* ─── Trade handler (with 0 GC fix) ────────────────────────────── */
   const handlePredict = useCallback(
@@ -580,13 +445,6 @@ export default function Terminal() {
       });
     }
   }, [showResult]);
-
-  // Price change percentage
-  const priceChange = useMemo(() => {
-    if (priceHistory.length < 2) return 0;
-    const first = priceHistory[0];
-    return ((price - first) / first) * 100;
-  }, [priceHistory, price]);
 
   const durationTier = DURATION_TIERS[tierIndex];
   const baseWinPayout = Math.floor(bet * durationTier.baseMultiplier);
@@ -712,16 +570,9 @@ export default function Terminal() {
             </div>
           </div>
 
-          {/* ── Live Canvas Chart ────────────────────────────────────── */}
+          {/* ── Live TradingView Chart ───────────────────────────────── */}
           <div className="h-52 w-full mt-4">
-            <CanvasLineChart
-              priceHistory={priceHistory}
-              priceTimestamps={priceTimestamps}
-              livePrice={price}
-              tierSeconds={durationTier.seconds}
-              entryPrice={activePrediction?.entryPrice ?? null}
-              direction={activePrediction?.direction ?? null}
-            />
+            <div ref={chartContainerRef} style={{ width: "100%", height: 200 }} />
           </div>
 
           {/* Sentiment bar */}
