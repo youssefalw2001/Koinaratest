@@ -23,7 +23,7 @@ const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replac
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
-const PRICE_POLL_MS = 2000;
+const PRICE_POLL_MS = 800;
 const MAX_POINTS = 60;
 
 interface DurationTier {
@@ -77,14 +77,20 @@ async function fetchPriceFallback(symbol: string): Promise<number> {
    ═══════════════════════════════════════════════════════════════════════════ */
 function CanvasLineChart({
   priceHistory,
+  livePrice,
   entryPrice,
+  direction,
 }: {
   priceHistory: number[];
+  livePrice: number;
   entryPrice: number | null;
+  direction: "long" | "short" | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const displayPriceRef = useRef<number>(0);
+  const rafRef = useRef<number>(0);
 
-  useEffect(() => {
+  const draw = useCallback((displayPrice: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -101,23 +107,33 @@ function CanvasLineChart({
     canvas.height = Math.floor(h * dpr);
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
-
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
     if (priceHistory.length < 2) return;
 
-    const baseMin = Math.min(...priceHistory);
-    const baseMax = Math.max(...priceHistory);
-    const pad = Math.max(baseMax * 0.001, 0.01);
-    const minP = baseMin - pad;
-    const maxP = baseMax + pad;
-    const range = Math.max(0.01, maxP - minP);
+    // Micro-scale Y axis: tight window around recent prices
+    const recentPrices = priceHistory.slice(-60);
+    const dataMin = Math.min(...recentPrices);
+    const dataMax = Math.max(...recentPrices);
+    const range = dataMax - dataMin;
+    const latest = priceHistory[priceHistory.length - 1];
+    const minRange = latest * 0.0008;
+    const padding = Math.max(range * 0.15, minRange * 0.2);
+    const chartMin = dataMin - padding;
+    const chartMax = dataMax + padding;
+    const chartRange = Math.max(0.01, chartMax - chartMin);
+
     const firstPrice = priceHistory[0];
-    const latestPrice = priceHistory[priceHistory.length - 1];
+    const latestPrice = displayPrice > 0 ? displayPrice : latest;
     const lineColor = latestPrice >= firstPrice ? BULL_COLOR : BEAR_COLOR;
     const lineColorRgb = latestPrice >= firstPrice ? "0,230,118" : "255,23,68";
 
+    const getX = (index: number) =>
+      priceHistory.length === 1 ? 0 : (index / (priceHistory.length - 1)) * w;
+    const getY = (value: number) => h - ((value - chartMin) / chartRange) * h;
+
+    // Grid lines
     for (let i = 1; i <= 4; i += 1) {
       const y = (h / 5) * i;
       ctx.beginPath();
@@ -128,25 +144,33 @@ function CanvasLineChart({
       ctx.stroke();
     }
 
-    const getX = (index: number) =>
-      priceHistory.length === 1 ? 0 : (index / (priceHistory.length - 1)) * w;
-    const getY = (value: number) => h - ((value - minP) / range) * h;
+    // Entry area fill (behind the line)
+    if (entryPrice !== null && direction !== null) {
+      const entryY = getY(entryPrice);
+      const winning =
+        (direction === "long" && latestPrice > entryPrice) ||
+        (direction === "short" && latestPrice < entryPrice);
+      const fillColor = winning ? "0,230,118" : "255,23,68";
+      ctx.save();
+      ctx.beginPath();
+      priceHistory.forEach((point, index) => {
+        const x = getX(index);
+        const y = getY(point);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(w, entryY);
+      ctx.lineTo(0, entryY);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${fillColor},0.12)`;
+      ctx.fill();
+      ctx.restore();
+    }
 
-    ctx.beginPath();
-    priceHistory.forEach((point, index) => {
-      const x = getX(index);
-      const y = getY(point);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
+    // Gradient area fill under line
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
     gradient.addColorStop(0, `rgba(${lineColorRgb},0.30)`);
     gradient.addColorStop(1, `rgba(${lineColorRgb},0)`);
-
     ctx.beginPath();
     priceHistory.forEach((point, index) => {
       const x = getX(index);
@@ -160,6 +184,42 @@ function CanvasLineChart({
     ctx.fillStyle = gradient;
     ctx.fill();
 
+    // Price line
+    ctx.beginPath();
+    priceHistory.forEach((point, index) => {
+      const x = getX(index);
+      const y = getY(point);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Candlestick overlay (every 6 data points)
+    const bucketSize = 6;
+    for (let b = 0; b + bucketSize <= priceHistory.length; b += bucketSize) {
+      const bucket = priceHistory.slice(b, b + bucketSize);
+      const open = bucket[0];
+      const close = bucket[bucket.length - 1];
+      const high = Math.max(...bucket);
+      const low = Math.min(...bucket);
+      const color = close >= open ? BULL_COLOR : BEAR_COLOR;
+      const centerX = getX(b + bucketSize / 2);
+      ctx.beginPath();
+      ctx.moveTo(centerX, getY(high));
+      ctx.lineTo(centerX, getY(low));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const bodyTop = getY(Math.max(open, close));
+      const bodyBottom = getY(Math.min(open, close));
+      const bodyHeight = Math.max(1, bodyBottom - bodyTop);
+      ctx.fillStyle = color;
+      ctx.fillRect(centerX - 3, bodyTop, 6, bodyHeight);
+    }
+
+    // Latest price dot
     const lastX = getX(priceHistory.length - 1);
     const lastY = getY(latestPrice);
     ctx.beginPath();
@@ -167,18 +227,47 @@ function CanvasLineChart({
     ctx.fillStyle = lineColor;
     ctx.fill();
 
+    // Entry price dashed line + label
     if (entryPrice !== null) {
       const entryY = getY(entryPrice);
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = GOLD;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(0, entryY);
       ctx.lineTo(w, entryY);
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.font = "bold 9px monospace";
+      ctx.fillStyle = GOLD;
+      ctx.textAlign = "right";
+      ctx.fillText(`Entry $${formatPrice(entryPrice)}`, w - 6, entryY - 4);
+      ctx.textAlign = "left";
     }
-  }, [priceHistory, entryPrice]);
+  }, [priceHistory, entryPrice, direction]);
+
+  // Full redraw whenever history or entry changes
+  useEffect(() => {
+    draw(livePrice);
+  }, [priceHistory, entryPrice, direction, draw, livePrice]);
+
+  // RAF smooth animation toward livePrice
+  useEffect(() => {
+    if (livePrice <= 0) return;
+    if (displayPriceRef.current === 0) {
+      displayPriceRef.current = livePrice;
+    }
+    cancelAnimationFrame(rafRef.current);
+    const animate = () => {
+      displayPriceRef.current += (livePrice - displayPriceRef.current) * 0.1;
+      draw(displayPriceRef.current);
+      if (Math.abs(livePrice - displayPriceRef.current) > 0.01) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [livePrice, draw]);
 
   return <canvas ref={canvasRef} className="w-full h-full" />;
 }
@@ -226,6 +315,8 @@ export default function Terminal() {
   const [showPairMenu, setShowPairMenu] = useState(false);
   const [sentiment, setSentiment] = useState(55);
   const [binaryPowerups, setBinaryPowerups] = useState<any[]>([]);
+  const [entryFlash, setEntryFlash] = useState<"long" | "short" | null>(null);
+  const [lockedEntryPrice, setLockedEntryPrice] = useState<number | null>(null);
 
   // API hooks
   const createPrediction = useCreatePrediction();
@@ -323,6 +414,10 @@ export default function Terminal() {
     async (direction: "long" | "short") => {
       if (!user || !price) return;
       try {
+        setEntryFlash(direction);
+        setLockedEntryPrice(price);
+        window?.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.('medium');
+        setTimeout(() => setEntryFlash(null), 300);
         const tier = DURATION_TIERS[tierIndex];
         const mult = tier.baseMultiplier + (isVipActive(user) ? VIP_MULTIPLIER_BONUS : 0);
         
@@ -545,7 +640,12 @@ export default function Terminal() {
 
           {/* ── Live Canvas Chart ────────────────────────────────────── */}
           <div className="h-52 w-full mt-4">
-            <CanvasLineChart priceHistory={priceHistory} entryPrice={activePrediction?.entryPrice ?? null} />
+            <CanvasLineChart
+              priceHistory={priceHistory}
+              livePrice={price}
+              entryPrice={activePrediction?.entryPrice ?? null}
+              direction={activePrediction?.direction ?? null}
+            />
           </div>
 
           {/* Sentiment bar */}
@@ -667,30 +767,65 @@ export default function Terminal() {
               )}
             </div>
 
+            {/* Entry preview card */}
+            {price > 0 && (
+              <div className="py-3 px-4 rounded-2xl border border-white/10 bg-white/[0.03] flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-white/30 tracking-widest uppercase">Entry at</span>
+                  <motion.span
+                    key={price}
+                    initial={{ opacity: 0.7 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm font-black tabular-nums text-white"
+                  >
+                    ${formatPrice(price)}
+                  </motion.span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#00E676]/70 font-mono">If UP wins</span>
+                  <span className="text-[10px] font-black text-[#00E676]">+{vip ? vipWinPayout : baseWinPayout} GC</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#FF1744]/70 font-mono">If DOWN wins</span>
+                  <span className="text-[10px] font-black text-[#FF1744]">+{vip ? vipWinPayout : baseWinPayout} GC</span>
+                </div>
+                {vip && (
+                  <div className="flex items-center justify-between mt-0.5 pt-1.5 border-t border-[#FFD700]/20">
+                    <span className="text-[10px] text-[#FFD700]/70 font-mono">VIP bonus</span>
+                    <span className="text-[10px] font-black text-[#FFD700]">+{vipWinPayout} GC 👑</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* LONG / SHORT buttons */}
             <div className="grid grid-cols-2 gap-3 mt-1">
-              <button
+              <motion.button
+                animate={{ scale: entryFlash === "long" ? 1.05 : 1 }}
+                transition={{ duration: 0.15 }}
                 onClick={() => handlePredict("long")}
                 disabled={!user || !price || (user.tradeCredits ?? 0) < bet}
-                className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden transition-all hover:bg-[#00E676]/10 active:scale-[0.97]"
+                className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#00E676]/5 border-[#00E676]/30 text-[#00E676] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden hover:bg-[#00E676]/10"
               >
                 <div className="relative z-10 flex items-center justify-center gap-2">
                   <TrendingUp size={22} />
                   LONG
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-[#00E676]/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
-              <button
+              </motion.button>
+              <motion.button
+                animate={{ scale: entryFlash === "short" ? 1.05 : 1 }}
+                transition={{ duration: 0.15 }}
                 onClick={() => handlePredict("short")}
                 disabled={!user || !price || (user.tradeCredits ?? 0) < bet}
-                className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden transition-all hover:bg-[#FF1744]/10 active:scale-[0.97]"
+                className="group relative py-6 rounded-[28px] border-2 font-black text-xl bg-[#FF1744]/5 border-[#FF1744]/30 text-[#FF1744] disabled:opacity-20 uppercase tracking-[0.15em] overflow-hidden hover:bg-[#FF1744]/10"
               >
                 <div className="relative z-10 flex items-center justify-center gap-2">
                   <TrendingDown size={22} />
                   SHORT
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-[#FF1744]/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
+              </motion.button>
             </div>
           </div>
         )}
@@ -749,6 +884,32 @@ export default function Terminal() {
               Entry: ${formatPrice(activePrediction.entryPrice)} · Bet:{" "}
               {activePrediction.amount} TC
             </div>
+            {price > 0 && (() => {
+              const ep = activePrediction.entryPrice;
+              const winning =
+                (activePrediction.direction === "long" && price > ep) ||
+                (activePrediction.direction === "short" && price < ep);
+              const tier = DURATION_TIERS.find((t) => t.seconds === activePrediction.duration) ?? DURATION_TIERS[tierIndex];
+              const mult = tier.baseMultiplier + (vip ? VIP_MULTIPLIER_BONUS : 0);
+              const payout = Math.floor(activePrediction.amount * mult);
+              return (
+                <motion.div
+                  animate={{ opacity: [1, 0.7, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.8 }}
+                  className={`mt-3 py-3 px-4 rounded-2xl border text-center w-full ${
+                    winning
+                      ? "border-[#00E676]/30 bg-[#00E676]/5"
+                      : "border-[#FF1744]/30 bg-[#FF1744]/5"
+                  }`}
+                >
+                  <div className="text-[10px] font-black text-white/30 tracking-widest uppercase mb-1">Current P&L</div>
+                  {winning
+                    ? <div className="text-base font-black text-[#00E676]">+{payout} GC 🟢 YOU'RE WINNING</div>
+                    : <div className="text-base font-black text-[#FF1744]">−{activePrediction.amount} TC 🔴 PRICE AGAINST YOU</div>
+                  }
+                </motion.div>
+              );
+            })()}
           </div>
         )}
 
@@ -902,11 +1063,29 @@ export default function Terminal() {
                   </button>
                 </motion.div>
               )}
+              <div className="flex justify-around text-center text-[10px] font-mono text-white/30 border-t border-white/5 pt-4">
+                <div>
+                  <div className="text-white/60 font-black tabular-nums">${formatPrice(showResult.entryPrice)}</div>
+                  <div>Entry</div>
+                </div>
+                <div>
+                  <div className="text-white/60 font-black tabular-nums">${formatPrice(showResult.exitPrice)}</div>
+                  <div>Exit</div>
+                </div>
+                <div>
+                  <div className="text-white/60 font-black">{showResult.duration}s</div>
+                  <div>Duration</div>
+                </div>
+                <div>
+                  <div className="text-white/60 font-black">{showResult.multiplier?.toFixed(2)}×</div>
+                  <div>Mult</div>
+                </div>
+              </div>
               <button
-                onClick={() => setShowResult(null)}
+                onClick={() => { setShowResult(null); setLockedEntryPrice(null); }}
                 className="mt-2 py-4 rounded-2xl bg-white/5 border border-white/10 font-black text-xs tracking-[0.2em] uppercase text-white/30 hover:bg-white/10 transition-all active:scale-95"
               >
-                TAP TO DISMISS
+                TRADE AGAIN
               </button>
             </motion.div>
           </motion.div>
