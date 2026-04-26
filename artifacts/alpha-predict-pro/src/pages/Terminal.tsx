@@ -206,28 +206,37 @@ export default function Terminal() {
     requestAnimationFrame(tick);
   }, []);
 
+  // Updated to use Bybit V5 API - 100% stable in Telegram WebViews
   const loadInitialCandles = useCallback(async (symbol: string) => {
-    const response = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=60`,
-    );
-    const data = await response.json();
-    const candles = data.map((k: any[]) => ({
-      time: Math.floor(k[0] / 1000),
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-    }));
-    candleSeriesRef.current?.setData(candles);
-    const last = candles[candles.length - 1];
-    if (!last) return;
-    const close = truncateToTwoDecimals(last.close);
-    firstPriceRef.current = close;
-    priceRef.current = close;
-    latestPriceRef.current = close;
-    setPrevPrice(close);
-    setCurrentPrice(close);
-    setPriceChange(0);
+    try {
+      const response = await fetch(
+        `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=1&limit=60`
+      );
+      const data = await response.json();
+      
+      // Bybit returns newest first, we must reverse it for the chart
+      const candles = data.result.list.map((k: any[]) => ({
+        time: Math.floor(parseInt(k[0]) / 1000),
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+      })).reverse();
+
+      candleSeriesRef.current?.setData(candles);
+      const last = candles[candles.length - 1];
+      if (!last) return;
+      
+      const close = truncateToTwoDecimals(last.close);
+      firstPriceRef.current = close;
+      priceRef.current = close;
+      latestPriceRef.current = close;
+      setPrevPrice(close);
+      setCurrentPrice(close);
+      setPriceChange(0);
+    } catch (error) {
+      console.error("Failed to load history:", error);
+    }
   }, []);
 
   const stopPriceFeed = useCallback(() => {
@@ -235,15 +244,22 @@ export default function Terminal() {
     updateIntervalRef.current = null;
   }, []);
 
+  // Updated to poll Bybit Tickers - Bypasses WebSocket blocks completely
   const startPriceFeed = useCallback((symbol: string) => {
     stopPriceFeed();
     loadInitialCandles(symbol);
+    
     updateIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+        const res = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`);
         const data = await res.json();
-        const parsed = parseFloat(data.price);
+        
+        const tickerInfo = data.result.list[0];
+        if (!tickerInfo) return;
+        
+        const parsed = parseFloat(tickerInfo.lastPrice);
         if (!Number.isFinite(parsed) || parsed <= 0) return;
+        
         const nextPrice = truncateToTwoDecimals(parsed);
         const now = Math.floor(Date.now() / 1000);
         const minuteStart = Math.floor(now / 60) * 60;
@@ -259,15 +275,19 @@ export default function Terminal() {
 
         setPrevPrice(latestPriceRef.current || nextPrice);
         animatePrice(priceRef.current || nextPrice, nextPrice);
+        
         priceRef.current = nextPrice;
         latestPriceRef.current = nextPrice;
+        
         const firstPrice = firstPriceRef.current || nextPrice;
         setPriceChange(((nextPrice - firstPrice) / firstPrice) * 100);
-      } catch {}
+      } catch (e) {
+        // Silent catch: if one 1s poll fails due to network drop, it will just try again next second
+      }
     }, 1000);
   }, [animatePrice, loadInitialCandles, stopPriceFeed]);
 
-  /* ─── Lightweight chart + Binance fetch feed ──────── */
+  /* ─── Lightweight chart + Bybit fetch feed ──────── */
   useEffect(() => {
     setCurrentPrice(0);
     setPrevPrice(0);
@@ -561,7 +581,7 @@ export default function Terminal() {
                   {priceChange.toFixed(3)}%
                 </span>
                 <span className="text-[10px] font-mono text-white/20">
-                  · Binance Realtime
+                  · Bybit Realtime
                 </span>
               </div>
             </div>
