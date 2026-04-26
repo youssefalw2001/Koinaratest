@@ -95,20 +95,33 @@ export async function resolvePredictionLogic(
 
     if (!user) return { ok: true, prediction: claimed };
 
+    const gemRows = await tx
+      .select()
+      .from(gemInventoryTable)
+      .where(
+        and(
+          eq(gemInventoryTable.telegramId, prediction.telegramId),
+          gt(gemInventoryTable.usesRemaining, 0),
+        ),
+      );
+    const takeGem = (type: string) => gemRows.find((g) => g.gemType === type);
+
+    const doubleDown = takeGem("double_down");
+    const hotStreak = takeGem("hot_streak");
+    const starterBoost = takeGem("starter_boost");
+    const bigSwing = takeGem("big_swing");
+    const streakSaver = takeGem("streak_saver");
+
+    // Double Down always applies to the next resolved trade (win/loss), then burns.
+    if (doubleDown) {
+      await tx
+        .update(gemInventoryTable)
+        .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
+        .where(eq(gemInventoryTable.id, doubleDown.id));
+    }
+
     // Handle Streak Saver on loss: refund TC and consume gem
     if (!isWin) {
-      const [streakSaver] = await tx
-        .select()
-        .from(gemInventoryTable)
-        .where(
-          and(
-            eq(gemInventoryTable.telegramId, prediction.telegramId),
-            eq(gemInventoryTable.gemType, "streak_saver"),
-            gt(gemInventoryTable.usesRemaining, 0),
-          ),
-        )
-        .limit(1);
-
       if (streakSaver) {
         // Refund the TC bet and consume the gem use
         await tx
@@ -130,43 +143,12 @@ export async function resolvePredictionLogic(
     const vipNow = isVipActive(user);
     const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
 
-    // Check for active GC multiplier gems (Big Swing takes priority over Starter Boost)
+    // Binary multiplier gems stack on winning trades.
     let gemMultiplier = 1;
-    let consumedGemId: number | null = null;
-
-    const [bigSwing] = await tx
-      .select()
-      .from(gemInventoryTable)
-      .where(
-        and(
-          eq(gemInventoryTable.telegramId, prediction.telegramId),
-          eq(gemInventoryTable.gemType, "big_swing"),
-          gt(gemInventoryTable.usesRemaining, 0),
-        ),
-      )
-      .limit(1);
-
-    if (bigSwing) {
-      gemMultiplier = 5;
-      consumedGemId = bigSwing.id;
-    } else {
-      const [starterBoost] = await tx
-        .select()
-        .from(gemInventoryTable)
-        .where(
-          and(
-            eq(gemInventoryTable.telegramId, prediction.telegramId),
-            eq(gemInventoryTable.gemType, "starter_boost"),
-            gt(gemInventoryTable.usesRemaining, 0),
-          ),
-        )
-        .limit(1);
-
-      if (starterBoost) {
-        gemMultiplier = 2;
-        consumedGemId = starterBoost.id;
-      }
-    }
+    if (doubleDown) gemMultiplier *= 2;
+    if (hotStreak) gemMultiplier *= 3;
+    if (starterBoost) gemMultiplier *= 2;
+    if (bigSwing) gemMultiplier *= 5;
 
     const baseMultiplier = vipNow ? 2 : 1;
     // Use the per-prediction multiplier that was validated & stored on bet
@@ -219,12 +201,13 @@ export async function resolvePredictionLogic(
       })
       .where(eq(usersTable.telegramId, prediction.telegramId));
 
-    // Consume one use of the multiplier gem
-    if (consumedGemId !== null) {
+    // Consume win-based multipliers after a win resolves.
+    const winGems = [hotStreak, starterBoost, bigSwing].filter(Boolean) as Array<{ id: number }>;
+    for (const gem of winGems) {
       await tx
         .update(gemInventoryTable)
         .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
-        .where(eq(gemInventoryTable.id, consumedGemId));
+        .where(eq(gemInventoryTable.id, gem.id));
     }
 
     // Step 4: patch the prediction's payout column to the actually-credited
