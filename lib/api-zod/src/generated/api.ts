@@ -72,7 +72,6 @@ export const RegisterUserResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
-  affiliateCommissionGc: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -129,7 +128,6 @@ export const GetUserResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
-  affiliateCommissionGc: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -208,7 +206,6 @@ export const UpdateWalletResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
-  affiliateCommissionGc: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -269,7 +266,6 @@ export const ActivateVipTrialResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
-  affiliateCommissionGc: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -336,7 +332,6 @@ export const UpgradeToVipResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
-  affiliateCommissionGc: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -647,8 +642,9 @@ export const GetReferralStatsParams = zod.object({
 
 export const GetReferralStatsResponse = zod.object({
   referralCount: zod.number(),
-  indirectCount: zod.number(),
-  commissionEarned: zod.number(),
+  pendingGc: zod.number(),
+  isUnlocked: zod.boolean(),
+  unlocksAt: zod.string().nullish(),
 });
 
 /**

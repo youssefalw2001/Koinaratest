@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink } from "lucide-react";
+import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink, Clock } from "lucide-react";
 import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTelegram } from "@/lib/TelegramProvider";
@@ -346,36 +346,34 @@ export default function Profile() {
         </div>
 
         {/* Rewards summary */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
-            <div className="font-mono text-[9px] text-white/40 mb-0.5">L1 per VIP</div>
-            <div className="font-mono text-sm font-black text-[#ff2d78]">3,000 GC</div>
-            <div className="font-mono text-[8px] text-white/30">~$1.20</div>
+            <div className="font-mono text-[9px] text-white/40 mb-0.5">You earn (per referral)</div>
+            <div className="font-mono text-sm font-black text-[#ff2d78]">200 GC</div>
+            <div className="font-mono text-[8px] text-white/30">after their 1st trade</div>
           </div>
           <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
-            <div className="font-mono text-[9px] text-white/40 mb-0.5">L2 per VIP</div>
-            <div className="font-mono text-sm font-black text-[#ff2d78]">750 GC</div>
-            <div className="font-mono text-[8px] text-white/30">~$0.30</div>
-          </div>
-          <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
-            <div className="font-mono text-[9px] text-white/40 mb-0.5">Team size</div>
-            <div className="font-mono text-sm font-black text-[#00f0ff]">
-              {referralData ? referralData.referralCount + (referralData.indirectCount ?? 0) : "..."}
-            </div>
-            <div className="font-mono text-[8px] text-white/30">
-              {referralData ? `${referralData.referralCount}L1 · ${referralData.indirectCount ?? 0}L2` : ""}
-            </div>
+            <div className="font-mono text-[9px] text-white/40 mb-0.5">Friend earns</div>
+            <div className="font-mono text-sm font-black text-[#00f0ff]">500 TC</div>
+            <div className="font-mono text-[8px] text-white/30">welcome bonus</div>
           </div>
         </div>
 
-        {/* Commission earned */}
-        {referralData && referralData.commissionEarned > 0 && (
+        {/* Pending GC earnings */}
+        {referralData && referralData.pendingGc > 0 && (
           <div className="flex items-center gap-2 p-2.5 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/8 mb-3">
-            <Crown size={10} className="text-[#f5c518] shrink-0" />
+            <Clock size={10} className="text-[#f5c518] shrink-0" />
             <div className="flex-1">
-              <span className="font-mono text-xs font-bold text-[#f5c518]">{referralData.commissionEarned.toLocaleString()} GC earned</span>
-              <div className="font-mono text-[9px] text-white/30">Withdrawable immediately · no cap</div>
+              <span className="font-mono text-xs font-bold text-[#f5c518]">{referralData.pendingGc} GC pending</span>
+              {referralData.unlocksAt && (
+                <div className="font-mono text-[9px] text-white/30">
+                  Unlocks {new Date(referralData.unlocksAt).toLocaleDateString()}
+                </div>
+              )}
             </div>
+            {referralData.isUnlocked && (
+              <span className="font-mono text-[9px] text-[#00f0ff] border border-[#00f0ff]/30 px-1.5 py-0.5 rounded">READY</span>
+            )}
           </div>
         )}
 
@@ -392,7 +390,7 @@ export default function Profile() {
               VIP Commission
             </div>
             <div className={`font-mono text-[9px] leading-relaxed ${vip ? "text-white/50" : "text-white/20"}`}>
-              20% (L1) + 5% (L2) of every VIP purchase your network makes — paid instantly in GC.
+              20% of every purchase + 10% of every withdrawal your referrals make — in GC, for life.
             </div>
             {!vip && (
               <div className="font-mono text-[8px] text-[#f5c518]/60 mt-0.5">Requires VIP — activate in Wallet</div>
@@ -424,7 +422,7 @@ export default function Profile() {
         </div>
 
         <div className="font-mono text-[9px] text-white/25 mt-2">
-          Commission GC credited instantly · no lock · withdrawable via Wallet
+          Daily cap: 50 new referrals counted · GC locked 14 days before withdrawal
         </div>
       </div>
 
