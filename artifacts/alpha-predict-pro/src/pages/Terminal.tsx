@@ -3,16 +3,6 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Zap, Crown, Users, ChevronDown } from "lucide-react";
 import {
-  createChart,
-  CrosshairMode,
-  LineStyle,
-  ColorType,
-  type IChartApi,
-  type ISeriesApi,
-  type UTCTimestamp,
-  type IPriceLine,
-} from "lightweight-charts";
-import {
   useCreatePrediction,
   useResolvePrediction,
   useGetUserPredictions,
@@ -33,8 +23,8 @@ const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replac
 const GOLD = "#FFD700";
 const BULL_COLOR = "#00E676";
 const BEAR_COLOR = "#FF1744";
-const CANDLE_INTERVAL_MS = 3_000; // 3-second candles for visible movement
-const MAX_CANDLES = 40; // ~2 min of candles
+const CHART_UPDATE_MS = 500;
+const MAX_POINTS = 240;
 
 interface DurationTier {
   seconds: 6 | 10 | 30 | 60;
@@ -42,10 +32,10 @@ interface DurationTier {
   label: string;
 }
 const DURATION_TIERS: readonly DurationTier[] = [
-  { seconds: 6 as const, baseMultiplier: 1.5, label: "6s" },
-  { seconds: 10 as const, baseMultiplier: 1.65, label: "10s" },
-  { seconds: 30 as const, baseMultiplier: 1.75, label: "30s" },
-  { seconds: 60 as const, baseMultiplier: 1.85, label: "60s" },
+  { seconds: 6, baseMultiplier: 1.5, label: "6s" },
+  { seconds: 10, baseMultiplier: 1.65, label: "10s" },
+  { seconds: 30, baseMultiplier: 1.75, label: "30s" },
+  { seconds: 60, baseMultiplier: 1.85, label: "60s" },
 ];
 const VIP_MULTIPLIER_BONUS = 0.1;
 
@@ -64,183 +54,141 @@ const TRADING_PAIRS: readonly TradingPair[] = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CANDLESTICK DATA
+   LINE DATA
    ═══════════════════════════════════════════════════════════════════════════ */
-interface Candle {
+interface PricePoint {
   time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+  price: number;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HELPERS — aggregate 1s Binance klines into 3s candles
+   HELPERS
    ═══════════════════════════════════════════════════════════════════════════ */
-function aggregateTo3s(klines: any[][]): { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] {
-  const out: { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] = [];
-  for (let i = 0; i + 2 < klines.length; i += 3) {
-    out.push({
-      time: Math.floor(Number(klines[i][0]) / 1000) as UTCTimestamp,
-      open: parseFloat(klines[i][1]),
-      high: Math.max(parseFloat(klines[i][2]), parseFloat(klines[i + 1][2]), parseFloat(klines[i + 2][2])),
-      low: Math.min(parseFloat(klines[i][3]), parseFloat(klines[i + 1][3]), parseFloat(klines[i + 2][3])),
-      close: parseFloat(klines[i + 2][4]),
-    });
-  }
-  return out;
+function truncateToTwoDecimals(rawPrice: number): number {
+  return Math.trunc(rawPrice * 100) / 100;
+}
+
+function getBinanceWsUrl(symbol: string): string {
+  const normalized = symbol.trim().toLowerCase();
+  return `wss://stream.binance.com:9443/ws/${normalized}@aggTrade`;
+}
+
+function getBinanceRestUrl(symbol: string): string {
+  const normalized = symbol.trim().toUpperCase();
+  return `https://api.binance.com/api/v3/ticker/price?symbol=${normalized}`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CANDLESTICK CHART — lightweight-charts (TradingView canvas renderer)
+   CANVAS LINE CHART
    ═══════════════════════════════════════════════════════════════════════════ */
-function CandlestickChart({
-  candles,
-  liveCandle,
+function CanvasLineChart({
+  points,
   entryPrice,
-  pair,
 }: {
-  candles: Candle[];
-  liveCandle: Candle | null;
+  points: PricePoint[];
   entryPrice: number | null;
-  pair: string;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const entryLineRef = useRef<IPriceLine | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pointsRef = useRef(points);
+  const entryRef = useRef(entryPrice);
 
-  // Create chart once on mount, destroy on unmount
   useEffect(() => {
-    if (!containerRef.current) return;
+    pointsRef.current = points;
+  }, [points]);
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "rgba(255,255,255,0.3)",
-        fontFamily: "monospace",
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { top: 0.08, bottom: 0.08 },
-      },
-      timeScale: {
-        borderVisible: false,
-        timeVisible: true,
-        secondsVisible: true,
-      },
-      handleScroll: false,
-      handleScale: false,
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
-    });
-
-    const series = chart.addCandlestickSeries({
-      upColor: "#00E676",
-      downColor: "#FF1744",
-      borderUpColor: "#00E676",
-      borderDownColor: "#FF1744",
-      wickUpColor: "rgba(0,230,118,0.55)",
-      wickDownColor: "rgba(255,23,68,0.55)",
-    });
-
-    chartRef.current = chart;
-    seriesRef.current = series;
-
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    });
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-      entryLineRef.current = null;
-    };
-  }, []);
-
-  // Re-seed with historical data whenever trading pair changes
   useEffect(() => {
-    if (!seriesRef.current) return;
-    seriesRef.current.setData([]);
-
-    fetch(`${API_BASE}/market/klines/${pair}?interval=1s&limit=120`)
-      .then((r) => r.json())
-      .then((klines: any) => {
-        if (!seriesRef.current || !Array.isArray(klines) || klines.length === 0) return;
-        seriesRef.current.setData(aggregateTo3s(klines));
-        chartRef.current?.timeScale().fitContent();
-      })
-      .catch(() => {});
-  }, [pair]);
-
-  // Append each newly finalized 3s candle
-  useEffect(() => {
-    if (!seriesRef.current || candles.length === 0) return;
-    const last = candles[candles.length - 1];
-    try {
-      seriesRef.current.update({
-        time: Math.floor(last.time / 1000) as UTCTimestamp,
-        open: last.open,
-        high: last.high,
-        low: last.low,
-        close: last.close,
-      });
-      chartRef.current?.timeScale().scrollToRealTime();
-    } catch {}
-  }, [candles]);
-
-  // Live-update the currently forming candle on every price tick
-  useEffect(() => {
-    if (!seriesRef.current || !liveCandle) return;
-    try {
-      seriesRef.current.update({
-        time: Math.floor(liveCandle.time / 1000) as UTCTimestamp,
-        open: liveCandle.open,
-        high: liveCandle.high,
-        low: liveCandle.low,
-        close: liveCandle.close,
-      });
-      chartRef.current?.timeScale().scrollToRealTime();
-    } catch {}
-  }, [liveCandle]);
-
-  // Add / remove the gold entry price line
-  useEffect(() => {
-    const series = seriesRef.current;
-    if (!series) return;
-
-    if (entryLineRef.current) {
-      series.removePriceLine(entryLineRef.current);
-      entryLineRef.current = null;
-    }
-
-    if (entryPrice !== null) {
-      entryLineRef.current = series.createPriceLine({
-        price: entryPrice,
-        color: "#FFD700",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: "ENTRY",
-      });
-    }
+    entryRef.current = entryPrice;
   }, [entryPrice]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let raf = 0;
+    const draw = () => {
+      const parent = canvas.parentElement;
+      if (!parent) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = parent.clientWidth;
+      const h = parent.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+      }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const chartPoints = pointsRef.current;
+      if (chartPoints.length < 2) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+
+      const minP = Math.min(...chartPoints.map((p) => p.price));
+      const maxP = Math.max(...chartPoints.map((p) => p.price));
+      const range = Math.max(0.01, maxP - minP);
+      const padY = 14;
+      const chartH = h - padY * 2;
+      const stepX = w / (chartPoints.length - 1);
+      const toY = (p: number) => padY + (1 - (p - minP) / range) * chartH;
+
+      ctx.beginPath();
+      chartPoints.forEach((point, i) => {
+        const x = i * stepX;
+        const y = toY(point.price);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+
+      const gradient = ctx.createLinearGradient(0, 0, 0, h);
+      gradient.addColorStop(0, "rgba(0,230,118,0.28)");
+      gradient.addColorStop(1, "rgba(0,230,118,0.01)");
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.beginPath();
+      chartPoints.forEach((point, i) => {
+        const x = i * stepX;
+        const y = toY(point.price);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = "#00E676";
+      ctx.lineWidth = 1.35;
+      ctx.shadowColor = "rgba(0,230,118,0.75)";
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      if (entryRef.current !== null) {
+        const y = toY(entryRef.current);
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = GOLD;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <canvas ref={canvasRef} className="w-full h-full" />;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -257,9 +205,7 @@ function timeAgo(iso: string | null | undefined): string {
 }
 
 function formatPrice(p: number): string {
-  if (p >= 1000) return p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (p >= 1) return p.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-  return p.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+  return p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -274,11 +220,7 @@ export default function Terminal() {
   const [price, setPrice] = useState<number>(0);
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const latestPriceRef = useRef<number>(0);
-  const tickBufferRef = useRef<number[]>([]);
-
-  // Candle state
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [liveCandle, setLiveCandle] = useState<Candle | null>(null);
+  const [chartPoints, setChartPoints] = useState<PricePoint[]>([]);
 
   // UI state
   const [tierIndex, setTierIndex] = useState<number>(3);
@@ -290,6 +232,9 @@ export default function Terminal() {
   const [showResult, setShowResult] = useState<any>(null);
   const [showPairMenu, setShowPairMenu] = useState(false);
   const [sentiment, setSentiment] = useState(55);
+  const [binaryPowerups, setBinaryPowerups] = useState<any[]>([]);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // API hooks
   const createPrediction = useCreatePrediction();
@@ -310,56 +255,159 @@ export default function Terminal() {
     [vipActivityRaw],
   );
 
-  /* ─── WebSocket price feed + candle builder ─────────────────────── */
+  const fetchBinaryPowerups = useCallback(async () => {
+    if (!user) return;
+    try {
+      const initData = (window as any)?.Telegram?.WebApp?.initData || "";
+      const res = await fetch(`${API_BASE}/gems/${user.telegramId}/active`, {
+        headers: { "x-telegram-init-data": initData },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const binaryTypes = ["hot_streak", "double_down", "starter_boost", "big_swing", "streak_saver"];
+      setBinaryPowerups(Array.isArray(data) ? data.filter((g: any) => binaryTypes.includes(g.gemType)) : []);
+    } catch {
+      setBinaryPowerups([]);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchBinaryPowerups();
+  }, [fetchBinaryPowerups, showResult]);
+
+  /* ─── Binance pair feed: WS primary + REST fallback ──────────────── */
   useEffect(() => {
     setPrice(0);
     setPrevPrice(0);
-    setCandles([]);
-    setLiveCandle(null);
+    setChartPoints([]);
     latestPriceRef.current = 0;
-    tickBufferRef.current = [];
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let restTimer: ReturnType<typeof setInterval> | null = null;
+    let uiTimer: ReturnType<typeof setInterval> | null = null;
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+    let sse: EventSource | null = null;
+    let latestRawPrice = 0;
+    let lastTickAt = 0;
+    let disposed = false;
+    const wsUrl = getBinanceWsUrl(selectedPair.id);
+    const restUrl = getBinanceRestUrl(selectedPair.id);
+    const apiPriceUrl = `${API_BASE}/market/price?symbol=${selectedPair.id}`;
+    const apiStreamUrl = `${API_BASE}/market/stream/${selectedPair.id}`;
 
-    // SSE stream — server pushes price every 500ms (pure HTTP, works in Telegram WebView)
-    const es = new EventSource(`${API_BASE}/market/stream/${selectedPair.id}`);
-    es.onmessage = (event) => {
+    const pushPrice = (incoming: number) => {
+      if (!Number.isFinite(incoming) || incoming <= 0) return;
+      const exactPrice = truncateToTwoDecimals(incoming);
+      latestRawPrice = exactPrice;
+      latestPriceRef.current = exactPrice;
+      lastTickAt = Date.now();
+    };
+
+    const startUiTicker = () => {
+      if (uiTimer) return;
+      uiTimer = setInterval(() => {
+        if (!latestRawPrice) return;
+        setPrice((current) => {
+          if (current === latestRawPrice) return current;
+          setPrevPrice(current);
+          return latestRawPrice;
+        });
+        setChartPoints((prev) => {
+          const next = [...prev, { time: Date.now(), price: latestRawPrice }];
+          return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
+        });
+      }, CHART_UPDATE_MS);
+    };
+
+    const fetchRestOnce = async () => {
+      if (disposed) return;
       try {
-        const { price: newPrice } = JSON.parse(event.data);
-        if (!Number.isFinite(newPrice) || newPrice <= 0) return;
-        latestPriceRef.current = newPrice;
-        tickBufferRef.current.push(newPrice);
-        setPrice((p) => {
-          setPrevPrice(p);
-          return newPrice;
-        });
-        const ticks = tickBufferRef.current;
-        setLiveCandle({
-          time: Math.floor(Date.now() / 3000) * 3000,
-          open: ticks[0],
-          high: Math.max(...ticks),
-          low: Math.min(...ticks),
-          close: ticks[ticks.length - 1],
-        });
+        const res = await fetch(restUrl);
+        if (!res.ok) return;
+        const data = await res.json();
+        const parsed = Number(data?.price);
+        pushPrice(parsed);
+      } catch {
+        try {
+          const apiRes = await fetch(apiPriceUrl);
+          if (!apiRes.ok) return;
+          const apiData = await apiRes.json();
+          pushPrice(Number(apiData?.price));
+        } catch {}
+      }
+    };
+
+    const startRestFallback = () => {
+      if (disposed || restTimer) return;
+      void fetchRestOnce();
+      restTimer = setInterval(() => {
+        void fetchRestOnce();
+      }, 2000);
+    };
+
+    const stopRestFallback = () => {
+      if (restTimer) clearInterval(restTimer);
+      restTimer = null;
+    };
+
+    const startSseFallback = () => {
+      if (disposed || sse) return;
+      try {
+        sse = new EventSource(apiStreamUrl);
+        sse.onmessage = (event) => {
+          if (disposed) return;
+          try {
+            const payload = JSON.parse(event.data);
+            pushPrice(Number(payload?.price));
+          } catch {}
+        };
+        sse.onerror = () => {
+          if (!sse) return;
+          sse.close();
+          sse = null;
+        };
       } catch {}
     };
 
-    // Build candles from tick buffer every CANDLE_INTERVAL_MS
-    const candleBuilder = setInterval(() => {
-      const ticks = tickBufferRef.current;
-      if (ticks.length === 0) return;
+    const connectWs = () => {
+      if (disposed) return;
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        if (disposed) return;
+        stopRestFallback();
+      };
+      ws.onmessage = (event) => {
+        if (disposed) return;
+        try {
+          const payload = JSON.parse(event.data);
+          pushPrice(Number(payload?.p));
+        } catch {}
+      };
+      ws.onerror = () => {
+        if (disposed) return;
+        startRestFallback();
+        startSseFallback();
+      };
+      ws.onclose = () => {
+        if (disposed) return;
+        startRestFallback();
+        startSseFallback();
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectWs, 1200);
+      };
+    };
 
-      const open = ticks[0];
-      const close = ticks[ticks.length - 1];
-      const high = Math.max(...ticks);
-      const low = Math.min(...ticks);
-      tickBufferRef.current = [close]; // carry close as first tick of next candle
-
-      // Align to the same 3s boundary used by liveCandle so series.update() never goes backwards
-      const candle: Candle = { time: Math.floor(Date.now() / CANDLE_INTERVAL_MS) * CANDLE_INTERVAL_MS, open, high, low, close };
-      setCandles((prev) => {
-        const next = [...prev, candle];
-        return next.length > MAX_CANDLES ? next.slice(-MAX_CANDLES) : next;
-      });
-    }, CANDLE_INTERVAL_MS);
+    connectWs();
+    startRestFallback();
+    startSseFallback();
+    startUiTicker();
+    watchdogTimer = setInterval(() => {
+      if (disposed) return;
+      if (Date.now() - lastTickAt > 4_000) {
+        startRestFallback();
+        startSseFallback();
+      }
+    }, 1500);
 
     // Sentiment drift
     const sInt = setInterval(() => {
@@ -370,11 +418,32 @@ export default function Terminal() {
     }, 5000);
 
     return () => {
-      es.close();
-      clearInterval(candleBuilder);
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (restTimer) clearInterval(restTimer);
+      if (uiTimer) clearInterval(uiTimer);
+      if (watchdogTimer) clearInterval(watchdogTimer);
       clearInterval(sInt);
+      if (sse) {
+        sse.close();
+        sse = null;
+      }
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+      }
     };
   }, [selectedPair.id]);
+
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current);
+    };
+  }, []);
 
   /* ─── Trade handler (with 0 GC fix) ────────────────────────────── */
   const handlePredict = useCallback(
@@ -401,16 +470,21 @@ export default function Terminal() {
           openedAt: Date.now(),
         });
         setCountdown(tier.seconds);
-        const timer = setInterval(() => {
+        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = setInterval(() => {
           setCountdown((c) => {
             if (c <= 1) {
-              clearInterval(timer);
+              if (countdownTimerRef.current) {
+                clearInterval(countdownTimerRef.current);
+                countdownTimerRef.current = null;
+              }
               return 0;
             }
             return c - 1;
           });
         }, 1000);
-        setTimeout(async () => {
+        if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current);
+        resolveTimerRef.current = setTimeout(async () => {
           try {
             const currentP = latestPriceRef.current || price;
             const res = await resolvePrediction.mutateAsync({
@@ -438,11 +512,13 @@ export default function Terminal() {
             });
           } catch {
             setActivePrediction(null);
+          } finally {
+            resolveTimerRef.current = null;
           }
         }, tier.seconds * 1000);
       } catch {}
     },
-    [user, price, tierIndex, bet],
+    [user, price, tierIndex, bet, createPrediction, resolvePrediction, refreshUser, queryClient],
   );
 
   const vip = isVipActive(user);
@@ -463,10 +539,15 @@ export default function Terminal() {
 
   // Price change percentage
   const priceChange = useMemo(() => {
-    if (candles.length < 2) return 0;
-    const first = candles[0].open;
+    if (chartPoints.length < 2) return 0;
+    const first = chartPoints[0].price;
     return ((price - first) / first) * 100;
-  }, [candles, price]);
+  }, [chartPoints, price]);
+
+  const durationTier = DURATION_TIERS[tierIndex];
+  const baseWinPayout = Math.floor(bet * durationTier.baseMultiplier);
+  const vipTierMultiplier = durationTier.baseMultiplier + VIP_MULTIPLIER_BONUS;
+  const vipWinPayout = Math.floor(bet * vipTierMultiplier) * 2;
 
   if (isLoading) return <PageLoader rows={5} />;
 
@@ -488,7 +569,7 @@ export default function Terminal() {
           {(vipActivity.length ? [...vipActivity, ...vipActivity] : []).map(
             (item, i) => (
               <span
-                key={i}
+                key={`${item.id ?? item.telegramId ?? item.displayName ?? "vip"}-${i}`}
                 className="inline-flex items-center gap-1.5 shrink-0 leading-7 pr-7"
               >
                 <span className="text-[10px]">👑</span>
@@ -513,7 +594,7 @@ export default function Terminal() {
           {/* Header row */}
           <div className="flex items-center justify-between px-5 pt-5">
             <button
-              onClick={() => setShowPairMenu(!showPairMenu)}
+              onClick={() => setShowPairMenu((prev) => !prev)}
               className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/[0.05] border border-white/8 hover:bg-white/10 transition-all"
             >
               <span className="text-[11px] font-black text-[#FFD700] tracking-widest uppercase">
@@ -597,14 +678,9 @@ export default function Terminal() {
             </div>
           </div>
 
-          {/* ── Candlestick Chart ────────────────────────────────────── */}
+          {/* ── Live Canvas Chart ────────────────────────────────────── */}
           <div className="h-52 w-full mt-4">
-            <CandlestickChart
-              candles={candles}
-              liveCandle={liveCandle}
-              entryPrice={activePrediction?.entryPrice ?? null}
-              pair={selectedPair.id}
-            />
+            <CanvasLineChart points={chartPoints} entryPrice={activePrediction?.entryPrice ?? null} />
           </div>
 
           {/* Sentiment bar */}
@@ -663,17 +739,21 @@ export default function Terminal() {
             {/* Bet amounts */}
             <div className="flex flex-wrap gap-2">
               {[50, 100, 250, 500, 1000].map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => setBet(opt)}
-                  className={`flex-1 py-3 rounded-2xl font-mono text-[10px] font-black border transition-all ${
-                    bet === opt
-                      ? "border-[#4DA3FF] text-[#8BC3FF] bg-[#4DA3FF]/10"
-                      : "border-white/5 text-white/20 bg-white/[0.02]"
-                  }`}
-                >
-                  {opt >= 1000 ? `${opt / 1000}K` : opt}
-                </button>
+                <div key={opt} className="flex-1 min-w-[64px]">
+                  <button
+                    onClick={() => setBet(opt)}
+                    className={`w-full py-3 rounded-2xl font-mono text-[10px] font-black border transition-all ${
+                      bet === opt
+                        ? "border-[#4DA3FF] text-[#8BC3FF] bg-[#4DA3FF]/10 shadow-[0_0_16px_rgba(77,163,255,0.22)]"
+                        : "border-white/5 text-white/20 bg-white/[0.02]"
+                    }`}
+                  >
+                    {opt >= 1000 ? `${opt / 1000}K` : opt}
+                  </button>
+                  <div className="mt-1 text-center text-[10px] font-black text-[#FFD700]/90">
+                    +{Math.floor(opt * durationTier.baseMultiplier)} GC
+                  </div>
+                </div>
               ))}
               <div className="relative flex-1">
                 <button
@@ -694,6 +774,37 @@ export default function Terminal() {
                   </div>
                 )}
               </div>
+            </div>
+            <div className="py-2 px-3 rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/5 text-center">
+              <motion.div
+                key={`${bet}-${durationTier.seconds}-${vip}`}
+                initial={{ opacity: 0.6, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-sm font-black text-[#FFD700] drop-shadow-[0_0_12px_rgba(255,215,0,0.45)]"
+              >
+                Win → +{vip ? vipWinPayout : baseWinPayout} GC{vip ? " 👑" : ""}
+              </motion.div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-black tracking-[0.2em] uppercase text-white/40">Binary Power-ups</span>
+                <span className="text-[10px] font-black text-[#00E676]">ACTIVE</span>
+              </div>
+              {binaryPowerups.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {binaryPowerups.map((gem: any) => (
+                    <div
+                      key={gem.id}
+                      className="px-3 py-1.5 rounded-full border border-[#FFD700]/40 text-[10px] font-black text-[#FFD700] bg-[#FFD700]/10 shadow-[0_0_12px_rgba(255,215,0,0.22)]"
+                    >
+                      {gem.gemType.replace(/_/g, " ").toUpperCase()} · {gem.usesRemaining}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] font-mono text-white/30">No active power-ups</div>
+              )}
             </div>
 
             {/* LONG / SHORT buttons */}
