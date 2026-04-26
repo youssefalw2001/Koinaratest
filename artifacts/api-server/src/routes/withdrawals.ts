@@ -369,10 +369,9 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     return;
   }
 
-  const totalAvailableGc = user.goldCoins + (user.affiliateCommissionGc ?? 0);
-  if (totalAvailableGc < gcAmount) {
+  if (user.goldCoins < gcAmount) {
     await replyWithCommit(400, {
-      error: `Insufficient balance. You have ${totalAvailableGc.toLocaleString()} GC.`,
+      error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.`,
     });
     return;
   }
@@ -408,12 +407,10 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   try {
     await db.transaction(async (tx) => {
-      // Deduct from affiliateCommissionGc first, then goldCoins for the remainder.
       const updated = await tx
         .update(usersTable)
         .set({
-          affiliateCommissionGc: sql`GREATEST(0, ${usersTable.affiliateCommissionGc} - ${gcAmount})`,
-          goldCoins: sql`${usersTable.goldCoins} - GREATEST(0, ${gcAmount} - ${usersTable.affiliateCommissionGc})`,
+          goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
           weeklyWithdrawnGc: sql`
             CASE
               WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
@@ -425,8 +422,8 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
         })
         .where(and(
           eq(usersTable.telegramId, telegramId),
-          // Total balance (trading GC + commission GC) must cover the request
-          sql`${usersTable.goldCoins} + ${usersTable.affiliateCommissionGc} >= ${gcAmount}`,
+          // Balance must still cover the request
+          gte(usersTable.goldCoins, gcAmount),
           // Atomic weekly cap: new weekly total must not exceed the limit
           sql`(
             CASE
@@ -447,8 +444,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
           .where(eq(usersTable.telegramId, telegramId))
           .limit(1);
 
-        const freshTotal = (fresh?.goldCoins ?? 0) + (fresh?.affiliateCommissionGc ?? 0);
-        if (!fresh || freshTotal < gcAmount) {
+        if (!fresh || fresh.goldCoins < gcAmount) {
           throw new Error("INSUFFICIENT_BALANCE");
         }
         // Cap must have been exceeded
@@ -554,7 +550,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     estimatedTime: isVipUser ? "~4 hours" : "48–72 hours",
     weeklyRemainingUsd: (weeklyRemainingGc / gcPerUsd).toFixed(2),
     weeklyRemainingGc,
-    newGcBalance: (updated?.goldCoins ?? 0) + (updated?.affiliateCommissionGc ?? 0),
+    newGcBalance: updated?.goldCoins ?? 0,
   });
 });
 

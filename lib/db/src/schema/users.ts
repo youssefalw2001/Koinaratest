@@ -34,7 +34,6 @@ export const usersTable = pgTable("users", {
   dailyGcFromMinesDate: text("daily_gc_from_mines_date"),
   referralEarnings: integer("referral_earnings").notNull().default(0),
   referralEarningsUnlockedAt: timestamp("referral_earnings_unlocked_at", { withTimezone: true }),
-  affiliateCommissionGc: integer("affiliate_commission_gc").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
