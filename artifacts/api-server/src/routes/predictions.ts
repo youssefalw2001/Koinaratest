@@ -4,7 +4,6 @@ import { db, predictionsTable, usersTable } from "@workspace/db";
 import {
   CreatePredictionBody,
   ResolvePredictionParams,
-  ResolvePredictionBody,
   ResolvePredictionResponse,
   GetUserPredictionsParams,
   GetUserPredictionsQueryParams,
@@ -24,6 +23,7 @@ const router: IRouter = Router();
 
 const MIN_BET_TC = 50;
 const RESOLVE_TOLERANCE_SEC = 0;
+const PRICE_MATCH_TOLERANCE = 0.2;
 
 // Binary Options duration tiers
 const DURATION_TIERS: Record<number, number> = {
@@ -35,6 +35,49 @@ const DURATION_TIERS: Record<number, number> = {
 const VIP_MULTIPLIER_BONUS = 0.1;
 const MULTIPLIER_TOLERANCE = 0.001;
 const DEFAULT_DURATION_SEC = 60;
+
+const TRUSTED_PRICE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"] as const;
+type TrustedPriceSymbol = (typeof TRUSTED_PRICE_SYMBOLS)[number];
+
+async function fetchTrustedPrice(symbol: TrustedPriceSymbol): Promise<number | null> {
+  try {
+    const resp = await fetch(
+      `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { result?: { list?: Array<{ lastPrice?: string }> } };
+    const lastPrice = data.result?.list?.[0]?.lastPrice;
+    const price = Number(lastPrice);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    return Math.trunc(price * 100) / 100;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTrustedExitPrice(entryPrice: number): Promise<{ price: number; symbol: TrustedPriceSymbol }> {
+  const quotes = await Promise.all(
+    TRUSTED_PRICE_SYMBOLS.map(async (symbol) => ({ symbol, price: await fetchTrustedPrice(symbol) })),
+  );
+  const validQuotes = quotes.filter((q): q is { symbol: TrustedPriceSymbol; price: number } => q.price != null);
+  if (validQuotes.length === 0) {
+    throw new Error("TRUSTED_PRICE_UNAVAILABLE");
+  }
+
+  const closest = validQuotes.reduce((best, quote) => {
+    const quoteDistance = Math.abs(quote.price - entryPrice) / Math.max(entryPrice, 1);
+    const bestDistance = Math.abs(best.price - entryPrice) / Math.max(entryPrice, 1);
+    return quoteDistance < bestDistance ? quote : best;
+  }, validQuotes[0]!);
+
+  const distance = Math.abs(closest.price - entryPrice) / Math.max(entryPrice, 1);
+  if (distance > PRICE_MATCH_TOLERANCE) {
+    throw new Error("PRICE_SYMBOL_MISMATCH");
+  }
+
+  return { price: closest.price, symbol: closest.symbol };
+}
 
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
@@ -69,7 +112,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   if (!user) {
@@ -87,7 +130,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
     const referralCountResult = await db
       .select({ cnt: count() })
       .from(usersTable)
-      .where(eq(usersTable.referredBy, telegramId));
+      .where(eq(usersTable.referredBy, authedId));
     const referralCount = referralCountResult[0]?.cnt ?? 0;
     if (referralCount >= 5) {
       maxBet = 5000;
@@ -120,18 +163,27 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
+  const trustedEntry = await resolveTrustedExitPrice(entryPrice).catch((err: Error) => {
+    logger.warn({ err, entryPrice }, "Failed to validate trusted entry price");
+    return null;
+  });
+  if (!trustedEntry) {
+    res.status(503).json({ error: "Trusted price source unavailable. Please retry in a moment." });
+    return;
+  }
+
   await db
     .update(usersTable)
     .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${amount}` })
-    .where(eq(usersTable.telegramId, telegramId));
+    .where(eq(usersTable.telegramId, authedId));
 
   const [prediction] = await db
     .insert(predictionsTable)
     .values({
-      telegramId,
+      telegramId: authedId,
       direction,
       amount,
-      entryPrice,
+      entryPrice: trustedEntry.price,
       status: "pending",
       duration: requestedDuration,
       multiplier: expectedMultiplier,
@@ -148,17 +200,10 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  const body = ResolvePredictionBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
-
-  const { exitPrice } = body.data;
   const idempotency = await beginIdempotency(req, {
     scope: "predictions.resolve",
     fallbackKey: `prediction:${params.data.id}`,
-    fingerprintData: { predictionId: params.data.id, exitPrice },
+    fingerprintData: { predictionId: params.data.id },
     ttlMs: 2 * 60 * 60 * 1000,
   });
   if (idempotency.kind === "missing") {
@@ -217,7 +262,17 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  const result = await resolvePredictionLogic(params.data.id, exitPrice, {
+  let trustedExit;
+  try {
+    trustedExit = await resolveTrustedExitPrice(prediction.entryPrice);
+  } catch (err) {
+    logger.warn({ err, predictionId: params.data.id }, "Failed to resolve trusted exit price");
+    await idempotencyHandle.abort();
+    res.status(503).json({ error: "Trusted price source unavailable. Please retry in a moment." });
+    return;
+  }
+
+  const result = await resolvePredictionLogic(params.data.id, trustedExit.price, {
     autoResolved: false,
   });
   if (!result.ok || !result.prediction) {
@@ -232,6 +287,11 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     res.status(400).json({ error: result.reason ?? "Failed to resolve" });
     return;
   }
+
+  logger.info(
+    { predictionId: params.data.id, trustedSymbol: trustedExit.symbol, trustedExitPrice: trustedExit.price },
+    "Prediction resolved with trusted server price",
+  );
 
   await replyWithCommit(
     200,
@@ -325,10 +385,13 @@ router.get("/predictions/user/:telegramId", async (req, res): Promise<void> => {
   const query = GetUserPredictionsQueryParams.safeParse(req.query);
   const limit = query.success ? (query.data.limit ?? 20) : 20;
 
+  const authedId = resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authedId) return;
+
   const preds = await db
     .select()
     .from(predictionsTable)
-    .where(eq(predictionsTable.telegramId, params.data.telegramId))
+    .where(eq(predictionsTable.telegramId, authedId))
     .orderBy(desc(predictionsTable.createdAt))
     .limit(Number(limit));
 
