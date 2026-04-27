@@ -10,16 +10,16 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 
 // ─── Rates & caps ───────────────────────────────────────────────────────────
-const FREE_GC_PER_USD = 4000;
+const FREE_GC_PER_USD = 5000;
 const VIP_GC_PER_USD  = 2500;
 
-const FREE_MIN_GC      = 10000;  // $2.50
+const FREE_MIN_GC      = 14000;  // $2.80
 const VIP_MIN_GC       = 2500;   // $1.00
 
 const FREE_WEEKLY_MAX_USD = 25;   // $25/week
 const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 
-const FEE_PCT = 0.045;  // 4.5% fee
+const FEE_PCT = 0.06;  // 6% fee
 
 const DAILY_PAYOUT_RATIO = 0.5;
 const WITHDRAWAL_COOLDOWN_MS = 3 * 60_000;
@@ -161,6 +161,21 @@ const VerifyFeeBody = z.object({
   senderAddress: z.string().min(5, "Enter a valid TON wallet address"),
 });
 
+async function hasActiveVipReferral(telegramId: string): Promise<boolean> {
+  const [vipReferral] = await db
+    .select({ telegramId: usersTable.telegramId })
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.referredBy, telegramId),
+        eq(usersTable.isVip, true),
+        gt(usersTable.vipExpiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+  return Boolean(vipReferral);
+}
+
 // ─── POST /withdrawals/verify-fee ────────────────────────────────────────────
 // Verifies the one-time $1.99 identity verification payment on-chain.
 // Sets hasVerified=true on the user upon successful TON transaction confirmation.
@@ -224,13 +239,13 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
   await db.transaction(async (tx) => {
     await tx.insert(vipTxHashesTable).values({
       txHash: verifiedTxHash,
-      telegramId,
+      telegramId: authedId,
       plan: "verify_fee",
     });
     await tx
       .update(usersTable)
       .set({ hasVerified: true })
-      .where(eq(usersTable.telegramId, telegramId));
+      .where(eq(usersTable.telegramId, authedId));
   });
 
   logger.info({ telegramId: authedId, txHash: verifiedTxHash }, "Verification fee accepted");
@@ -341,16 +356,20 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
     !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
+  const hasVipReferralWaiver = !isVipUser && !user.hasVerified
+    ? await hasActiveVipReferral(authedId)
+    : false;
 
-  // Free users must complete one-time identity verification before withdrawing.
+  // Free users must complete one-time identity verification before withdrawing,
+  // unless they referred 1 currently active paid VIP user.
   // VIP users are exempt — their TON VIP payment serves as identity verification.
-  if (!isVipUser && !user.hasVerified) {
+  if (!isVipUser && !user.hasVerified && !hasVipReferralWaiver) {
     logger.warn(
       { telegramId: authedId, gcAmount, usdtWalletSuffix: usdtWallet.slice(-6) },
       "Withdrawal blocked: verification required",
     );
     await replyWithCommit(403, {
-      error: "Identity verification required. Pay the one-time $1.99 (0.02 TON) verification fee to unlock withdrawals.",
+      error: "Identity verification required. Pay the one-time $1.99 (0.4 TON) verification fee to unlock withdrawals, or invite 1 VIP referral to waive it.",
       code: "VERIFICATION_REQUIRED",
     });
     return;
@@ -407,21 +426,24 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   try {
     await db.transaction(async (tx) => {
+      const userUpdate: Record<string, unknown> = {
+        goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
+        weeklyWithdrawnGc: sql`
+          CASE
+            WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
+              OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
+            THEN ${gcAmount}
+            ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
+          END`,
+        weeklyWithdrawnResetAt: weekStart,
+      };
+      if (hasVipReferralWaiver) userUpdate.hasVerified = true;
+
       const updated = await tx
         .update(usersTable)
-        .set({
-          goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
-          weeklyWithdrawnGc: sql`
-            CASE
-              WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
-                OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
-              THEN ${gcAmount}
-              ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
-            END`,
-          weeklyWithdrawnResetAt: weekStart,
-        })
+        .set(userUpdate)
         .where(and(
-          eq(usersTable.telegramId, telegramId),
+          eq(usersTable.telegramId, authedId),
           // Balance must still cover the request
           gte(usersTable.goldCoins, gcAmount),
           // Atomic weekly cap: new weekly total must not exceed the limit
@@ -441,7 +463,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
         const [fresh] = await tx
           .select()
           .from(usersTable)
-          .where(eq(usersTable.telegramId, telegramId))
+          .where(eq(usersTable.telegramId, authedId))
           .limit(1);
 
         if (!fresh || fresh.goldCoins < gcAmount) {
@@ -482,7 +504,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
       }
 
       await tx.insert(withdrawalQueueTable).values({
-        telegramId,
+        telegramId: authedId,
         amountGc: gcAmount,
         feePct: FEE_PCT,
         feeGc,
@@ -527,7 +549,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   const [updated] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.telegramId, telegramId))
+    .where(eq(usersTable.telegramId, authedId))
     .limit(1);
 
   logger.info(
@@ -538,6 +560,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
       netUsd: Number(netUsd.toFixed(4)),
       weeklyRemainingGc,
       tier,
+      verificationWaivedByVipReferral: hasVipReferralWaiver,
     },
     "Withdrawal queued successfully",
   );
@@ -551,6 +574,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
     weeklyRemainingUsd: (weeklyRemainingGc / gcPerUsd).toFixed(2),
     weeklyRemainingGc,
     newGcBalance: updated?.goldCoins ?? 0,
+    verificationWaivedByVipReferral: hasVipReferralWaiver,
   });
 });
 
@@ -596,6 +620,9 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     ? 0
     : (user.weeklyWithdrawnGc ?? 0);
   const weeklyRemainingGc = Math.max(0, weeklyMaxGc - freshWeekly);
+  const vipReferralWaiverAvailable = !isVipUser && !(user.hasVerified ?? false)
+    ? await hasActiveVipReferral(authedId)
+    : false;
 
   res.json({
     withdrawals: rows.map(r => serializeRow(r as Record<string, unknown>)),
@@ -603,6 +630,12 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     weeklyMaxGc,
     weeklyUsedGc: freshWeekly,
     hasVerified: user.hasVerified ?? false,
+    vipReferralWaiverAvailable,
+    freeMinGc: FREE_MIN_GC,
+    vipMinGc: VIP_MIN_GC,
+    freeGcPerUsd: FREE_GC_PER_USD,
+    vipGcPerUsd: VIP_GC_PER_USD,
+    feePct: FEE_PCT,
   });
 });
 
