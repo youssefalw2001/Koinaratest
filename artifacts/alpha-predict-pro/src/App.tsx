@@ -87,11 +87,11 @@ function VipPromoModal() {
               </div>
               <div className="font-mono text-2xl font-black text-[#f5c518] mb-1">Go VIP Today</div>
               <div className="font-mono text-xs text-white/50 mb-4">
-                Protect your earnings with TON subscription, 2× payouts & USDT withdrawal access
+                Protect your earnings with TON subscription, 2x payouts & USDT withdrawal access
               </div>
               <div className="w-full space-y-2 mb-5">
                 {[
-                  "2× payout on every winning trade",
+                  "2x payout on every winning trade",
                   "10,000 GC daily earning cap",
                   "Withdraw GC as real USDT",
                   "25 ad rewards per day",
@@ -110,7 +110,7 @@ function VipPromoModal() {
                   boxShadow: "0 0 25px rgba(245,197,24,0.5)",
                 }}
               >
-                ACTIVATE VIP — TON PLAN
+                ACTIVATE VIP - TON PLAN
               </button>
               <button
                 onClick={dismissVipPromo}
@@ -136,6 +136,68 @@ function HomeWalletTrustPanel() {
   const dailyGcEarned = user.dailyGcEarned ?? 0;
   const withdrawalProgress = Math.min(100, (goldCoins / FREE_WITHDRAWAL_MIN_GC) * 100);
   const tradeProgress = Math.min(100, (dailyGcEarned / FREE_TRADE_CAP_GC) * 100);
+
+  if (location === "/") {
+    return (
+      <section className="px-4 pt-3 premium-page">
+        <div className="premium-card premium-card-gold p-3 mb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="trust-chip !py-1 !px-2">
+                  <ShieldCheck size={10} />
+                  Goal
+                </div>
+                <span className="font-mono text-[9px] text-white/35 truncate">
+                  {FREE_GC_PER_USD.toLocaleString()} GC = $1 · 6% fee
+                </span>
+              </div>
+              <div className="flex items-end justify-between gap-3 mb-2">
+                <div>
+                  <div className="text-lg font-black text-white leading-none">
+                    {goldCoins.toLocaleString()} / {FREE_WITHDRAWAL_MIN_GC.toLocaleString()} GC
+                  </div>
+                  <div className="font-mono text-[9px] text-[#FFE266] mt-1">
+                    $1.99 verify or 1 VIP referral
+                  </div>
+                </div>
+                <button
+                  onClick={() => setLocation("/wallet")}
+                  className="pressable gold-button rounded-xl px-3 py-2 font-mono text-[9px] font-black flex items-center gap-1 shrink-0"
+                >
+                  Wallet <ArrowUpRight size={11} />
+                </button>
+              </div>
+              <div className="progress-track !h-1.5"><div className="progress-fill-gold" style={{ width: `${withdrawalProgress}%` }} /></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div className="premium-card premium-card-cyan p-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-[8px] text-white/40 tracking-widest uppercase">Trade cap</span>
+              <Zap size={12} className="text-[#63D3FF]" />
+            </div>
+            <div className="font-mono text-xs font-black text-[#63D3FF] mb-1.5">
+              {Math.min(dailyGcEarned, FREE_TRADE_CAP_GC).toLocaleString()} / {FREE_TRADE_CAP_GC.toLocaleString()} GC
+            </div>
+            <div className="progress-track !h-1.5"><div className="progress-fill-cyan" style={{ width: `${tradeProgress}%` }} /></div>
+          </div>
+          <div className="premium-card p-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-[8px] text-white/40 tracking-widest uppercase">Mines cap</span>
+              <Bomb size={12} className="text-[#00F5A0]" />
+            </div>
+            <div className="font-mono text-xs font-black text-[#00F5A0]">
+              {FREE_MINES_CAP_GC.toLocaleString()} GC/day
+            </div>
+            <div className="font-mono text-[8px] text-white/30 mt-1">View details in Mines</div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="px-4 pt-4 premium-page">
@@ -223,8 +285,6 @@ function DailyLoginPrompt() {
   const claimedRef = useRef(false);
   const [claimedReward, setClaimedReward] = useState<{ tc: number; streak: number; isVip: boolean } | null>(null);
 
-  // Auto-claim on first open: credit TC immediately without requiring a user button press.
-  // The modal shows a confirmation notification and auto-dismisses after 3.5s.
   useEffect(() => {
     if (!showDailyLoginPrompt || !user || claimedRef.current) return;
     claimedRef.current = true;
@@ -236,7 +296,6 @@ function DailyLoginPrompt() {
         qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
         refreshUser();
       } catch {
-        // Already claimed or error — just dismiss silently
       }
       setTimeout(() => dismissDailyLoginPrompt(), 3500);
     })();
@@ -247,56 +306,14 @@ function DailyLoginPrompt() {
   return (
     <AnimatePresence>
       {showDailyLoginPrompt && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80"
-          onClick={dismissDailyLoginPrompt}
-        >
-          <motion.div
-            initial={{ y: 200 }}
-            animate={{ y: 0 }}
-            exit={{ y: 200 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2"
-            style={{
-              borderColor: accentColor,
-              background: "linear-gradient(180deg, #050508 0%, #000000 100%)",
-              boxShadow: `0 -20px 60px ${claimedReward?.isVip ? "rgba(245,197,24,0.3)" : "rgba(0,240,255,0.2)"}`,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80" onClick={dismissDailyLoginPrompt}>
+          <motion.div initial={{ y: 200 }} animate={{ y: 0 }} exit={{ y: 200 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2" style={{ borderColor: accentColor, background: "linear-gradient(180deg, #050508 0%, #000000 100%)", boxShadow: `0 -20px 60px ${claimedReward?.isVip ? "rgba(245,197,24,0.3)" : "rgba(0,240,255,0.2)"}` }} onClick={e => e.stopPropagation()}>
             <div className="flex flex-col items-center text-center">
-              <Flame
-                size={36}
-                className="mb-3"
-                style={{ color: accentColor, filter: `drop-shadow(0 0 15px ${accentColor})` }}
-              />
-              <div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">
-                Daily Reward Credited
-              </div>
-              {claimedReward ? (
-                <>
-                  <div className="font-mono text-4xl font-black mb-1" style={{ color: accentColor }}>
-                    +{claimedReward.tc} TC
-                  </div>
-                  <div className="font-mono text-sm text-white/50 mb-1">
-                    {claimedReward.isVip ? "VIP Bonus — " : ""}Day {claimedReward.streak} streak
-                  </div>
-                </>
-              ) : (
-                <div className="font-mono text-white/40 text-sm mb-1">Crediting...</div>
-              )}
-              <div className="font-mono text-[10px] text-white/30 mb-6">
-                Come back tomorrow for more!
-              </div>
-              <button
-                onClick={dismissDailyLoginPrompt}
-                className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors"
-              >
-                Close
-              </button>
+              <Flame size={36} className="mb-3" style={{ color: accentColor, filter: `drop-shadow(0 0 15px ${accentColor})` }} />
+              <div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">Daily Reward Credited</div>
+              {claimedReward ? <><div className="font-mono text-4xl font-black mb-1" style={{ color: accentColor }}>+{claimedReward.tc} TC</div><div className="font-mono text-sm text-white/50 mb-1">{claimedReward.isVip ? "VIP Bonus - " : ""}Day {claimedReward.streak} streak</div></> : <div className="font-mono text-white/40 text-sm mb-1">Crediting...</div>}
+              <div className="font-mono text-[10px] text-white/30 mb-6">Come back tomorrow for more!</div>
+              <button onClick={dismissDailyLoginPrompt} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button>
             </div>
           </motion.div>
         </motion.div>
@@ -312,54 +329,17 @@ function Day7CelebrationModal() {
   return (
     <AnimatePresence>
       {showDay7Celebration && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90"
-          onClick={dismissDay7Celebration}
-        >
-          <motion.div
-            initial={{ y: 400, scale: 0.9 }}
-            animate={{ y: 0, scale: 1 }}
-            exit={{ y: 400 }}
-            transition={{ type: "spring", damping: 22, stiffness: 280 }}
-            className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]"
-            style={{
-              background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)",
-              boxShadow: "0 -30px 100px rgba(0,240,255,0.3)",
-            }}
-            onClick={e => e.stopPropagation()}
-          >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90" onClick={dismissDay7Celebration}>
+          <motion.div initial={{ y: 400, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 22, stiffness: 280 }} className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]" style={{ background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)", boxShadow: "0 -30px 100px rgba(0,240,255,0.3)" }} onClick={e => e.stopPropagation()}>
             <div className="flex flex-col items-center text-center">
-              <div className="relative mb-4">
-                <Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" />
-                <Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" />
-              </div>
+              <div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div>
               <div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div>
               <div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div>
               <div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div>
               <div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div>
-              <div className="font-mono text-[10px] text-white/30 mb-8">
-                You've survived 7 days in the arena. The market respects consistency.
-              </div>
-              <button
-                onClick={() => { dismissDay7Celebration(); setLocation("/"); }}
-                className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3"
-                style={{
-                  background: "linear-gradient(90deg, #00f0ff, #0080ff)",
-                  color: "#000",
-                  boxShadow: "0 0 30px rgba(0,240,255,0.5)",
-                }}
-              >
-                KEEP TRADING
-              </button>
-              <button
-                onClick={dismissDay7Celebration}
-                className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors"
-              >
-                Close
-              </button>
+              <div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div>
+              <button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP TRADING</button>
+              <button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button>
             </div>
           </motion.div>
         </motion.div>
@@ -379,7 +359,6 @@ function Router() {
       <Switch>
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
-        {/* Back-compat: old `/crash` links (from previous Telegram shares) now land on Mines. */}
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Exchange /></Bounded>} />
