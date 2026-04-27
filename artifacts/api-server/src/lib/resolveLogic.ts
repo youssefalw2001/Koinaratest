@@ -5,8 +5,10 @@ import { logger } from "./logger";
 
 export const GC_RATIO = 1.85;
 const DEFAULT_MULTIPLIER = 1.85;
-export const DAILY_GC_CAP_FREE = 10000;
-export const DAILY_GC_CAP_VIP = 30000;
+export const DAILY_GC_CAP_FREE = 7000;
+export const DAILY_GC_CAP_VIP = 20000;
+const MAX_TRADE_PAYOUT_FREE = 2500;
+const MAX_TRADE_PAYOUT_VIP = 8000;
 
 export interface ResolveOutcome {
   ok: boolean;
@@ -112,7 +114,7 @@ export async function resolvePredictionLogic(
     const bigSwing = takeGem("big_swing");
     const streakSaver = takeGem("streak_saver");
 
-    // Double Down always applies to the next resolved trade (win/loss), then burns.
+    // Double Down burns on the next resolved trade, win or loss.
     if (doubleDown) {
       await tx
         .update(gemInventoryTable)
@@ -120,10 +122,9 @@ export async function resolvePredictionLogic(
         .where(eq(gemInventoryTable.id, doubleDown.id));
     }
 
-    // Handle Streak Saver on loss: refund TC and consume gem
+    // Handle Streak Saver on loss: refund TC and consume gem.
     if (!isWin) {
       if (streakSaver) {
-        // Refund the TC bet and consume the gem use
         await tx
           .update(usersTable)
           .set({ tradeCredits: sql`${usersTable.tradeCredits} + ${prediction.amount}` })
@@ -137,20 +138,31 @@ export async function resolvePredictionLogic(
       return { ok: true, prediction: claimed };
     }
 
-    // Step 3: credit GC for wins, applying gem multipliers
+    // Step 3: credit GC for wins, applying at most one major multiplier.
     const today = new Date().toISOString().split("T")[0];
     const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
     const vipNow = isVipActive(user);
     const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
+    const perTradeCap = vipNow ? MAX_TRADE_PAYOUT_VIP : MAX_TRADE_PAYOUT_FREE;
 
-    // Binary multiplier gems stack on winning trades.
+    let appliedWinGem: { id: number } | null = null;
     let gemMultiplier = 1;
-    if (doubleDown) gemMultiplier *= 2;
-    if (hotStreak) gemMultiplier *= 3;
-    if (starterBoost) gemMultiplier *= 2;
-    if (bigSwing) gemMultiplier *= 5;
+    if (bigSwing) {
+      gemMultiplier = 2;
+      appliedWinGem = bigSwing;
+    } else if (doubleDown) {
+      gemMultiplier = 2;
+    } else if (hotStreak) {
+      gemMultiplier = 2;
+      appliedWinGem = hotStreak;
+    } else if (starterBoost) {
+      gemMultiplier = 1.5;
+      appliedWinGem = starterBoost;
+    }
 
-    const baseMultiplier = vipNow ? 2 : 1;
+    // VIP already receives a better duration multiplier and higher caps.
+    // Do not double the full payout again here.
+    const baseMultiplier = 1;
     // Use the per-prediction multiplier that was validated & stored on bet
     // placement (duration tier + VIP bonus). Fall back to legacy GC_RATIO for
     // any older rows written before this column existed, and guard against
@@ -161,10 +173,11 @@ export async function resolvePredictionLogic(
     const stakeAmount = toFiniteNumber(prediction.amount, 0);
     const rawPayout = Math.max(
       1,
-      Math.floor(stakeAmount * tierMultiplier) * baseMultiplier * gemMultiplier,
+      Math.floor(Math.floor(stakeAmount * tierMultiplier) * baseMultiplier * gemMultiplier),
     );
+    const cappedPayout = Math.min(rawPayout, perTradeCap);
     const remaining = Math.max(0, dailyCap - currentDailyGc);
-    const gcPayout = Math.min(rawPayout, remaining);
+    const gcPayout = Math.min(cappedPayout, remaining);
 
     if (stakeAmount <= 0 || !Number.isFinite(rawPayout)) {
       logger.warn(
@@ -201,13 +214,12 @@ export async function resolvePredictionLogic(
       })
       .where(eq(usersTable.telegramId, prediction.telegramId));
 
-    // Consume win-based multipliers after a win resolves.
-    const winGems = [hotStreak, starterBoost, bigSwing].filter(Boolean) as Array<{ id: number }>;
-    for (const gem of winGems) {
+    // Consume only the win-based multiplier that affected this win.
+    if (appliedWinGem) {
       await tx
         .update(gemInventoryTable)
         .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
-        .where(eq(gemInventoryTable.id, gem.id));
+        .where(eq(gemInventoryTable.id, appliedWinGem.id));
     }
 
     // Step 4: patch the prediction's payout column to the actually-credited
