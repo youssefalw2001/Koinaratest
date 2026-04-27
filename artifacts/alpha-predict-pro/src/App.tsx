@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Crown, CheckCircle, Flame, Star, Trophy } from "lucide-react";
+import { Crown, CheckCircle, Flame, Star, Trophy, ShieldCheck, ArrowUpRight, Users, Zap, Bomb } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
@@ -41,6 +41,11 @@ const queryClient = new QueryClient({
     },
   }),
 });
+
+const FREE_WITHDRAWAL_MIN_GC = 14000;
+const FREE_GC_PER_USD = 5000;
+const FREE_TRADE_CAP_GC = 7000;
+const FREE_MINES_CAP_GC = 5000;
 
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
@@ -118,6 +123,96 @@ function VipPromoModal() {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function HomeWalletTrustPanel() {
+  const { user } = useTelegram();
+  const [location, setLocation] = useLocation();
+  const vip = isVipActive(user);
+  if (!user || (location !== "/" && location !== "/wallet")) return null;
+
+  const goldCoins = user.goldCoins ?? 0;
+  const dailyGcEarned = user.dailyGcEarned ?? 0;
+  const withdrawalProgress = Math.min(100, (goldCoins / FREE_WITHDRAWAL_MIN_GC) * 100);
+  const tradeProgress = Math.min(100, (dailyGcEarned / FREE_TRADE_CAP_GC) * 100);
+
+  return (
+    <section className="px-4 pt-4 premium-page">
+      <div className="premium-card premium-card-gold p-4 mb-3">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="trust-chip mb-2">
+              <ShieldCheck size={11} />
+              Cashout progress
+            </div>
+            <h2 className="text-xl font-black tracking-tight text-white">
+              {goldCoins.toLocaleString()} / {FREE_WITHDRAWAL_MIN_GC.toLocaleString()} GC
+            </h2>
+            <p className="font-mono text-[10px] text-white/45 mt-1">
+              Free minimum · {FREE_GC_PER_USD.toLocaleString()} GC = $1 · 6% fee
+            </p>
+          </div>
+          <button
+            onClick={() => setLocation("/wallet")}
+            className="pressable gold-button rounded-2xl px-3 py-2 font-mono text-[10px] font-black flex items-center gap-1.5"
+          >
+            Wallet <ArrowUpRight size={12} />
+          </button>
+        </div>
+        <div className="progress-track"><div className="progress-fill-gold" style={{ width: `${withdrawalProgress}%` }} /></div>
+        <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3">
+          <div className="font-mono text-[10px] text-[#FFE266] font-black tracking-widest uppercase">
+            $1.99 verification or 1 VIP referral
+          </div>
+          <p className="font-mono text-[10px] text-white/42 mt-1 leading-relaxed">
+            Free accounts verify once before cashout. Invite 1 active VIP referral to waive it. VIP users skip this step.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="premium-card premium-card-cyan p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[9px] text-white/40 tracking-widest uppercase">Trade cap</span>
+            <Zap size={13} className="text-[#63D3FF]" />
+          </div>
+          <div className="font-mono text-sm font-black text-[#63D3FF] mb-2">
+            {Math.min(dailyGcEarned, FREE_TRADE_CAP_GC).toLocaleString()} / {FREE_TRADE_CAP_GC.toLocaleString()} GC
+          </div>
+          <div className="progress-track"><div className="progress-fill-cyan" style={{ width: `${tradeProgress}%` }} /></div>
+        </div>
+        <div className="premium-card p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[9px] text-white/40 tracking-widest uppercase">Mines cap</span>
+            <Bomb size={13} className="text-[#00F5A0]" />
+          </div>
+          <div className="font-mono text-sm font-black text-[#00F5A0] mb-2">
+            {FREE_MINES_CAP_GC.toLocaleString()} GC/day
+          </div>
+          <p className="font-mono text-[9px] text-white/35 leading-relaxed">Pass value and limits stay visible before play.</p>
+        </div>
+      </div>
+
+      {!vip && (
+        <div className="premium-card p-3 mb-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Users size={13} className="text-[#FFD700]" />
+            <span className="font-mono text-[10px] text-white/55 tracking-widest uppercase font-black">VIP referral shortcut</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setLocation("/earn")} className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-2 text-left">
+              <div className="font-mono text-[11px] font-black text-[#FFD700]">Waive fee</div>
+              <div className="font-mono text-[9px] text-white/35 mt-0.5">Invite 1 VIP</div>
+            </button>
+            <button onClick={() => setLocation("/wallet")} className="rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-left">
+              <div className="font-mono text-[11px] font-black text-white">VIP perks</div>
+              <div className="font-mono text-[9px] text-white/35 mt-0.5">Better rate + no verify</div>
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -280,6 +375,7 @@ function Bounded({ children }: { children: React.ReactNode }) {
 function Router() {
   return (
     <Layout>
+      <HomeWalletTrustPanel />
       <Switch>
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
