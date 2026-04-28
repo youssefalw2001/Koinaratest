@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, or, gt, isNotNull, count } from "drizzle-orm";
-import { db, predictionsTable, usersTable } from "@workspace/db";
+import { eq, desc, sql, and, or, gt, isNotNull, count, inArray } from "drizzle-orm";
+import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import {
   CreatePredictionBody,
   ResolvePredictionParams,
@@ -35,6 +35,8 @@ const DURATION_TIERS: Record<number, number> = {
 const VIP_MULTIPLIER_BONUS = 0.1;
 const MULTIPLIER_TOLERANCE = 0.001;
 const DEFAULT_DURATION_SEC = 60;
+const BINARY_GEM_TYPES = ["starter_boost", "hot_streak", "double_down", "precision_lock", "big_swing", "streak_saver"] as const;
+const MAX_SELECTED_BINARY_GEMS = 2;
 
 const TRUSTED_PRICE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"] as const;
 type TrustedPriceSymbol = (typeof TRUSTED_PRICE_SYMBOLS)[number];
@@ -79,6 +81,14 @@ async function resolveTrustedExitPrice(entryPrice: number): Promise<{ price: num
   return { price: closest.price, symbol: closest.symbol };
 }
 
+function parseSelectedGemIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = raw
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  return Array.from(new Set(ids)).slice(0, MAX_SELECTED_BINARY_GEMS);
+}
+
 router.post("/predictions", async (req, res): Promise<void> => {
   const parsed = CreatePredictionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -96,6 +106,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
       : DEFAULT_DURATION_SEC;
   const rawMultiplier = (parsed.data as { multiplier?: number }).multiplier;
   const multiplierProvided = typeof rawMultiplier === "number";
+  const selectedGemIds = parseSelectedGemIds((parsed.data as { useGems?: unknown }).useGems);
 
   if (!(requestedDuration in DURATION_TIERS)) {
     res.status(400).json({
@@ -163,6 +174,39 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
+  let selectedGemsPayload: Array<{ id: number; gemType: string }> = [];
+  if (selectedGemIds.length > 0) {
+    const selectedGems = await db
+      .select()
+      .from(gemInventoryTable)
+      .where(
+        and(
+          eq(gemInventoryTable.telegramId, authedId),
+          inArray(gemInventoryTable.id, selectedGemIds),
+          gt(gemInventoryTable.usesRemaining, 0),
+        ),
+      );
+
+    if (selectedGems.length !== selectedGemIds.length) {
+      res.status(400).json({ error: "One or more selected power-ups are no longer available." });
+      return;
+    }
+
+    const usedTypes = new Set<string>();
+    for (const gem of selectedGems) {
+      if (!BINARY_GEM_TYPES.includes(gem.gemType as (typeof BINARY_GEM_TYPES)[number])) {
+        res.status(400).json({ error: `${gem.gemType} cannot be used on Binary trades.` });
+        return;
+      }
+      if (usedTypes.has(gem.gemType)) {
+        res.status(400).json({ error: "Only one power-up of each type can be selected per trade." });
+        return;
+      }
+      usedTypes.add(gem.gemType);
+    }
+    selectedGemsPayload = selectedGems.map((gem) => ({ id: gem.id, gemType: gem.gemType }));
+  }
+
   const trustedEntry = await resolveTrustedExitPrice(entryPrice).catch((err: Error) => {
     logger.warn({ err, entryPrice }, "Failed to validate trusted entry price");
     return null;
@@ -187,6 +231,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
       status: "pending",
       duration: requestedDuration,
       multiplier: expectedMultiplier,
+      activeGems: selectedGemsPayload.length > 0 ? JSON.stringify(selectedGemsPayload) : null,
     })
     .returning();
 
