@@ -41,12 +41,17 @@ const FREE_WEEKLY_MAX_USD = 25;
 const VIP_WEEKLY_MAX_USD = 100;
 const TON_MONTHLY_AMOUNT = "1700000000";
 const TON_VERIFY_AMOUNT = "400000000";
-const KOINARA_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || undefined;
+const KOINARA_TON_WALLET: string | undefined =
+  import.meta.env.VITE_KOINARA_TON_WALLET || import.meta.env.VITE_TON_WALLET || undefined;
 
 type WalletTab = "withdraw" | "history";
 
 function makeIdempotencyKey(prefix: string, parts: Array<string | number>): string {
   return `${prefix}:${parts.map((part) => String(part).trim()).join(":")}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function commentPayload(comment: string): string {
+  return beginCell().storeUint(0, 32).storeStringTail(comment).endCell().toBoc().toString("base64");
 }
 
 function statusTone(status: string): { label: string; color: string; bg: string } {
@@ -60,7 +65,7 @@ function statusTone(status: string): { label: string; color: string; bg: string 
 }
 
 export default function WalletPremium() {
-  const { user } = useTelegram();
+  const { user, refreshUser } = useTelegram();
   const queryClient = useQueryClient();
   const walletAddress = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
@@ -103,35 +108,66 @@ export default function WalletPremium() {
   });
 
   useEffect(() => {
-    if (walletAddress && user && !user.walletAddress) {
+    if (walletAddress && user && user.walletAddress !== walletAddress) {
       updateWallet.mutateAsync({ telegramId: user.telegramId, data: { walletAddress } }).then(() => {
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+        refreshUser();
       }).catch(() => {});
     }
-  }, [walletAddress, user, updateWallet, queryClient]);
+  }, [walletAddress, user?.telegramId, user?.walletAddress, updateWallet, queryClient, refreshUser]);
 
   const handleTonVip = async () => {
-    if (!user || !walletAddress || !KOINARA_TON_WALLET) return;
+    if (!user) return;
+    if (!walletAddress) {
+      await tonConnectUI.openModal();
+      return;
+    }
+    if (!KOINARA_TON_WALLET) {
+      setWithdrawError("TON payments are not configured. Add VITE_TON_WALLET or VITE_KOINARA_TON_WALLET and redeploy frontend.");
+      return;
+    }
     setTonPending(true);
+    setWithdrawError(null);
     try {
-      await tonConnectUI.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 300, messages: [{ address: KOINARA_TON_WALLET, amount: TON_MONTHLY_AMOUNT }] });
+      const memo = `KNR-VIP-monthly-${user.telegramId}`;
+      await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        messages: [{ address: KOINARA_TON_WALLET, amount: TON_MONTHLY_AMOUNT, payload: commentPayload(memo) }],
+      });
+      await new Promise((r) => setTimeout(r, 5000));
       await upgradeToVip.mutateAsync({ telegramId: user.telegramId, data: { plan: "monthly", senderAddress: walletAddress } });
       setVipSuccess(true);
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      await refreshUser();
+    } catch (err) {
+      setWithdrawError((err as { message?: string })?.message ?? "VIP activation failed. Please try again.");
     } finally {
       setTonPending(false);
     }
   };
 
   const handleVerifyIdentity = async () => {
-    if (!walletAddress || !KOINARA_TON_WALLET || !user) return;
+    if (!user) return;
+    if (!walletAddress) {
+      await tonConnectUI.openModal();
+      return;
+    }
+    if (!KOINARA_TON_WALLET) {
+      setWithdrawError("TON payments are not configured. Add VITE_TON_WALLET or VITE_KOINARA_TON_WALLET and redeploy frontend.");
+      return;
+    }
     setVerifyPending(true);
+    setWithdrawError(null);
     try {
-      const payload = beginCell().storeUint(0, 32).storeStringTail(`KNR-VERIFY-${user.telegramId}`).endCell().toBoc().toString("base64");
-      await tonConnectUI.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 300, messages: [{ address: KOINARA_TON_WALLET, amount: TON_VERIFY_AMOUNT, payload }] });
+      const payload = commentPayload(`KNR-VERIFY-${user.telegramId}`);
+      await tonConnectUI.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: KOINARA_TON_WALLET, amount: TON_VERIFY_AMOUNT, payload }] });
+      await new Promise((r) => setTimeout(r, 5000));
       await verifyFee.mutateAsync({ data: { telegramId: user.telegramId, senderAddress: walletAddress } });
       setVerifyDone(true);
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      await refreshUser();
+    } catch (err) {
+      setWithdrawError((err as { message?: string })?.message ?? "Verification failed. Please try again.");
     } finally {
       setVerifyPending(false);
     }
@@ -148,6 +184,7 @@ export default function WalletPremium() {
       setGcInput("");
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       queryClient.invalidateQueries({ queryKey: getGetWithdrawalsQueryKey(user.telegramId) });
+      await refreshUser();
     } catch (err: unknown) {
       setWithdrawError((err as { message?: string })?.message ?? "Withdrawal failed. Please try again.");
     } finally {
@@ -218,8 +255,8 @@ export default function WalletPremium() {
             <div className="rounded-3xl border border-[#FF4D6D]/35 bg-[#FF4D6D]/8 p-4">
               <div className="flex items-center gap-2 text-[#FF4D6D] font-black"><Shield size={16} />One-time verification required</div>
               <p className="font-mono text-[11px] text-white/48 mt-2 leading-relaxed">Free accounts verify once with 0.4 TON before USDT withdrawal. Invite 1 VIP referral or upgrade to skip this step.</p>
-              {!walletAddress ? <div className="mt-3"><TonConnectButton /></div> : !KOINARA_TON_WALLET ? <div className="mt-3 rounded-2xl border border-[#FF4D6D]/25 bg-[#FF4D6D]/8 p-3 font-mono text-[10px] text-[#FF8FA3] flex items-center gap-2"><AlertTriangle size={13} />TON payments not configured.</div> : <button onClick={handleVerifyIdentity} disabled={verifyPending} className="mt-3 w-full h-12 rounded-2xl border border-[#FF4D6D]/40 bg-[#FF4D6D]/10 text-[#FF8FA3] font-black flex items-center justify-center gap-2 disabled:opacity-40">{verifyPending ? <><Loader2 size={16} className="animate-spin" />Waiting for TX</> : "Verify — 0.4 TON"}</button>}
-              <button onClick={handleTonVip} disabled={tonPending || !walletAddress || !KOINARA_TON_WALLET} className="mt-2 w-full h-11 rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/8 text-[#FFD700] font-black disabled:opacity-40"><Crown size={14} className="inline mr-1" />Skip with VIP</button>
+              {!walletAddress ? <div className="mt-3"><TonConnectButton /></div> : !KOINARA_TON_WALLET ? <div className="mt-3 rounded-2xl border border-[#FF4D6D]/25 bg-[#FF4D6D]/8 p-3 font-mono text-[10px] text-[#FF8FA3] flex items-center gap-2"><AlertTriangle size={13} />TON payments not configured. Redeploy frontend with VITE_TON_WALLET.</div> : <button onClick={handleVerifyIdentity} disabled={verifyPending} className="mt-3 w-full h-12 rounded-2xl border border-[#FF4D6D]/40 bg-[#FF4D6D]/10 text-[#FF8FA3] font-black flex items-center justify-center gap-2 disabled:opacity-40">{verifyPending ? <><Loader2 size={16} className="animate-spin" />Waiting for TX</> : "Verify — 0.4 TON"}</button>}
+              <button onClick={handleTonVip} disabled={tonPending || (!walletAddress && tonConnectUI.connected) || !KOINARA_TON_WALLET} className="mt-2 w-full h-11 rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/8 text-[#FFD700] font-black disabled:opacity-40"><Crown size={14} className="inline mr-1" />{tonPending ? "Activating..." : "Skip with VIP"}</button>
             </div>
           )}
 

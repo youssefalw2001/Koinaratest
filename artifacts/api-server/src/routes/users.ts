@@ -35,9 +35,14 @@ type TonApiTx = {
   out_msgs: Array<{
     destination?: { address?: string };
     value?: number;
+    decoded_body?: { text?: string };
   }>;
 };
 type TonApiTxList = { transactions: TonApiTx[] };
+
+function vipMemo(telegramId: string, plan: "monthly"): string {
+  return `KNR-VIP-${plan}-${telegramId}`;
+}
 
 async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: string }> {
   try {
@@ -57,9 +62,9 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
  *
  * Strategy:
  * 1. Resolve our operator wallet to its canonical raw address (0:hex) via tonapi.
- * 2. Fetch the last 10 outgoing transactions from the user's wallet.
- * 3. Find one where out_msgs destination matches operator raw address and
- *    value meets the 95%-of-expected threshold.
+ * 2. Fetch recent outgoing transactions from the user's wallet.
+ * 3. Find one where out_msgs destination matches operator raw address, value meets
+ *    the 95%-of-expected threshold, and the comment equals the per-user VIP memo.
  * 4. Return the on-chain tx hash for idempotency (dedup in vip_tx_hashes).
  *
  * Fail-closed: returns configErr=true (→ 503) when KOINARA_TON_WALLET is unset.
@@ -67,11 +72,10 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
 async function verifyTonTransaction(
   senderAddress: string,
   plan: "monthly",
+  expectedMemo: string,
 ): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
   const walletEnv = getKoinaraWallet();
   if (!walletEnv) {
-    // Fail-closed: never silently approve a payment when the operator wallet is not configured.
-    // In production set KOINARA_TON_WALLET to the operator TON address to enable TON VIP payments.
     console.error("[VIP] KOINARA_TON_WALLET is not set — TON payment processing is disabled");
     return {
       ok: false,
@@ -80,16 +84,14 @@ async function verifyTonTransaction(
     };
   }
 
-  // Step 1: Resolve operator wallet to canonical raw address
   const { data: operatorAccount, err: resolveErr } = await tonapiGet<TonApiAccount>(
     `/accounts/${encodeURIComponent(walletEnv)}`,
   );
   if (!operatorAccount || resolveErr) {
     return { ok: false, err: "TON API unreachable — please retry in a moment" };
   }
-  const operatorRaw = operatorAccount.address; // e.g. "0:abc123..."
+  const operatorRaw = operatorAccount.address;
 
-  // Step 2: Fetch sender's recent outgoing transactions (limit=50 for active wallets)
   const { data: txList, err: txErr } = await tonapiGet<TonApiTxList>(
     `/accounts/${encodeURIComponent(senderAddress)}/transactions?limit=50`,
   );
@@ -97,30 +99,28 @@ async function verifyTonTransaction(
     return { ok: false, err: "TON API unreachable — please retry in a moment" };
   }
 
-  // Step 3: Find a matching transaction within the recency window.
-  // Only accept transactions confirmed within the last 15 minutes to prevent
-  // a user reusing an old payment or scanning stale tx history.
   const expectedNano = TON_MONTHLY_NANO;
   const minNano = (expectedNano * 95n) / 100n;
   const nowSec = Math.floor(Date.now() / 1000);
-  const RECENCY_WINDOW_SEC = 15 * 60; // 15 minutes
+  const RECENCY_WINDOW_SEC = 15 * 60;
 
   for (const tx of txList.transactions) {
     const ageSec = nowSec - (tx.utime ?? 0);
-    if (ageSec > RECENCY_WINDOW_SEC) continue; // skip transactions older than 15 min
+    if (ageSec > RECENCY_WINDOW_SEC) continue;
     for (const msg of tx.out_msgs) {
       const destRaw = msg.destination?.address ?? "";
       if (destRaw !== operatorRaw) continue;
       const valueNano = BigInt(Math.floor(msg.value ?? 0));
-      if (valueNano >= minNano) {
-        return { ok: true, txHash: tx.hash };
-      }
+      if (valueNano < minNano) continue;
+      const comment = msg.decoded_body?.text ?? "";
+      if (comment !== expectedMemo) continue;
+      return { ok: true, txHash: tx.hash };
     }
   }
 
   return {
     ok: false,
-    err: "No matching TON payment found within the last 15 minutes. Please ensure the transaction is confirmed and try again.",
+    err: `No matching TON payment found within the last 15 minutes. Please include the exact memo/comment "${expectedMemo}" and retry after confirmation.`,
   };
 }
 
@@ -151,7 +151,6 @@ router.post("/users/register", async (req, res): Promise<void> => {
       res.status(401).json({ error: "Invalid authentication. Please reopen the app." });
       return;
     }
-    // Use the verified ID from the token, ignoring the caller-supplied one
     (parsed.data as { telegramId: string }).telegramId = verifiedId;
   }
 
@@ -167,16 +166,12 @@ router.post("/users/register", async (req, res): Promise<void> => {
     const existingUser = existing[0];
     const updateData: Record<string, unknown> = { username, firstName, lastName, photoUrl };
 
-    // Day-7 survivor bonus: +3000 TC awarded once using a dedicated flag (day7BonusClaimed)
-    // so it fires regardless of whether the user already used a VIP trial via another path.
-    // The 24h trial portion still respects hadVipTrial (one lifetime trial only).
     if (existingUser.registrationDate && !existingUser.day7BonusClaimed) {
       const regDate = new Date(existingUser.registrationDate);
       const daysSinceReg = (Date.now() - regDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceReg >= 7) {
         updateData.day7BonusClaimed = true;
         updateData.tradeCredits = sql`${usersTable.tradeCredits} + 3000`;
-        // Only grant the trial if they haven't had one yet
         if (!existingUser.hadVipTrial) {
           const trialExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
           updateData.vipTrialExpiresAt = trialExpiry;
@@ -210,7 +205,6 @@ router.post("/users/register", async (req, res): Promise<void> => {
     })
     .returning();
 
-  // Referral reward: credit referrer with 200 TC when a new user joins via their link
   if (referredBy) {
     await db
       .update(usersTable)
@@ -326,12 +320,26 @@ router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
   res.json(UpdateWalletResponse.parse(serializeRow(updated as Record<string, unknown>)));
 });
 
+router.get("/users/:telegramId/vip/memo", async (req, res): Promise<void> => {
+  const params = UpgradeToVipParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
+  res.json({ plan: "monthly", memo: vipMemo(params.data.telegramId, "monthly") });
+});
+
 router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> => {
   const params = UpgradeToVipParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
 
   const body = UpgradeToVipBody.safeParse(req.body);
   if (!body.success) {
@@ -353,7 +361,6 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
   const { plan, senderAddress } = body.data;
   const now = new Date();
 
-  // Idempotency: if user is already VIP and it hasn't expired, return current state
   if (user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > now) {
     res.json(UpgradeToVipResponse.parse(serializeRow(user as Record<string, unknown>)));
     return;
@@ -365,14 +372,10 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       return;
     }
 
-    // Wallet binding enforcement: require a TON wallet to be connected before paying.
-    // If no wallet is bound, reject — this prevents claiming VIP using another user's tx.
     if (!user.walletAddress) {
       res.status(400).json({ error: "Please connect your TON wallet first before subscribing." });
       return;
     }
-    // Cryptographic binding: the senderAddress must exactly match the connected wallet.
-    // Case-insensitive compare handles TON address format variants.
     if (user.walletAddress.toLowerCase() !== senderAddress.toLowerCase()) {
       res.status(403).json({ error: "Sender address does not match your connected wallet. Please reconnect your wallet and try again." });
       return;
@@ -381,17 +384,15 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
     const durationDays = 30;
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const vipPlan = "ton_monthly";
+    const expectedMemo = vipMemo(params.data.telegramId, "monthly");
 
-    // On-chain verification: resolves operator wallet to raw address, scans sender's
-    // recent transactions for a matching payment, returns the on-chain tx hash.
-    const verification = await verifyTonTransaction(senderAddress, plan);
+    const verification = await verifyTonTransaction(senderAddress, plan, expectedMemo);
     if (!verification.ok) {
       const statusCode = verification.configErr ? 503 : 422;
-      res.status(statusCode).json({ error: verification.err ?? "TON transaction verification failed" });
+      res.status(statusCode).json({ error: verification.err ?? "TON transaction verification failed", requiredMemo: expectedMemo });
       return;
     }
 
-    // Deduplication using the on-chain tx hash returned by verifyTonTransaction.
     const verifiedTxHash = verification.txHash;
     if (verifiedTxHash) {
       const [existingTx] = await db
@@ -417,9 +418,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       .where(eq(usersTable.telegramId, params.data.telegramId))
       .returning();
 
-    // Track VIP subscription revenue for the daily payout cap.
-    // Approximate GC equivalent: weekly=$2→5000 GC, monthly=$6→15000 GC (at 2500 GC/$1 VIP rate).
-    const vipRevenueGc = 15000; // monthly plan only
+    const vipRevenueGc = 15000;
     const todayDate = new Date().toISOString().split("T")[0];
     await db
       .insert(platformDailyStatsTable)
@@ -429,9 +428,6 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
         set: { totalRevenueGc: sql`platform_daily_stats.total_revenue_gc + ${vipRevenueGc}` },
       });
 
-    // Referral reward: when a referred user purchases a paid VIP plan, notify the referrer
-    // by setting referralVipRewardPending=true. The referrer's client polls user state and
-    // triggers a free 24h VIP trial for the referrer as a thank-you.
     if (user.referredBy) {
       await db
         .update(usersTable)
@@ -450,7 +446,6 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
     return;
   }
 
-  // Fallback — only plan="tc" should reach here after weekly/monthly are blocked above
   res.status(400).json({ error: "Invalid plan type" });
 });
 
@@ -486,7 +481,6 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
     return;
   }
 
-  // One-time lifetime check — hadVipTrial is set to true permanently on first activation
   if (user.hadVipTrial) {
     res.status(400).json({ error: "VIP trial already used" });
     return;
@@ -494,8 +488,6 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
 
   const { reason } = body.data;
 
-  // Server-side eligibility enforcement per reason.
-  // The client is untrusted; each trigger condition is re-verified against DB state.
   if (reason === "tc_zero") {
     if (user.tradeCredits !== 0) {
       res.status(403).json({ error: "Eligibility condition not met: tradeCredits must be 0" });
@@ -519,10 +511,6 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
 
   const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-  // Atomically apply the trial + clear/set any trigger flags in a single UPDATE.
-  // Always clear referralVipRewardPending regardless of reason — a trial is a single
-  // consumption event; if the user earned it via tc_zero or gc_milestone but also has
-  // a pending referral reward, clear it so it cannot be claimed separately later.
   const flagUpdates = {
     referralVipRewardPending: false,
     ...(reason === "gc_milestone" ? { gcMilestoneTrialClaimed: true } : {}),
@@ -583,8 +571,6 @@ router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
   });
 });
 
-
-// ── Owner-only TC refill (dev/testing — guarded by OWNER_TELEGRAM_ID env var)
 router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void> => {
   const ownerEnvId = process.env.OWNER_TELEGRAM_ID;
   if (!ownerEnvId) {
@@ -612,6 +598,5 @@ router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void
 
   res.json({ success: true, tcAdded: TC_REFILL, newTcBalance: updated.newTcBalance });
 });
-
 
 export default router;
