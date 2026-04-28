@@ -25,6 +25,7 @@ import Shop from "./pages/ShopPremiumLaunch";
 import Wallet from "./pages/WalletPremium";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/ProfilePremiumLaunch";
+import Academy from "./pages/Academy";
 import Lootbox from "./pages/Lootbox";
 import Exchange from "./pages/Exchange";
 
@@ -132,6 +133,7 @@ function Router() {
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
+        <Route path="/academy" component={() => <Bounded><Academy /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
