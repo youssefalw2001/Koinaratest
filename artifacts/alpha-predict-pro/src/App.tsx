@@ -3,9 +3,9 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { TonConnectUIProvider } from "@tonconnect/ui-react";
+import { TonConnectUIProvider, useTonConnectUI } from "@tonconnect/ui-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Crown, CheckCircle, Flame, Star, Trophy, ShieldCheck, ArrowUpRight, Users, Zap, Bomb } from "lucide-react";
+import { Crown, CheckCircle, Flame, Star, Trophy } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
@@ -16,6 +16,7 @@ import { useClaimDailyReward, getGetUserQueryKey } from "@workspace/api-client-r
 import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
 import { LanguageProvider } from "@/lib/language";
+import { withRequiredMemo } from "@/lib/tonPayment";
 
 // Pages
 import Terminal from "./pages/TradeCapGuard";
@@ -27,7 +28,6 @@ import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/ProfilePremiumLaunch";
 import Academy from "./pages/Academy";
 import Lootbox from "./pages/Lootbox";
-import Exchange from "./pages/Exchange";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({ onError: (error, query) => console.error(`[API Query Error] ${String(query.queryHash)}:`, error) }),
@@ -37,6 +37,26 @@ const queryClient = new QueryClient({
 const FREE_WITHDRAWAL_MIN_GC = 14000;
 const FREE_TRADE_CAP_GC = 7000;
 const FREE_MINES_CAP_GC = 5000;
+
+function TonPaymentBridge() {
+  const [tonConnectUI] = useTonConnectUI();
+  const { user } = useTelegram();
+
+  useEffect(() => {
+    if (!tonConnectUI) return;
+    const original = tonConnectUI.sendTransaction.bind(tonConnectUI);
+    const bridged = Object.assign(tonConnectUI, {
+      sendTransaction: (tx: any, options?: any) => {
+        const patched = user?.telegramId ? withRequiredMemo(tx, user.telegramId) : tx;
+        return original(patched, options);
+      },
+    });
+    (window as any).tonConnectUI = bridged;
+    return () => { (window as any).tonConnectUI = tonConnectUI; };
+  }, [tonConnectUI, user?.telegramId]);
+
+  return null;
+}
 
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
@@ -128,6 +148,7 @@ function Bounded({ children }: { children: React.ReactNode }) { return <ErrorBou
 function Router() {
   return (
     <Layout>
+      <TonPaymentBridge />
       <HomeWalletTrustPanel />
       <Switch>
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
