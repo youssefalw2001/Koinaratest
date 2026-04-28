@@ -18,11 +18,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { LanguageProvider } from "@/lib/language";
 
 // Pages
-import Terminal from "./pages/TerminalLaunch";
+import Terminal from "./pages/TradeCapGuard";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/Earn";
 import Shop from "./pages/ShopPremium";
-import Wallet from "./pages/Wallet";
+import Wallet from "./pages/WalletPremium";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
 import Lootbox from "./pages/Lootbox";
@@ -50,74 +50,19 @@ const FREE_MINES_CAP_GC = 5000;
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
   const [, setLocation] = useLocation();
-
-  const handleGoVip = () => {
-    dismissVipPromo();
-    setLocation("/wallet");
-  };
-
+  const handleGoVip = () => { dismissVipPromo(); setLocation("/wallet"); };
   return (
     <AnimatePresence>
       {showVipPromo && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/85"
-          onClick={dismissVipPromo}
-        >
-          <motion.div
-            initial={{ y: 300 }}
-            animate={{ y: 0 }}
-            exit={{ y: 300 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2 border-[#f5c518]"
-            style={{
-              background: "linear-gradient(180deg, #0a0800 0%, #000000 100%)",
-              boxShadow: "0 -25px 80px rgba(245,197,24,0.35)",
-            }}
-            onClick={e => e.stopPropagation()}
-          >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-end justify-center bg-black/85" onClick={dismissVipPromo}>
+          <motion.div initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2 border-[#f5c518]" style={{ background: "linear-gradient(180deg, #0a0800 0%, #000000 100%)", boxShadow: "0 -25px 80px rgba(245,197,24,0.35)" }} onClick={e => e.stopPropagation()}>
             <div className="flex flex-col items-center text-center">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center mb-3 border-2 border-[#f5c518]"
-                style={{ boxShadow: "0 0 30px rgba(245,197,24,0.5)", background: "rgba(245,197,24,0.1)" }}
-              >
-                <Crown size={32} className="text-[#f5c518] drop-shadow-[0_0_15px_#f5c518]" />
-              </div>
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-3 border-2 border-[#f5c518]" style={{ boxShadow: "0 0 30px rgba(245,197,24,0.5)", background: "rgba(245,197,24,0.1)" }}><Crown size={32} className="text-[#f5c518] drop-shadow-[0_0_15px_#f5c518]" /></div>
               <div className="font-mono text-2xl font-black text-[#f5c518] mb-1">Go VIP Today</div>
-              <div className="font-mono text-xs text-white/50 mb-4">
-                Protect your earnings with TON subscription, 2x payouts & USDT withdrawal access
-              </div>
-              <div className="w-full space-y-2 mb-5">
-                {[
-                  "2x payout on every winning trade",
-                  "10,000 GC daily earning cap",
-                  "Withdraw GC as real USDT",
-                  "25 ad rewards per day",
-                ].map(perk => (
-                  <div key={perk} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#f5c518]/20 bg-[#f5c518]/5">
-                    <CheckCircle size={12} className="text-[#f5c518] shrink-0" />
-                    <span className="font-mono text-xs text-white text-left">{perk}</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={handleGoVip}
-                className="w-full py-4 rounded-2xl font-mono text-base font-black text-black mb-3"
-                style={{
-                  background: "linear-gradient(90deg, #f5c518, #ff9900)",
-                  boxShadow: "0 0 25px rgba(245,197,24,0.5)",
-                }}
-              >
-                ACTIVATE VIP - TON PLAN
-              </button>
-              <button
-                onClick={dismissVipPromo}
-                className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors"
-              >
-                Not now
-              </button>
+              <div className="font-mono text-xs text-white/50 mb-4">Protect your earnings with TON subscription, 2x payouts & USDT withdrawal access</div>
+              <div className="w-full space-y-2 mb-5">{["2x payout on every winning trade", "10,000 GC daily earning cap", "Withdraw GC as real USDT", "25 ad rewards per day"].map(perk => <div key={perk} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#f5c518]/20 bg-[#f5c518]/5"><CheckCircle size={12} className="text-[#f5c518] shrink-0" /><span className="font-mono text-xs text-white text-left">{perk}</span></div>)}</div>
+              <button onClick={handleGoVip} className="w-full py-4 rounded-2xl font-mono text-base font-black text-black mb-3" style={{ background: "linear-gradient(90deg, #f5c518, #ff9900)", boxShadow: "0 0 25px rgba(245,197,24,0.5)" }}>ACTIVATE VIP - TON PLAN</button>
+              <button onClick={dismissVipPromo} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Not now</button>
             </div>
           </motion.div>
         </motion.div>
@@ -131,87 +76,14 @@ function HomeWalletTrustPanel() {
   const [location, setLocation] = useLocation();
   const vip = isVipActive(user);
   if (!user || location !== "/wallet") return null;
-
   const goldCoins = user.goldCoins ?? 0;
   const dailyGcEarned = user.dailyGcEarned ?? 0;
   const withdrawalProgress = Math.min(100, (goldCoins / FREE_WITHDRAWAL_MIN_GC) * 100);
   const tradeProgress = Math.min(100, (dailyGcEarned / FREE_TRADE_CAP_GC) * 100);
-
   return (
-    <section className="px-4 pt-4 premium-page">
-      <div className="premium-card premium-card-gold p-4 mb-3">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div>
-            <div className="trust-chip mb-2">
-              <ShieldCheck size={11} />
-              Cashout progress
-            </div>
-            <h2 className="text-xl font-black tracking-tight text-white">
-              {goldCoins.toLocaleString()} / {FREE_WITHDRAWAL_MIN_GC.toLocaleString()} GC
-            </h2>
-            <p className="font-mono text-[10px] text-white/45 mt-1">
-              Free minimum · {FREE_GC_PER_USD.toLocaleString()} GC = $1 · 6% fee
-            </p>
-          </div>
-          <button
-            onClick={() => setLocation("/wallet")}
-            className="pressable gold-button rounded-2xl px-3 py-2 font-mono text-[10px] font-black flex items-center gap-1.5"
-          >
-            Wallet <ArrowUpRight size={12} />
-          </button>
-        </div>
-        <div className="progress-track"><div className="progress-fill-gold" style={{ width: `${withdrawalProgress}%` }} /></div>
-        <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3">
-          <div className="font-mono text-[10px] text-[#FFE266] font-black tracking-widest uppercase">
-            $1.99 verification or 1 VIP referral
-          </div>
-          <p className="font-mono text-[10px] text-white/42 mt-1 leading-relaxed">
-            Free accounts verify once before cashout. Invite 1 active VIP referral to waive it. VIP users skip this step.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="premium-card premium-card-cyan p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] text-white/40 tracking-widest uppercase">Trade cap</span>
-            <Zap size={13} className="text-[#63D3FF]" />
-          </div>
-          <div className="font-mono text-sm font-black text-[#63D3FF] mb-2">
-            {Math.min(dailyGcEarned, FREE_TRADE_CAP_GC).toLocaleString()} / {FREE_TRADE_CAP_GC.toLocaleString()} GC
-          </div>
-          <div className="progress-track"><div className="progress-fill-cyan" style={{ width: `${tradeProgress}%` }} /></div>
-        </div>
-        <div className="premium-card p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] text-white/40 tracking-widest uppercase">Mines cap</span>
-            <Bomb size={13} className="text-[#00F5A0]" />
-          </div>
-          <div className="font-mono text-sm font-black text-[#00F5A0] mb-2">
-            {FREE_MINES_CAP_GC.toLocaleString()} GC/day
-          </div>
-          <p className="font-mono text-[9px] text-white/35 leading-relaxed">Pass value and limits stay visible before play.</p>
-        </div>
-      </div>
-
-      {!vip && (
-        <div className="premium-card p-3 mb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Users size={13} className="text-[#FFD700]" />
-            <span className="font-mono text-[10px] text-white/55 tracking-widest uppercase font-black">VIP referral shortcut</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => setLocation("/earn")} className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-2 text-left">
-              <div className="font-mono text-[11px] font-black text-[#FFD700]">Waive fee</div>
-              <div className="font-mono text-[9px] text-white/35 mt-0.5">Invite 1 VIP</div>
-            </button>
-            <button onClick={() => setLocation("/wallet")} className="rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-left">
-              <div className="font-mono text-[11px] font-black text-white">VIP perks</div>
-              <div className="font-mono text-[9px] text-white/35 mt-0.5">Better rate + no verify</div>
-            </button>
-          </div>
-        </div>
-      )}
+    <section className="hidden">
+      <button onClick={() => setLocation("/wallet")}>Wallet</button>
+      <span>{withdrawalProgress}{tradeProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span>
     </section>
   );
 }
@@ -222,37 +94,26 @@ function DailyLoginPrompt() {
   const claimDaily = useClaimDailyReward();
   const claimedRef = useRef(false);
   const [claimedReward, setClaimedReward] = useState<{ tc: number; streak: number; isVip: boolean } | null>(null);
-
   useEffect(() => {
     if (!showDailyLoginPrompt || !user || claimedRef.current) return;
     claimedRef.current = true;
     (async () => {
       try {
         const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
-        const vip = isVipActive(user);
-        setClaimedReward({ tc: result.tcAwarded, streak: result.streak, isVip: vip });
+        setClaimedReward({ tc: result.tcAwarded, streak: result.streak, isVip: isVipActive(user) });
         qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
         refreshUser();
-      } catch {
-      }
+      } catch {}
       setTimeout(() => dismissDailyLoginPrompt(), 3500);
     })();
   }, [showDailyLoginPrompt]);
-
   const accentColor = claimedReward?.isVip ? "#f5c518" : "#00f0ff";
-
   return (
     <AnimatePresence>
       {showDailyLoginPrompt && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80" onClick={dismissDailyLoginPrompt}>
           <motion.div initial={{ y: 200 }} animate={{ y: 0 }} exit={{ y: 200 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="w-full max-w-[420px] p-6 pb-8 rounded-t-3xl border-t-2" style={{ borderColor: accentColor, background: "linear-gradient(180deg, #050508 0%, #000000 100%)", boxShadow: `0 -20px 60px ${claimedReward?.isVip ? "rgba(245,197,24,0.3)" : "rgba(0,240,255,0.2)"}` }} onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center text-center">
-              <Flame size={36} className="mb-3" style={{ color: accentColor, filter: `drop-shadow(0 0 15px ${accentColor})` }} />
-              <div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">Daily Reward Credited</div>
-              {claimedReward ? <><div className="font-mono text-4xl font-black mb-1" style={{ color: accentColor }}>+{claimedReward.tc} TC</div><div className="font-mono text-sm text-white/50 mb-1">{claimedReward.isVip ? "VIP Bonus - " : ""}Day {claimedReward.streak} streak</div></> : <div className="font-mono text-white/40 text-sm mb-1">Crediting...</div>}
-              <div className="font-mono text-[10px] text-white/30 mb-6">Come back tomorrow for more!</div>
-              <button onClick={dismissDailyLoginPrompt} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button>
-            </div>
+            <div className="flex flex-col items-center text-center"><Flame size={36} className="mb-3" style={{ color: accentColor, filter: `drop-shadow(0 0 15px ${accentColor})` }} /><div className="font-mono text-xs text-white/50 mb-1 tracking-widest uppercase">Daily Reward Credited</div>{claimedReward ? <><div className="font-mono text-4xl font-black mb-1" style={{ color: accentColor }}>+{claimedReward.tc} TC</div><div className="font-mono text-sm text-white/50 mb-1">{claimedReward.isVip ? "VIP Bonus - " : ""}Day {claimedReward.streak} streak</div></> : <div className="font-mono text-white/40 text-sm mb-1">Crediting...</div>}<div className="font-mono text-[10px] text-white/30 mb-6">Come back tomorrow for more!</div><button onClick={dismissDailyLoginPrompt} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
           </motion.div>
         </motion.div>
       )}
@@ -263,22 +124,12 @@ function DailyLoginPrompt() {
 function Day7CelebrationModal() {
   const { showDay7Celebration, dismissDay7Celebration } = useTelegram();
   const [, setLocation] = useLocation();
-
   return (
     <AnimatePresence>
       {showDay7Celebration && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90" onClick={dismissDay7Celebration}>
           <motion.div initial={{ y: 400, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 22, stiffness: 280 }} className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]" style={{ background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)", boxShadow: "0 -30px 100px rgba(0,240,255,0.3)" }} onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center text-center">
-              <div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div>
-              <div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div>
-              <div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div>
-              <div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div>
-              <div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div>
-              <div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div>
-              <button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP TRADING</button>
-              <button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button>
-            </div>
+            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP TRADING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
           </motion.div>
         </motion.div>
       )}
@@ -286,9 +137,7 @@ function Day7CelebrationModal() {
   );
 }
 
-function Bounded({ children }: { children: React.ReactNode }) {
-  return <ErrorBoundary>{children}</ErrorBoundary>;
-}
+function Bounded({ children }: { children: React.ReactNode }) { return <ErrorBoundary>{children}</ErrorBoundary>; }
 
 function Router() {
   return (
@@ -299,7 +148,7 @@ function Router() {
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
-        <Route path="/exchange" component={() => <Bounded><Exchange /></Bounded>} />
+        <Route path="/exchange" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
@@ -315,28 +164,13 @@ function Router() {
 }
 
 function App() {
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
-
+  useEffect(() => { document.documentElement.classList.add("dark"); }, []);
   return (
     <TonConnectUIProvider manifestUrl={`${window.location.origin}${import.meta.env.BASE_URL}tonconnect-manifest.json`}>
       <QueryClientProvider client={queryClient}>
-        <LanguageProvider>
-          <TelegramProvider>
-            <TooltipProvider>
-              <ErrorBoundary>
-                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                  <Router />
-                </WouterRouter>
-                <Toaster />
-              </ErrorBoundary>
-            </TooltipProvider>
-          </TelegramProvider>
-        </LanguageProvider>
+        <LanguageProvider><TelegramProvider><TooltipProvider><ErrorBoundary><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}><Router /></WouterRouter><Toaster /></ErrorBoundary></TooltipProvider></TelegramProvider></LanguageProvider>
       </QueryClientProvider>
     </TonConnectUIProvider>
   );
 }
-
 export default App;
