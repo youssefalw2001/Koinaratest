@@ -19,9 +19,9 @@ import { LanguageProvider } from "@/lib/language";
 
 // Pages
 import Terminal from "./pages/TerminalCompact";
-import Mines from "./pages/Mines";
+import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/Earn";
-import Shop from "./pages/Shop";
+import Shop from "./pages/ShopPremium";
 import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
