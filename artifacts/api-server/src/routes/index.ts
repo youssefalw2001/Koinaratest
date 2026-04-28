@@ -6,6 +6,7 @@ import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
 import gemsRouter from "./gems";
+import contentStatusGuardRouter from "./contentStatusGuard";
 import contentRouter from "./content";
 import crashRouter from "./crash";
 import marketRouter from "./market";
@@ -23,6 +24,9 @@ router.use(questsRouter);
 router.use(rewardsRouter);
 router.use(withdrawalsRouter);
 router.use(gemsRouter);
+// Must be mounted before contentRouter to protect /content/status/:submissionId
+// from the older unauthenticated handler in content.ts.
+router.use(contentStatusGuardRouter);
 router.use(contentRouter);
 router.use(crashRouter);
 router.use(marketRouter);

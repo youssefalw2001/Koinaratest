@@ -65,6 +65,10 @@ function findPack(id: string): TcPack | undefined {
   return TC_PACKS.find((p) => p.id === id);
 }
 
+function tcPackMemo(telegramId: string, packId: TcPack["id"]): string {
+  return `KNR-PACK-${packId}-${telegramId}`;
+}
+
 const exchangeRateLimiter = createRouteRateLimiter("exchange-action", {
   limit: 12,
   windowMs: 10_000,
@@ -87,6 +91,24 @@ router.get("/exchange/tc-packs", (_req, res): void => {
   });
 });
 
+// ---------- GET /exchange/tc-pack/memo ----------
+// Authenticated helper for frontend payment construction.
+router.get("/exchange/tc-pack/memo", (req, res): void => {
+  const query = z.object({ telegramId: z.string().min(1), packId: z.enum(["micro", "starter", "pro", "whale"]) }).safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: query.error.issues[0]?.message ?? "Invalid query." });
+    return;
+  }
+  const telegramId = resolveAuthenticatedTelegramId(req, res, query.data.telegramId);
+  if (!telegramId) return;
+  const pack = findPack(query.data.packId);
+  if (!pack) {
+    res.status(400).json({ error: "Unknown pack." });
+    return;
+  }
+  res.json({ packId: pack.id, memo: tcPackMemo(telegramId, pack.id) });
+});
+
 // ---------- POST /exchange/tc-pack/purchase ----------
 
 const TcPackPurchaseBody = z.object({
@@ -106,6 +128,8 @@ type TonApiTx = {
   out_msgs: Array<{
     destination?: { address?: string };
     value?: number;
+    decoded_body?: { text?: string };
+    decoded_op_name?: string;
   }>;
 };
 type TonApiTxList = { transactions: TonApiTx[] };
@@ -126,6 +150,7 @@ async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: strin
 async function verifyTcPackTonTransaction(
   senderAddress: string,
   pack: TcPack,
+  expectedMemo: string,
 ): Promise<{ ok: boolean; err?: string; txHash?: string; configErr?: boolean }> {
   const walletEnv = getOperatorWallet();
   if (!walletEnv) {
@@ -164,15 +189,16 @@ async function verifyTcPackTonTransaction(
       const destRaw = msg.destination?.address ?? "";
       if (destRaw !== operatorRaw) continue;
       const valueNano = BigInt(Math.floor(msg.value ?? 0));
-      if (valueNano >= minNano) {
-        return { ok: true, txHash: tx.hash };
-      }
+      if (valueNano < minNano) continue;
+      const comment = msg.decoded_body?.text ?? "";
+      if (comment !== expectedMemo) continue;
+      return { ok: true, txHash: tx.hash };
     }
   }
 
   return {
     ok: false,
-    err: "No matching TON payment found within the last 15 minutes. Please ensure the transaction is confirmed and try again.",
+    err: `No matching TON payment found within the last 15 minutes. Please include the exact memo/comment "${expectedMemo}" and retry after confirmation.`,
   };
 }
 
@@ -196,10 +222,12 @@ router.post(
       return;
     }
 
-    const verification = await verifyTcPackTonTransaction(senderAddress, pack);
+    const expectedMemo = tcPackMemo(telegramId, pack.id);
+    const verification = await verifyTcPackTonTransaction(senderAddress, pack, expectedMemo);
     if (!verification.ok) {
       res.status(verification.configErr ? 503 : 400).json({
         error: verification.err ?? "TON payment verification failed.",
+        requiredMemo: expectedMemo,
       });
       return;
     }
