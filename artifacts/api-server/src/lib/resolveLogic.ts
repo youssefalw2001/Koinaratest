@@ -74,6 +74,7 @@ export async function resolvePredictionLogic(
       .select()
       .from(usersTable)
       .where(eq(usersTable.telegramId, prediction.telegramId))
+      .for("update")
       .limit(1);
 
     if (!user) return { ok: true, prediction: claimed };

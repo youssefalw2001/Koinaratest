@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, or, gt, isNotNull, count, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, or, gt, isNotNull, count, inArray, gte } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import {
   CreatePredictionBody,
@@ -140,11 +140,6 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.tradeCredits < amount) {
-    res.status(400).json({ error: "Insufficient Trade Credits" });
-    return;
-  }
-
   const expectedBaseMultiplier = DURATION_TIERS[requestedDuration] + (vipActive ? VIP_MULTIPLIER_BONUS : 0);
   if (multiplierProvided && Math.abs((rawMultiplier as number) - expectedBaseMultiplier) > MULTIPLIER_TOLERANCE) {
     res.status(400).json({ error: `Invalid multiplier for ${requestedDuration}s tier (expected ${expectedBaseMultiplier}).` });
@@ -189,31 +184,54 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  const [prediction] = await db.transaction(async (tx) => {
-    await tx.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} - ${amount}` }).where(eq(usersTable.telegramId, authedId));
+  try {
+    const [prediction] = await db.transaction(async (tx) => {
+      const [deductedUser] = await tx
+        .update(usersTable)
+        .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${amount}` })
+        .where(and(eq(usersTable.telegramId, authedId), gte(usersTable.tradeCredits, amount)))
+        .returning({ telegramId: usersTable.telegramId });
 
-    if (selectedGemIds.length > 0) {
-      await tx
-        .update(gemInventoryTable)
-        .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
-        .where(and(eq(gemInventoryTable.telegramId, authedId), inArray(gemInventoryTable.id, selectedGemIds), gt(gemInventoryTable.usesRemaining, 0)));
+      if (!deductedUser) throw new Error("INSUFFICIENT_TC");
+
+      if (selectedGemIds.length > 0) {
+        const depletedGems = await tx
+          .update(gemInventoryTable)
+          .set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` })
+          .where(and(eq(gemInventoryTable.telegramId, authedId), inArray(gemInventoryTable.id, selectedGemIds), gt(gemInventoryTable.usesRemaining, 0)))
+          .returning({ id: gemInventoryTable.id });
+
+        if (depletedGems.length !== selectedGemIds.length) throw new Error("POWERUP_RACE_LOST");
+      }
+
+      return tx
+        .insert(predictionsTable)
+        .values({
+          telegramId: authedId,
+          direction,
+          amount,
+          entryPrice: trustedEntry.price,
+          status: "pending",
+          duration: requestedDuration,
+          multiplier: effectiveMultiplier,
+        })
+        .returning();
+    });
+
+    res.status(201).json(serializeRow(prediction as Record<string, unknown>));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "UNKNOWN";
+    if (msg === "INSUFFICIENT_TC") {
+      res.status(400).json({ error: "Insufficient Trade Credits" });
+      return;
     }
-
-    return tx
-      .insert(predictionsTable)
-      .values({
-        telegramId: authedId,
-        direction,
-        amount,
-        entryPrice: trustedEntry.price,
-        status: "pending",
-        duration: requestedDuration,
-        multiplier: effectiveMultiplier,
-      })
-      .returning();
-  });
-
-  res.status(201).json(serializeRow(prediction as Record<string, unknown>));
+    if (msg === "POWERUP_RACE_LOST") {
+      res.status(409).json({ error: "One or more selected power-ups were just used. Please refresh and try again." });
+      return;
+    }
+    logger.error({ err, telegramId: authedId }, "Prediction creation failed");
+    res.status(500).json({ error: "Failed to create prediction" });
+  }
 });
 
 router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
