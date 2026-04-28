@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { BookOpen, ChevronDown, Crown, Gift, HelpCircle, LockKeyhole, PlayCircle, Rocket, ShieldCheck, Sparkles, Target, Trophy, Users, Wallet, Zap } from "lucide-react";
+import { BookOpen, ChevronDown, Crown, Gift, HelpCircle, LockKeyhole, PlayCircle, Rocket, ShieldCheck, Sparkles, Target, Trophy, Users, Wallet } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 
@@ -12,6 +12,27 @@ type GuideItem = {
   body: string[];
   fomo?: string;
 };
+
+const VIP_PLAN_USD = 5.99;
+const DIRECT_VIP_RATE = 0.20;
+const LEVEL_2_RATE = 0.05;
+const VIP_DIRECT_USD = +(VIP_PLAN_USD * DIRECT_VIP_RATE).toFixed(2);
+
+const VIP_EARNINGS = [
+  { refs: 5, direct: 5 * VIP_DIRECT_USD, label: "Starter creator" },
+  { refs: 25, direct: 25 * VIP_DIRECT_USD, label: "Side income" },
+  { refs: 100, direct: 100 * VIP_DIRECT_USD, label: "Serious creator" },
+  { refs: 500, direct: 500 * VIP_DIRECT_USD, label: "Top promoter" },
+];
+
+const CONTENT_GC_REWARDS = [
+  { views: "1K", shortGc: 250, longGc: 500 },
+  { views: "5K", shortGc: 750, longGc: 1500 },
+  { views: "10K", shortGc: 1500, longGc: 3000 },
+  { views: "25K", shortGc: 3000, longGc: 6000 },
+  { views: "50K", shortGc: 5000, longGc: 10000 },
+  { views: "100K", shortGc: 8000, longGc: 15000 },
+];
 
 const GUIDE: GuideItem[] = [
   {
@@ -71,9 +92,10 @@ const GUIDE: GuideItem[] = [
     body: [
       "Invite friends with your referral link or creator code.",
       "Normal referrals can earn bonus GC after the friend becomes active.",
-      "VIP referrals are the highest-value path and can unlock major XP, TC, commission, and creator status.",
+      `VIP referrals are the highest-value path: around $${VIP_DIRECT_USD.toFixed(2)}/month per direct VIP at the $${VIP_PLAN_USD} VIP plan, before level-2 bonuses.`,
+      "The more creators place their link in bio, pinned comments, and captions, the more their rewards can compound.",
     ],
-    fomo: "The best creators are not just playing — they are building a team.",
+    fomo: "The best creators are not just playing — they are building a team and recurring VIP income.",
   },
   {
     title: "Creator Missions",
@@ -82,11 +104,11 @@ const GUIDE: GuideItem[] = [
     accent: "#00F5FF",
     body: [
       "Post TikTok, Reels, YouTube Shorts, YouTube long-form, or X content about Koinara.",
-      "Add your creator code in the caption so the team can verify it belongs to you.",
-      "Valid submissions get instant XP. Bigger rewards need admin review to stop fake views and farming.",
+      "Add your creator code/referral link in the caption, bio, pinned comment, or video so the team can verify it belongs to you.",
+      "Valid submissions get instant XP. Verified view milestones can unlock automatic GC tiers, while bigger rewards still need admin review.",
       "YouTube long-form can earn stronger rewards because it usually shows deeper trust and better intent.",
     ],
-    fomo: "Content creators can earn more than normal players if they bring real users and VIPs.",
+    fomo: "A creator with a viral video plus a bio referral link can earn GC, XP, TC, and VIP commissions from the same content.",
   },
   {
     title: "Withdrawals and verification",
@@ -165,6 +187,38 @@ export default function Academy() {
         </div>
       </section>
 
+      <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4">
+        <div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Creator income status</span></div>
+        <div className="grid grid-cols-2 gap-2">
+          {VIP_EARNINGS.map((row) => (
+            <div key={row.refs} className="rounded-2xl border border-[#FFD700]/16 bg-[#FFD700]/7 p-3">
+              <div className="font-mono text-[8px] text-white/35">{row.label}</div>
+              <div className="mt-1 text-xl font-black text-[#FFD700]">${row.direct.toFixed(0)}/mo</div>
+              <div className="font-mono text-[9px] text-white/40">{row.refs} VIPs direct</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3 font-mono text-[10px] leading-relaxed text-[#00F5FF]">
+          Direct VIP example uses 20% of a ${VIP_PLAN_USD} VIP plan ≈ ${VIP_DIRECT_USD.toFixed(2)} per VIP/month. Level-2 referrals can add another 5% layer.
+        </div>
+      </section>
+
+      <section className="academy-card mb-4 rounded-3xl border-[#00F5FF]/30 p-4">
+        <div className="mb-3 flex items-center gap-2"><PlayCircle size={17} className="text-[#00F5FF]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#00F5FF]">Automatic content GC ladder</span></div>
+        <div className="space-y-2">
+          {CONTENT_GC_REWARDS.map((row) => (
+            <div key={row.views} className="grid grid-cols-3 gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px]">
+              <div><div className="text-white/35">Views</div><div className="font-black text-white">{row.views}</div></div>
+              <div><div className="text-white/35">Shorts</div><div className="font-black text-[#FFD700]">+{row.shortGc.toLocaleString()} GC</div></div>
+              <div><div className="text-white/35">Long</div><div className="font-black text-[#00F5FF]">+{row.longGc.toLocaleString()} GC</div></div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">
+          To unlock GC view rewards, the post must include your creator code/referral link in the caption, bio, pinned comment, or video. Bigger/viral payouts can still require admin review.
+        </div>
+      </section>
+
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         {filters.map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`shrink-0 rounded-full border px-3 py-2 font-mono text-[10px] font-black transition-all ${filter === f ? "border-[#FFD700]/45 bg-[#FFD700]/14 text-[#FFD700]" : "border-white/10 bg-white/[0.025] text-white/35"}`}>{f}</button>
@@ -177,7 +231,7 @@ export default function Academy() {
           <span className="font-mono text-[9px] text-white/35">{items.length} guides</span>
         </div>
         <div className="space-y-2">
-          {items.map((item, idx) => {
+          {items.map((item) => {
             const realIndex = GUIDE.indexOf(item);
             const isOpen = open === realIndex;
             const Icon = item.icon;
@@ -205,7 +259,7 @@ export default function Academy() {
       <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4">
         <div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Fastest paths</span></div>
         <div className="space-y-2">
-          {["Level up with daily XP and Creator Missions", "Use content to bring signups and VIP referrals", "Upgrade VIP to unlock better caps and skip first-withdrawal verification", "Use YouTube long-form for the strongest creator proof"].map((line, idx) => <div key={line} className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF4D8D]/12 font-mono text-[10px] font-black text-[#FF4D8D]">{idx + 1}</span><span className="font-mono text-[10px] text-white/55">{line}</span></div>)}
+          {["Level up with daily XP and Creator Missions", "Use content to bring signups and VIP referrals", "Put your referral link in bio + pinned comments", "Upgrade VIP to unlock better caps and skip first-withdrawal verification", "Use YouTube long-form for the strongest creator proof"].map((line, idx) => <div key={line} className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF4D8D]/12 font-mono text-[10px] font-black text-[#FF4D8D]">{idx + 1}</span><span className="font-mono text-[10px] text-white/55">{line}</span></div>)}
         </div>
       </section>
 
