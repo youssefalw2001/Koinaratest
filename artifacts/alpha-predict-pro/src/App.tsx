@@ -19,7 +19,7 @@ import { LanguageProvider } from "@/lib/language";
 
 // Pages
 import Terminal from "./pages/TerminalCompact";
-import Mines from "./pages/MinesCompact";
+import Mines from "./pages/Mines";
 import Earn from "./pages/Earn";
 import Shop from "./pages/Shop";
 import Wallet from "./pages/Wallet";
