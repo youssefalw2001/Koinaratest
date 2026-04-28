@@ -13,6 +13,7 @@ import {
   Sparkles,
   Bomb,
   Trophy,
+  BookOpen,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -143,6 +144,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/profile"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors" aria-label="Profile"><User size={14} className="text-white/60" /></button></Link>
+            <Link href="/academy"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/[0.06] hover:bg-[#FFD700]/10 transition-colors" aria-label="Koinara Academy"><BookOpen size={14} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,.35)]" /></button></Link>
             <Link href="/leaderboard"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors" aria-label="Leaderboard"><Trophy size={14} className="text-white/60" /></button></Link>
             <button onClick={toggleLanguage} className="pressable inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[9px] font-bold text-white/60 hover:text-white transition-colors"><Languages size={11} />{language === "en" ? "AR" : "EN"}</button>
           </div>
