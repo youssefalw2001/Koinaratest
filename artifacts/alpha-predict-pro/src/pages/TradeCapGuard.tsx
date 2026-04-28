@@ -34,13 +34,13 @@ export default function TradeCapGuard() {
     <div className="relative">
       <TerminalLaunch />
       {capReached && (
-        <div className="absolute left-[88px] right-[22px] top-[38px] z-[40] pointer-events-none">
-          <div className="flex items-center justify-between gap-2 rounded-full border border-[#FFD700]/18 bg-[#05070d]/62 px-2.5 py-0.5 backdrop-blur-md">
-            <span className="font-mono text-[8px] font-black tracking-[0.18em] uppercase text-[#FFD700]/90">
+        <div className="absolute left-[104px] right-[24px] top-[58px] z-[40] pointer-events-none">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="font-mono text-[7px] font-black tracking-[0.18em] uppercase text-[#FFD700]/70">
               Cap reached
             </span>
-            <span className="flex items-center gap-1 font-mono text-[8px] font-black text-white/55 tabular-nums">
-              <Clock size={9} className="text-[#FFD700]/80" />
+            <span className="flex items-center gap-1 font-mono text-[7px] font-black text-white/38 tabular-nums">
+              <Clock size={8} className="text-[#FFD700]/55" />
               Reset {timer}
             </span>
           </div>
