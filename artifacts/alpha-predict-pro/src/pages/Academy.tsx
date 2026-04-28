@@ -1,22 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { BookOpen, ChevronDown, Crown, Gift, HelpCircle, LockKeyhole, PlayCircle, Rocket, ShieldCheck, Sparkles, Target, Trophy, Users, Wallet } from "lucide-react";
+import { BookOpen, ChevronDown, Crown, Gift, HelpCircle, LockKeyhole, MessageCircle, PlayCircle, Rocket, ShieldCheck, Sparkles, Target, Trophy, Users, Wallet } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 
-type GuideItem = {
-  title: string;
-  tag: string;
-  icon: any;
-  accent: string;
-  body: string[];
-  fomo?: string;
-};
+type GuideItem = { title: string; tag: string; icon: any; accent: string; body: string[]; fomo?: string };
 
 const VIP_PLAN_USD = 5.99;
 const DIRECT_VIP_RATE = 0.20;
-const LEVEL_2_RATE = 0.05;
 const VIP_DIRECT_USD = +(VIP_PLAN_USD * DIRECT_VIP_RATE).toFixed(2);
+const YOUTUBE_MEGA_BONUS_USD = 25;
 
 const VIP_EARNINGS = [
   { refs: 5, direct: 5 * VIP_DIRECT_USD, label: "Starter creator" },
@@ -25,127 +18,23 @@ const VIP_EARNINGS = [
   { refs: 500, direct: 500 * VIP_DIRECT_USD, label: "Top promoter" },
 ];
 
-const CONTENT_GC_REWARDS = [
-  { views: "1K", shortGc: 250, longGc: 500 },
-  { views: "5K", shortGc: 750, longGc: 1500 },
-  { views: "10K", shortGc: 1500, longGc: 3000 },
-  { views: "25K", shortGc: 3000, longGc: 6000 },
-  { views: "50K", shortGc: 5000, longGc: 10000 },
-  { views: "100K", shortGc: 8000, longGc: 15000 },
+const CONTENT_MISSIONS = [
+  { channel: "WhatsApp Story", reward: "XP + TC streak", purpose: "Daily local trust" },
+  { channel: "Reels / Shorts", reward: "XP + TC + referrals", purpose: "Fast viral reach" },
+  { channel: "YouTube video", reward: "Bigger XP + TC", purpose: "Higher trust content" },
+  { channel: "100K+ YouTube", reward: `$${YOUTUBE_MEGA_BONUS_USD} USDT review`, purpose: "Manual owner verified" },
 ];
 
 const GUIDE: GuideItem[] = [
-  {
-    title: "TC vs GC",
-    tag: "Start here",
-    icon: Sparkles,
-    accent: "#00F5FF",
-    body: [
-      "TC means Trade Credits. Use TC to play Trade, Mines, power-ups, and practice without direct withdrawal liability.",
-      "GC means Gold Coins. GC is the cashout coin. Build enough GC, then withdraw through Wallet when eligible.",
-      "Simple rule: play with TC, win GC, withdraw GC.",
-    ],
-    fomo: "Smart users protect TC because TC keeps them in the game longer.",
-  },
-  {
-    title: "Daily limits and reset timer",
-    tag: "Caps",
-    icon: ShieldCheck,
-    accent: "#FFD700",
-    body: [
-      "Daily limits protect the economy and keep rewards sustainable for everyone.",
-      "When a cap is full, wins may stop adding GC until the reset timer finishes.",
-      "Leveling up, VIP, passes, creator value, and special events can unlock better earning room.",
-    ],
-    fomo: "Higher-rank users get more room to earn before everyone else catches up.",
-  },
-  {
-    title: "Levels and XP",
-    tag: "Progress",
-    icon: Trophy,
-    accent: "#FF4D8D",
-    body: [
-      "You earn Rank XP from daily activity, playing, Creator Missions, referrals, and VIP actions.",
-      "Creator XP measures how much you help Koinara grow through content.",
-      "Value XP comes from verified actions like VIP referrals, offers, purchases, or admin-approved creator value.",
-      "Levels can unlock better caps, chests, badges, and premium status.",
-    ],
-    fomo: "Early users can lock in status before the app gets crowded.",
-  },
-  {
-    title: "Free vs VIP",
-    tag: "Upgrade",
-    icon: Crown,
-    accent: "#FFD700",
-    body: [
-      "Free users can play, level up, submit content, invite friends, and withdraw once eligible.",
-      "VIP users get bigger caps, better conversion, more ad rewards, higher earning room, and premium creator upside.",
-      "VIP also skips the first-withdrawal verification fee.",
-    ],
-    fomo: "VIP is designed for users who want to move faster instead of waiting on limits.",
-  },
-  {
-    title: "Referral program",
-    tag: "Growth",
-    icon: Users,
-    accent: "#FF4D8D",
-    body: [
-      "Invite friends with your referral link or creator code.",
-      "Normal referrals can earn bonus GC after the friend becomes active.",
-      `VIP referrals are the highest-value path: around $${VIP_DIRECT_USD.toFixed(2)}/month per direct VIP at the $${VIP_PLAN_USD} VIP plan, before level-2 bonuses.`,
-      "The more creators place their link in bio, pinned comments, and captions, the more their rewards can compound.",
-    ],
-    fomo: "The best creators are not just playing — they are building a team and recurring VIP income.",
-  },
-  {
-    title: "Creator Missions",
-    tag: "Content",
-    icon: PlayCircle,
-    accent: "#00F5FF",
-    body: [
-      "Post TikTok, Reels, YouTube Shorts, YouTube long-form, or X content about Koinara.",
-      "Add your creator code/referral link in the caption, bio, pinned comment, or video so the team can verify it belongs to you.",
-      "Valid submissions get instant XP. Verified view milestones can unlock automatic GC tiers, while bigger rewards still need admin review.",
-      "YouTube long-form can earn stronger rewards because it usually shows deeper trust and better intent.",
-    ],
-    fomo: "A creator with a viral video plus a bio referral link can earn GC, XP, TC, and VIP commissions from the same content.",
-  },
-  {
-    title: "Withdrawals and verification",
-    tag: "Wallet",
-    icon: Wallet,
-    accent: "#FFD700",
-    body: [
-      "GC is the cashout coin. Wallet shows your progress, rate, fees, and whether verification is required.",
-      "Free users verify once before USDT withdrawals or can skip with VIP / VIP referral waiver when available.",
-      "VIP users get a smoother withdrawal path and better earning benefits.",
-    ],
-    fomo: "The fastest path is usually: level up, invite, earn GC, then unlock VIP benefits.",
-  },
-  {
-    title: "Mines passes and power-ups",
-    tag: "Gameplay",
-    icon: Target,
-    accent: "#00F5FF",
-    body: [
-      "Mines passes unlock special GC Mines rounds and can raise the free user Mines earning room when the pass is used.",
-      "Power-ups help gameplay, but they must be purchased, owned, then activated before use.",
-      "Some power-ups are stronger in Trade, while others are better for Mines.",
-    ],
-    fomo: "Pass buyers get more room to chase GC than regular free players.",
-  },
-  {
-    title: "Why rewards need review",
-    tag: "Safety",
-    icon: LockKeyhole,
-    accent: "#FF4D8D",
-    body: [
-      "Small XP can be instant, but big TC/GC/creator rewards need review.",
-      "This protects real users from farmers, fake screenshots, duplicate videos, and botted views.",
-      "The better your proof, views, signups, and VIP referrals, the bigger your approved reward can be.",
-    ],
-    fomo: "Verified creators get treated better than spam submitters.",
-  },
+  { title: "TC vs GC", tag: "Start here", icon: Sparkles, accent: "#00F5FF", body: ["TC means Trade Credits. Use TC to play Trade, Mines, power-ups, and practice without direct withdrawal liability.", "GC means Gold Coins. GC is the cashout coin. Build enough GC, then withdraw through Wallet when eligible.", "Simple rule: play with TC, win GC, withdraw GC."], fomo: "Smart users protect TC because TC keeps them in the game longer." },
+  { title: "Daily limits and reset timer", tag: "Caps", icon: ShieldCheck, accent: "#FFD700", body: ["Daily limits protect the economy and keep rewards sustainable for everyone.", "When a cap is full, wins may stop adding GC until the reset timer finishes.", "Leveling up, VIP, passes, creator value, and special events can unlock better earning room."], fomo: "Higher-rank users get more room to earn before everyone else catches up." },
+  { title: "Levels and XP", tag: "Progress", icon: Trophy, accent: "#FF4D8D", body: ["You earn Rank XP from daily activity, playing, Creator Missions, referrals, and VIP actions.", "Creator XP measures how much you help Koinara grow through content.", "Value XP comes from verified actions like VIP referrals, offers, purchases, or admin-approved creator value.", "Levels can unlock better caps, chests, badges, and premium status."], fomo: "Early users can lock in status before the app gets crowded." },
+  { title: "Free vs VIP", tag: "Upgrade", icon: Crown, accent: "#FFD700", body: ["Free users can play, level up, submit content, invite friends, and withdraw once eligible.", "VIP users get bigger caps, better conversion, more ad rewards, higher earning room, and premium creator upside.", "VIP also skips the first-withdrawal verification fee."], fomo: "VIP is designed for users who want to move faster instead of waiting on limits." },
+  { title: "Referral program", tag: "Growth", icon: Users, accent: "#FF4D8D", body: ["Invite friends with your referral link or creator code.", "Normal referrals can earn bonus XP/TC/GC after the friend becomes active.", `VIP referrals are the highest-value path: around $${VIP_DIRECT_USD.toFixed(2)}/month per direct VIP at the $${VIP_PLAN_USD} VIP plan, before level-2 bonuses.`, "The more creators place their link in bio, pinned comments, and captions, the more their rewards can compound."], fomo: "The best creators are not just playing — they are building a team and recurring VIP income." },
+  { title: "Creator Missions", tag: "Content", icon: PlayCircle, accent: "#00F5FF", body: ["Focus on WhatsApp Stories, Reels/Shorts, YouTube videos, and real referral conversion — not random view farming.", "Add your creator code/referral link in the caption, bio, pinned comment, or video so the team can verify it belongs to you.", "Approved content earns XP/TC/status first. Bigger money comes from active users and VIP referrals.", `YouTube videos over 100K real views can be reviewed by the owner for a special $${YOUTUBE_MEGA_BONUS_USD} USDT creator bonus.`], fomo: "A creator with a viral video plus a bio referral link can earn XP, TC, status, and VIP commissions from the same content." },
+  { title: "Withdrawals and verification", tag: "Wallet", icon: Wallet, accent: "#FFD700", body: ["GC is the cashout coin. Wallet shows your progress, rate, fees, and whether verification is required.", "Free users verify once before USDT withdrawals or can skip with VIP / VIP referral waiver when available.", "VIP users get a smoother withdrawal path and better earning benefits."], fomo: "The fastest path is usually: level up, invite, earn GC, then unlock VIP benefits." },
+  { title: "Mines passes and power-ups", tag: "Gameplay", icon: Target, accent: "#00F5FF", body: ["Mines passes unlock special GC Mines rounds and can raise the free user Mines earning room when the pass is used.", "Power-ups help gameplay, but they must be purchased, owned, then activated before use.", "Some power-ups are stronger in Trade, while others are better for Mines."], fomo: "Pass buyers get more room to chase GC than regular free players." },
+  { title: "Fair-play warning", tag: "Safety", icon: LockKeyhole, accent: "#FF4D8D", body: ["Koinara rewards real creators, not fake screenshots, bot views, duplicate posts, stolen videos, self-referrals, or shady traffic.", "The team reviews suspicious activity before releasing major rewards.", "Trying to cheat Creator Missions, referrals, withdrawals, or rewards can lead to permanent ban and lost rewards."], fomo: "Real creators get protected. Shady users get removed." },
 ];
 
 export default function Academy() {
@@ -153,120 +42,28 @@ export default function Academy() {
   const vip = isVipActive(user);
   const [open, setOpen] = useState(0);
   const [filter, setFilter] = useState("All");
-  const filters = useMemo(() => ["All", "Start here", "Progress", "Content", "Growth", "Wallet"], []);
+  const filters = useMemo(() => ["All", "Start here", "Progress", "Content", "Growth", "Wallet", "Safety"], []);
   const items = filter === "All" ? GUIDE : GUIDE.filter((item) => item.tag === filter);
 
-  return (
-    <div className="min-h-screen bg-black px-4 pb-28 pt-4 text-white">
-      <style>{`
-        .academy-card{background:linear-gradient(160deg,rgba(13,24,44,.72),rgba(5,6,12,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 18px 55px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05)}
-        .academy-title{background:linear-gradient(135deg,#fff7c7,#ffd700 44%,#ff4d8d);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-      `}</style>
+  return <div className="min-h-screen bg-black px-4 pb-28 pt-4 text-white">
+    <style>{`.academy-card{background:linear-gradient(160deg,rgba(13,24,44,.72),rgba(5,6,12,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 18px 55px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05)}.academy-title{background:linear-gradient(135deg,#fff7c7,#ffd700 44%,#ff4d8d);-webkit-background-clip:text;-webkit-text-fill-color:transparent}`}</style>
 
-      <div className="mb-4 flex items-center gap-2">
-        <BookOpen size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
-        <span className="font-mono text-xs tracking-[0.18em] text-white/60 uppercase">Koinara Academy</span>
-      </div>
+    <div className="mb-4 flex items-center gap-2"><BookOpen size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-xs tracking-[0.18em] text-white/60 uppercase">Koinara Academy</span></div>
 
-      <section className="academy-card relative mb-4 overflow-hidden rounded-3xl p-5">
-        <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#FFD700]/16 blur-3xl" />
-        <div className="absolute -left-16 bottom-0 h-36 w-36 rounded-full bg-[#00F5FF]/10 blur-3xl" />
-        <div className="relative z-10">
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-1 font-mono text-[10px] font-black text-[#FFD700]">
-            <Rocket size={12} /> New user guide
-          </div>
-          <h1 className="academy-title text-3xl font-black leading-tight">Understand the game. Unlock more. Move faster.</h1>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/45">
-            Learn TC, GC, levels, VIP, referrals, content rewards, caps, and withdrawals — without guessing.
-          </p>
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[8px] text-white/35">PLAY</div><div className="font-black text-[#00F5FF]">TC</div></div>
-            <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[8px] text-white/35">CASHOUT</div><div className="font-black text-[#FFD700]">GC</div></div>
-            <div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3"><div className="font-mono text-[8px] text-white/35">FAST LANE</div><div className="font-black text-[#FF4D8D]">VIP</div></div>
-          </div>
-        </div>
-      </section>
+    <section className="academy-card relative mb-4 overflow-hidden rounded-3xl p-5"><div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#FFD700]/16 blur-3xl" /><div className="absolute -left-16 bottom-0 h-36 w-36 rounded-full bg-[#00F5FF]/10 blur-3xl" /><div className="relative z-10"><div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-1 font-mono text-[10px] font-black text-[#FFD700]"><Rocket size={12} /> New user guide</div><h1 className="academy-title text-3xl font-black leading-tight">Learn the system. Build status. Earn smarter.</h1><p className="mt-2 font-mono text-[11px] leading-relaxed text-white/45">Koinara rewards real activity: daily play, referrals, VIPs, and content that brings real users.</p><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[8px] text-white/35">PLAY</div><div className="font-black text-[#00F5FF]">TC</div></div><div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[8px] text-white/35">CASHOUT</div><div className="font-black text-[#FFD700]">GC</div></div><div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3"><div className="font-mono text-[8px] text-white/35">FAST LANE</div><div className="font-black text-[#FF4D8D]">VIP</div></div></div></div></section>
 
-      <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4">
-        <div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Creator income status</span></div>
-        <div className="grid grid-cols-2 gap-2">
-          {VIP_EARNINGS.map((row) => (
-            <div key={row.refs} className="rounded-2xl border border-[#FFD700]/16 bg-[#FFD700]/7 p-3">
-              <div className="font-mono text-[8px] text-white/35">{row.label}</div>
-              <div className="mt-1 text-xl font-black text-[#FFD700]">${row.direct.toFixed(0)}/mo</div>
-              <div className="font-mono text-[9px] text-white/40">{row.refs} VIPs direct</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3 font-mono text-[10px] leading-relaxed text-[#00F5FF]">
-          Direct VIP example uses 20% of a ${VIP_PLAN_USD} VIP plan ≈ ${VIP_DIRECT_USD.toFixed(2)} per VIP/month. Level-2 referrals can add another 5% layer.
-        </div>
-      </section>
+    <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4"><div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Creator income status</span></div><div className="grid grid-cols-2 gap-2">{VIP_EARNINGS.map((row) => <div key={row.refs} className="rounded-2xl border border-[#FFD700]/16 bg-[#FFD700]/7 p-3"><div className="font-mono text-[8px] text-white/35">{row.label}</div><div className="mt-1 text-xl font-black text-[#FFD700]">${row.direct.toFixed(0)}/mo</div><div className="font-mono text-[9px] text-white/40">{row.refs} VIPs direct</div></div>)}</div><div className="mt-3 rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3 font-mono text-[10px] leading-relaxed text-[#00F5FF]">Direct VIP example uses 20% of a ${VIP_PLAN_USD} VIP plan ≈ ${VIP_DIRECT_USD.toFixed(2)} per VIP/month. Level-2 referrals can add another 5% layer.</div></section>
 
-      <section className="academy-card mb-4 rounded-3xl border-[#00F5FF]/30 p-4">
-        <div className="mb-3 flex items-center gap-2"><PlayCircle size={17} className="text-[#00F5FF]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#00F5FF]">Automatic content GC ladder</span></div>
-        <div className="space-y-2">
-          {CONTENT_GC_REWARDS.map((row) => (
-            <div key={row.views} className="grid grid-cols-3 gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px]">
-              <div><div className="text-white/35">Views</div><div className="font-black text-white">{row.views}</div></div>
-              <div><div className="text-white/35">Shorts</div><div className="font-black text-[#FFD700]">+{row.shortGc.toLocaleString()} GC</div></div>
-              <div><div className="text-white/35">Long</div><div className="font-black text-[#00F5FF]">+{row.longGc.toLocaleString()} GC</div></div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">
-          To unlock GC view rewards, the post must include your creator code/referral link in the caption, bio, pinned comment, or video. Bigger/viral payouts can still require admin review.
-        </div>
-      </section>
+    <section className="academy-card mb-4 rounded-3xl border-[#00F5FF]/30 p-4"><div className="mb-3 flex items-center gap-2"><MessageCircle size={17} className="text-[#00F5FF]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#00F5FF]">Creator Missions v2</span></div><div className="space-y-2">{CONTENT_MISSIONS.map((row) => <div key={row.channel} className="grid grid-cols-[1.05fr_.95fr] gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px]"><div><div className="text-white/35">Channel</div><div className="font-black text-white">{row.channel}</div><div className="mt-1 text-[9px] text-white/35">{row.purpose}</div></div><div><div className="text-white/35">Reward focus</div><div className="font-black text-[#FFD700]">{row.reward}</div></div></div>)}</div><div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">Views alone do not guarantee cash rewards. The strongest rewards come from real signups, VIP referrals, and owner-verified 100K+ YouTube videos.</div></section>
 
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-        {filters.map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={`shrink-0 rounded-full border px-3 py-2 font-mono text-[10px] font-black transition-all ${filter === f ? "border-[#FFD700]/45 bg-[#FFD700]/14 text-[#FFD700]" : "border-white/10 bg-white/[0.025] text-white/35"}`}>{f}</button>
-        ))}
-      </div>
+    <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4"><div className="mb-2 flex items-center gap-2"><LockKeyhole size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Fair-play warning</span></div><p className="font-mono text-[10px] leading-relaxed text-white/55">We have a strong review team. Fake views, duplicate content, stolen videos, self-referrals, bot traffic, fake proof, or anything shady can lead to permanent ban and lost rewards.</p></section>
 
-      <section className="academy-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2"><HelpCircle size={16} className="text-[#FFD700]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FFD700]">FAQ Vault</span></div>
-          <span className="font-mono text-[9px] text-white/35">{items.length} guides</span>
-        </div>
-        <div className="space-y-2">
-          {items.map((item) => {
-            const realIndex = GUIDE.indexOf(item);
-            const isOpen = open === realIndex;
-            const Icon = item.icon;
-            return (
-              <div key={item.title} className="rounded-2xl border border-white/8 bg-white/[0.025] overflow-hidden">
-                <button onClick={() => setOpen(isOpen ? -1 : realIndex)} className="flex w-full items-center gap-3 p-3 text-left">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border" style={{ borderColor: `${item.accent}45`, background: `${item.accent}14` }}><Icon size={18} style={{ color: item.accent }} /></div>
-                  <div className="min-w-0 flex-1"><div className="font-black text-white">{item.title}</div><div className="font-mono text-[9px] text-white/35">{item.tag}</div></div>
-                  <ChevronDown size={16} className={`text-white/35 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                </button>
-                {isOpen && (
-                  <div className="border-t border-white/8 px-3 pb-3 pt-1">
-                    <div className="space-y-2">
-                      {item.body.map((line) => <p key={line} className="font-mono text-[10px] leading-relaxed text-white/48">{line}</p>)}
-                    </div>
-                    {item.fomo && <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] font-black leading-relaxed text-[#FFD700]"><Sparkles size={12} className="inline mr-1" />{item.fomo}</div>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
+    <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{filters.map((f) => <button key={f} onClick={() => setFilter(f)} className={`shrink-0 rounded-full border px-3 py-2 font-mono text-[10px] font-black transition-all ${filter === f ? "border-[#FFD700]/45 bg-[#FFD700]/14 text-[#FFD700]" : "border-white/10 bg-white/[0.025] text-white/35"}`}>{f}</button>)}</div>
 
-      <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4">
-        <div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Fastest paths</span></div>
-        <div className="space-y-2">
-          {["Level up with daily XP and Creator Missions", "Use content to bring signups and VIP referrals", "Put your referral link in bio + pinned comments", "Upgrade VIP to unlock better caps and skip first-withdrawal verification", "Use YouTube long-form for the strongest creator proof"].map((line, idx) => <div key={line} className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF4D8D]/12 font-mono text-[10px] font-black text-[#FF4D8D]">{idx + 1}</span><span className="font-mono text-[10px] text-white/55">{line}</span></div>)}
-        </div>
-      </section>
+    <section className="academy-card mb-4 rounded-3xl p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><HelpCircle size={16} className="text-[#FFD700]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FFD700]">FAQ Vault</span></div><span className="font-mono text-[9px] text-white/35">{items.length} guides</span></div><div className="space-y-2">{items.map((item) => { const realIndex = GUIDE.indexOf(item); const isOpen = open === realIndex; const Icon = item.icon; return <div key={item.title} className="overflow-hidden rounded-2xl border border-white/8 bg-white/[0.025]"><button onClick={() => setOpen(isOpen ? -1 : realIndex)} className="flex w-full items-center gap-3 p-3 text-left"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border" style={{ borderColor: `${item.accent}45`, background: `${item.accent}14` }}><Icon size={18} style={{ color: item.accent }} /></div><div className="min-w-0 flex-1"><div className="font-black text-white">{item.title}</div><div className="font-mono text-[9px] text-white/35">{item.tag}</div></div><ChevronDown size={16} className={`text-white/35 transition-transform ${isOpen ? "rotate-180" : ""}`} /></button>{isOpen && <div className="border-t border-white/8 px-3 pb-3 pt-1"><div className="space-y-2">{item.body.map((line) => <p key={line} className="font-mono text-[10px] leading-relaxed text-white/48">{line}</p>)}</div>{item.fomo && <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] font-black leading-relaxed text-[#FFD700]"><Sparkles size={12} className="inline mr-1" />{item.fomo}</div>}</div>}</div>; })}</div></section>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Link href="/earn"><button className="w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-mono text-xs font-black text-[#FFD700]"><Gift size={13} className="inline mr-1" />Earn XP</button></Link>
-        <Link href={vip ? "/profile" : "/wallet"}><button className="w-full rounded-2xl border border-[#00F5FF]/35 bg-[#00F5FF]/10 py-3 font-mono text-xs font-black text-[#00F5FF]"><Crown size={13} className="inline mr-1" />{vip ? "My Rank" : "Go VIP"}</button></Link>
-      </div>
-    </div>
-  );
+    <section className="academy-card mb-4 rounded-3xl border-[#FF4D8D]/35 p-4"><div className="mb-3 flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Fastest paths</span></div><div className="space-y-2">{["Post WhatsApp Stories daily for streak XP", "Use Reels/Shorts and YouTube to bring real signups", "Put your referral link in bio + pinned comments", "Push VIP referrals for recurring commission", "100K+ real YouTube views can unlock owner-reviewed USDT bonus"].map((line, idx) => <div key={line} className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF4D8D]/12 font-mono text-[10px] font-black text-[#FF4D8D]">{idx + 1}</span><span className="font-mono text-[10px] text-white/55">{line}</span></div>)}</div></section>
+
+    <div className="grid grid-cols-2 gap-2"><Link href="/earn"><button className="w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-mono text-xs font-black text-[#FFD700]"><Gift size={13} className="inline mr-1" />Earn XP</button></Link><Link href={vip ? "/profile" : "/wallet"}><button className="w-full rounded-2xl border border-[#00F5FF]/35 bg-[#00F5FF]/10 py-3 font-mono text-xs font-black text-[#00F5FF]"><Crown size={13} className="inline mr-1" />{vip ? "My Rank" : "Go VIP"}</button></Link></div>
+  </div>;
 }
