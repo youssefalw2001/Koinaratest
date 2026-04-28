@@ -6,10 +6,10 @@ export const contentSubmissionsTable = pgTable("content_submissions", {
   id: serial("id").primaryKey(),
   telegramId: text("telegram_id").notNull(),
 
-  // Platform: tiktok | instagram | youtube | whatsapp
+  // Platform: tiktok | instagram | youtube | x | whatsapp
   platform: text("platform").notNull(),
 
-  // Post type: "story" (WhatsApp stories — lower GC) or "post" (real 15s+ content — higher GC)
+  // Post type: story | short | long | post
   postType: text("post_type").notNull().default("post"),
 
   // URL of the content (must be publicly accessible)
@@ -18,19 +18,29 @@ export const contentSubmissionsTable = pgTable("content_submissions", {
   // Caption the user included in their post (must contain required promo text)
   caption: text("caption"),
 
-  // Status: pending → verified → rewarded | deleted | rejected | expired
-  //   pending   = just submitted, awaiting URL verification
-  //   verified  = URL confirmed live, GC credited, waiting for 6hr deletion check
-  //   rewarded  = passed 6hr check, fully complete
-  //   deleted   = user deleted the post within 6hrs, GC clawed back
-  //   rejected  = URL invalid, spam detected, or duplicate
-  //   expired   = story expired before verification (WhatsApp stories)
+  // Optional admin/user-provided metrics for manual review
+  viewCount: integer("view_count").notNull().default(0),
+  likeCount: integer("like_count").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  verifiedSignups: integer("verified_signups").notNull().default(0),
+  vipReferrals: integer("vip_referrals").notNull().default(0),
+
+  // Status: pending → approved → rewarded | rejected | deleted | expired
   status: text("status").notNull().default("pending"),
 
-  // GC awarded on verification (may be clawed back if deleted)
+  // Rewards granted after admin approval
+  xpAwarded: integer("xp_awarded").notNull().default(0),
+  creatorXpAwarded: integer("creator_xp_awarded").notNull().default(0),
+  valueXpAwarded: integer("value_xp_awarded").notNull().default(0),
+  tcAwarded: integer("tc_awarded").notNull().default(0),
   gcAwarded: integer("gc_awarded").notNull().default(0),
+  capBoostGcAwarded: integer("cap_boost_gc_awarded").notNull().default(0),
 
-  // Timestamps for the verification pipeline
+  adminNotes: text("admin_notes"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+
+  // Timestamps for optional deletion/recheck pipeline
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   deletionCheckAt: timestamp("deletion_check_at", { withTimezone: true }),
   deletionChecked: boolean("deletion_checked").notNull().default(false),
@@ -38,9 +48,6 @@ export const contentSubmissionsTable = pgTable("content_submissions", {
 
   // Anti-spam: fingerprint hash (telegramId + platform + date) to enforce daily limits
   dailyFingerprint: text("daily_fingerprint"),
-
-  // Legacy field (kept for backwards compat)
-  viewCount: integer("view_count").notNull().default(0),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

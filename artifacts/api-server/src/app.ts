@@ -4,8 +4,13 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { apiRateLimit } from "./lib/rateLimit";
+import { ensureCreatorMissionColumns } from "./lib/ensureCreatorMissionColumns";
 
 const app: Express = express();
+
+ensureCreatorMissionColumns().catch((err) => {
+  logger.error({ err }, "Creator Missions startup migration failed");
+});
 
 app.use(
   pinoHttp({
