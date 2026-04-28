@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Award, CheckCircle, Copy, Crown, Flame, Gift, Rocket, Share2, ShieldCheck, Sparkles, Star, Target, Trophy, User, Zap } from "lucide-react";
+import { Award, BookOpen, CheckCircle, Copy, Crown, Flame, Rocket, Share2, ShieldCheck, Sparkles, Star, Target, Trophy, User, Zap } from "lucide-react";
 import { Link } from "wouter";
 import { useGetReferralStats, getGetReferralStatsQueryKey, useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
@@ -78,6 +78,7 @@ export default function ProfilePremiumLaunch() {
       <div className="mb-4 flex items-center gap-2">
         <User size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
         <span className="font-mono text-xs tracking-[0.18em] text-white/60 uppercase">Profile</span>
+        <Link href="/academy"><span className="ml-auto rounded-full border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-1 font-mono text-[10px] font-black text-[#FFD700]"><BookOpen size={11} className="inline mr-1" />Academy</span></Link>
       </div>
 
       <section className="profile-card relative mb-4 overflow-hidden rounded-3xl p-4">
