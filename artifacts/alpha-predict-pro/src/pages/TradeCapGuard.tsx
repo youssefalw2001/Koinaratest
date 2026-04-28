@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock, ShieldCheck, ShoppingBag, Zap } from "lucide-react";
-import { Link } from "wouter";
+import { Clock } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import TerminalLaunch from "./TerminalLaunch";
 
@@ -35,30 +34,15 @@ export default function TradeCapGuard() {
     <div className="relative">
       <TerminalLaunch />
       {capReached && (
-        <div className="absolute left-3 right-3 top-[72px] z-[40] pointer-events-auto">
-          <div className="rounded-2xl border border-[#FFD700]/28 bg-[#08101f]/92 px-3 py-2 shadow-[0_0_24px_rgba(255,215,0,.14)] backdrop-blur-xl">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl border border-[#FFD700]/25 bg-[#FFD700]/10 flex items-center justify-center shrink-0">
-                <ShieldCheck size={16} className="text-[#FFD700]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-mono text-[9px] tracking-[0.16em] uppercase text-[#FFD700] truncate">Cap reached</div>
-                  <div className="flex items-center gap-1 font-mono text-[10px] font-black text-[#FFD700] tabular-nums shrink-0">
-                    <Clock size={11} /> {timer}
-                  </div>
-                </div>
-                <div className="font-mono text-[9px] text-white/42 truncate">
-                  Trade earning resumes after reset. Play Mines or open Shop meanwhile.
-                </div>
-              </div>
-              <Link href="/mines" className="h-8 px-2 rounded-xl border border-[#00F5A0]/24 bg-[#00F5A0]/8 font-mono text-[9px] font-black text-[#00F5A0] flex items-center gap-1 shrink-0">
-                <Zap size={11} /> Mines
-              </Link>
-              <Link href="/shop" className="h-8 px-2 rounded-xl border border-[#4DA3FF]/24 bg-[#4DA3FF]/8 font-mono text-[9px] font-black text-[#8BC3FF] flex items-center gap-1 shrink-0">
-                <ShoppingBag size={11} /> Shop
-              </Link>
-            </div>
+        <div className="absolute left-[88px] right-[22px] top-[38px] z-[40] pointer-events-none">
+          <div className="flex items-center justify-between gap-2 rounded-full border border-[#FFD700]/18 bg-[#05070d]/62 px-2.5 py-0.5 backdrop-blur-md">
+            <span className="font-mono text-[8px] font-black tracking-[0.18em] uppercase text-[#FFD700]/90">
+              Cap reached
+            </span>
+            <span className="flex items-center gap-1 font-mono text-[8px] font-black text-white/55 tabular-nums">
+              <Clock size={9} className="text-[#FFD700]/80" />
+              Reset {timer}
+            </span>
           </div>
         </div>
       )}
