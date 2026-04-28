@@ -24,7 +24,7 @@ import Earn from "./pages/EarnCreatorLaunch";
 import Shop from "./pages/ShopPremiumLaunch";
 import Wallet from "./pages/WalletPremium";
 import Leaderboard from "./pages/Leaderboard";
-import Profile from "./pages/Profile";
+import Profile from "./pages/ProfilePremiumLaunch";
 import Lootbox from "./pages/Lootbox";
 import Exchange from "./pages/Exchange";
 
