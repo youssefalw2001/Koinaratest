@@ -21,7 +21,7 @@ import { LanguageProvider } from "@/lib/language";
 import Terminal from "./pages/TradeCapGuard";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/Earn";
-import Shop from "./pages/ShopPremium";
+import Shop from "./pages/ShopPremiumLaunch";
 import Wallet from "./pages/WalletPremium";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
@@ -29,21 +29,11 @@ import Lootbox from "./pages/Lootbox";
 import Exchange from "./pages/Exchange";
 
 const queryClient = new QueryClient({
-  queryCache: new QueryCache({
-    onError: (error, query) => {
-      console.error(`[API Query Error] ${String(query.queryHash)}:`, error);
-    },
-  }),
-  mutationCache: new MutationCache({
-    onError: (error, _variables, _context, mutation) => {
-      const key = mutation.options.mutationKey ? ` ${String(mutation.options.mutationKey)}` : "";
-      console.error(`[API Mutation Error]${key}:`, error);
-    },
-  }),
+  queryCache: new QueryCache({ onError: (error, query) => console.error(`[API Query Error] ${String(query.queryHash)}:`, error) }),
+  mutationCache: new MutationCache({ onError: (error, _variables, _context, mutation) => console.error(`[API Mutation Error]${mutation.options.mutationKey ? ` ${String(mutation.options.mutationKey)}` : ""}:`, error) }),
 });
 
 const FREE_WITHDRAWAL_MIN_GC = 14000;
-const FREE_GC_PER_USD = 5000;
 const FREE_TRADE_CAP_GC = 7000;
 const FREE_MINES_CAP_GC = 5000;
 
@@ -80,12 +70,7 @@ function HomeWalletTrustPanel() {
   const dailyGcEarned = user.dailyGcEarned ?? 0;
   const withdrawalProgress = Math.min(100, (goldCoins / FREE_WITHDRAWAL_MIN_GC) * 100);
   const tradeProgress = Math.min(100, (dailyGcEarned / FREE_TRADE_CAP_GC) * 100);
-  return (
-    <section className="hidden">
-      <button onClick={() => setLocation("/wallet")}>Wallet</button>
-      <span>{withdrawalProgress}{tradeProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span>
-    </section>
-  );
+  return <section className="hidden"><button onClick={() => setLocation("/wallet")}>Wallet</button><span>{withdrawalProgress}{tradeProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span></section>;
 }
 
 function DailyLoginPrompt() {
@@ -165,12 +150,6 @@ function Router() {
 
 function App() {
   useEffect(() => { document.documentElement.classList.add("dark"); }, []);
-  return (
-    <TonConnectUIProvider manifestUrl={`${window.location.origin}${import.meta.env.BASE_URL}tonconnect-manifest.json`}>
-      <QueryClientProvider client={queryClient}>
-        <LanguageProvider><TelegramProvider><TooltipProvider><ErrorBoundary><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}><Router /></WouterRouter><Toaster /></ErrorBoundary></TooltipProvider></TelegramProvider></LanguageProvider>
-      </QueryClientProvider>
-    </TonConnectUIProvider>
-  );
+  return <TonConnectUIProvider manifestUrl={`${window.location.origin}${import.meta.env.BASE_URL}tonconnect-manifest.json`}><QueryClientProvider client={queryClient}><LanguageProvider><TelegramProvider><TooltipProvider><ErrorBoundary><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}><Router /></WouterRouter><Toaster /></ErrorBoundary></TooltipProvider></TelegramProvider></LanguageProvider></QueryClientProvider></TonConnectUIProvider>;
 }
 export default App;
