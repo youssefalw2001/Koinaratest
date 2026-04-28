@@ -13,7 +13,6 @@ export const predictionsTable = pgTable("predictions", {
   payout: integer("payout"),
   duration: integer("duration").notNull().default(60),
   multiplier: real("multiplier").notNull().default(1.85),
-  activeGems: text("active_gems"),
   autoResolved: boolean("auto_resolved").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
