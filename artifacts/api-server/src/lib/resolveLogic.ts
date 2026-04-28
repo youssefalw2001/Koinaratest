@@ -1,4 +1,4 @@
-import { eq, sql, and, gt } from "drizzle-orm";
+import { eq, sql, and, gt, inArray } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import { isVipActive } from "./vip";
 import { logger } from "./logger";
@@ -10,6 +10,8 @@ export const DAILY_GC_CAP_VIP = 20000;
 const MAX_TRADE_PAYOUT_FREE = 2500;
 const MAX_TRADE_PAYOUT_VIP = 8000;
 
+type SelectedGem = { id: number; gemType: string };
+
 export interface ResolveOutcome {
   ok: boolean;
   prediction?: typeof predictionsTable.$inferSelect;
@@ -18,10 +20,6 @@ export interface ResolveOutcome {
   payoutBlockedReason?: "daily_cap_reached";
 }
 
-// Defensive coercion: the DB driver should always hand us numbers for
-// integer/real columns, but bad migrations or old rows have been seen to
-// surface strings/nulls. Falling back here means a winning trade can never
-// silently pay zero because of a type mismatch.
 function toFiniteNumber(value: unknown, fallback: number): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -31,17 +29,25 @@ function toFiniteNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
-/**
- * Resolve a single pending prediction atomically.
- *
- * The transaction:
- *   1) flips predictions.status pending -> won/lost via a conditional UPDATE.
- *      If 0 rows are returned, another worker already resolved it and we abort
- *      WITHOUT touching the user balance (no double-credit).
- *   2) only after step 1 succeeds, credits the user's GC.
- *   3) if step 1 won the race but step 2 needs to clamp by daily cap, we
- *      patch the prediction's payout to the actually-credited amount.
- */
+function parseSelectedGems(raw: string | null | undefined): SelectedGem[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): SelectedGem | null => {
+        if (!item || typeof item !== "object") return null;
+        const id = Number((item as { id?: unknown }).id);
+        const gemType = String((item as { gemType?: unknown }).gemType ?? "");
+        if (!Number.isInteger(id) || id <= 0 || !gemType) return null;
+        return { id, gemType };
+      })
+      .filter((item): item is SelectedGem => item != null);
+  } catch {
+    return [];
+  }
+}
+
 export async function resolvePredictionLogic(
   predictionId: number,
   exitPrice: number,
@@ -69,9 +75,6 @@ export async function resolvePredictionLogic(
       (prediction.direction === "short" && !priceWentUp);
     const status = isWin ? "won" : "lost";
 
-    // Step 1: claim the prediction. If another worker beat us, we abort here
-    // BEFORE touching the user's GC balance. This is the single source of
-    // truth for "who gets to credit the user".
     const [claimed] = await tx
       .update(predictionsTable)
       .set({
@@ -88,7 +91,6 @@ export async function resolvePredictionLogic(
 
     if (!claimed) return { ok: false, reason: "race_lost" };
 
-    // Step 2: we won the race; check for gem powerups.
     const [user] = await tx
       .select()
       .from(usersTable)
@@ -97,15 +99,21 @@ export async function resolvePredictionLogic(
 
     if (!user) return { ok: true, prediction: claimed };
 
-    const gemRows = await tx
-      .select()
-      .from(gemInventoryTable)
-      .where(
-        and(
-          eq(gemInventoryTable.telegramId, prediction.telegramId),
-          gt(gemInventoryTable.usesRemaining, 0),
-        ),
-      );
+    const selectedGems = parseSelectedGems(prediction.activeGems);
+    const selectedGemIds = selectedGems.map((gem) => gem.id);
+    const gemRows = selectedGemIds.length > 0
+      ? await tx
+          .select()
+          .from(gemInventoryTable)
+          .where(
+            and(
+              eq(gemInventoryTable.telegramId, prediction.telegramId),
+              inArray(gemInventoryTable.id, selectedGemIds),
+              gt(gemInventoryTable.usesRemaining, 0),
+            ),
+          )
+      : [];
+
     const takeGem = (type: string) => gemRows.find((g) => g.gemType === type);
 
     const doubleDown = takeGem("double_down");
@@ -114,7 +122,6 @@ export async function resolvePredictionLogic(
     const bigSwing = takeGem("big_swing");
     const streakSaver = takeGem("streak_saver");
 
-    // Double Down burns on the next resolved trade, win or loss.
     if (doubleDown) {
       await tx
         .update(gemInventoryTable)
@@ -122,7 +129,6 @@ export async function resolvePredictionLogic(
         .where(eq(gemInventoryTable.id, doubleDown.id));
     }
 
-    // Handle Streak Saver on loss: refund TC and consume gem.
     if (!isWin) {
       if (streakSaver) {
         await tx
@@ -138,7 +144,6 @@ export async function resolvePredictionLogic(
       return { ok: true, prediction: claimed };
     }
 
-    // Step 3: credit GC for wins, applying at most one major multiplier.
     const today = new Date().toISOString().split("T")[0];
     const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
     const vipNow = isVipActive(user);
@@ -160,14 +165,7 @@ export async function resolvePredictionLogic(
       appliedWinGem = starterBoost;
     }
 
-    // VIP already receives a better duration multiplier and higher caps.
-    // Do not double the full payout again here.
     const baseMultiplier = 1;
-    // Use the per-prediction multiplier that was validated & stored on bet
-    // placement (duration tier + VIP bonus). Fall back to legacy GC_RATIO for
-    // any older rows written before this column existed, and guard against
-    // the driver handing us back a string or null (both have been observed on
-    // Railway during migrations).
     const storedMultiplier = toFiniteNumber(prediction.multiplier, DEFAULT_MULTIPLIER);
     const tierMultiplier = storedMultiplier > 0 ? storedMultiplier : DEFAULT_MULTIPLIER;
     const stakeAmount = toFiniteNumber(prediction.amount, 0);
@@ -214,7 +212,6 @@ export async function resolvePredictionLogic(
       })
       .where(eq(usersTable.telegramId, prediction.telegramId));
 
-    // Consume only the win-based multiplier that affected this win.
     if (appliedWinGem) {
       await tx
         .update(gemInventoryTable)
@@ -222,8 +219,6 @@ export async function resolvePredictionLogic(
         .where(eq(gemInventoryTable.id, appliedWinGem.id));
     }
 
-    // Step 4: patch the prediction's payout column to the actually-credited
-    // amount so the UI sees the right number.
     const [patched] = await tx
       .update(predictionsTable)
       .set({ payout: gcPayout })
