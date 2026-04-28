@@ -24,19 +24,28 @@ function requireAdmin(req: Request, res: Response): boolean {
 
 const router: IRouter = Router();
 
-const DAILY_LIMITS: Record<string, number> = {
-  whatsapp: 2,
-  tiktok: 3,
-  instagram: 3,
-  youtube: 3,
-  x: 3,
+const DAILY_LIMITS_FREE: Record<string, number> = {
+  whatsapp: 1,
+  tiktok: 1,
+  instagram: 1,
+  youtube: 1,
+  x: 1,
 };
 
-const REQUIRED_CAPTION_KEYWORDS = ["koinara", "koinaraapp", "koin trades", "koinara trading"];
+const DAILY_LIMITS_VIP: Record<string, number> = {
+  whatsapp: 3,
+  tiktok: 3,
+  instagram: 3,
+  youtube: 2,
+  x: 2,
+};
+
+const REQUIRED_CAPTION_KEYWORDS = ["koinara", "koinaraapp", "koin trades", "koinara trading", "knr-"];
 const VIP_REFERRAL_XP = 10_000;
 const VIP_REFERRAL_TC = 25_000;
-const YOUTUBE_LONG_BONUS_MULT = 1.75;
-const YOUTUBE_SHORT_BONUS_MULT = 1.25;
+const CREATOR_SUBMIT_XP = 25;
+const CREATOR_SUBMIT_XP_VIP = 50;
+const CREATOR_RECHECK_HOURS = 24;
 
 const URL_PATTERNS: Record<string, RegExp> = {
   tiktok: /^https?:\/\/(www\.|vm\.)?tiktok\.com\//i,
@@ -74,12 +83,30 @@ function dailyFingerprint(telegramId: string, platform: string, index: number): 
   return crypto.createHash("sha256").update(`${telegramId}:${platform}:${today}:${index}`).digest("hex");
 }
 
+function getDailyLimit(platform: string, vip: boolean): number {
+  const limits = vip ? DAILY_LIMITS_VIP : DAILY_LIMITS_FREE;
+  return limits[platform] ?? 1;
+}
+
 function rankLevelForXp(rankXp: number): number {
   if (rankXp >= 40_000) return 5;
   if (rankXp >= 15_000) return 4;
   if (rankXp >= 5_000) return 3;
   if (rankXp >= 1_500) return 2;
   return 1;
+}
+
+function clampReward(input: { platform: string; xp: number; tc: number; gc: number; verifiedSignups: number; vipReferrals: number; capBoostGc: number }) {
+  const valueBacked = input.verifiedSignups > 0 || input.vipReferrals > 0;
+  const maxXp = valueBacked ? 60_000 : input.platform === "whatsapp" ? 1_000 : 8_000;
+  const maxTc = valueBacked ? 150_000 : input.platform === "whatsapp" ? 1_000 : 10_000;
+  const maxGc = valueBacked ? 25_000 : 0;
+  return {
+    xp: Math.min(Math.max(0, input.xp), maxXp),
+    tc: Math.min(Math.max(0, input.tc), maxTc),
+    gc: Math.min(Math.max(0, input.gc), maxGc),
+    capBoostGc: valueBacked ? Math.min(Math.max(0, input.capBoostGc), 50_000) : 0,
+  };
 }
 
 function calculateCreatorReward(input: {
@@ -97,31 +124,27 @@ function calculateCreatorReward(input: {
   const signups = Math.max(0, input.verifiedSignups);
   const vipRefs = Math.max(0, input.vipReferrals);
 
-  let platformMult = 1;
-  if (input.platform === "youtube" && input.postType === "long") platformMult = YOUTUBE_LONG_BONUS_MULT;
-  if (input.platform === "youtube" && input.postType === "short") platformMult = YOUTUBE_SHORT_BONUS_MULT;
-
-  const contentScore = Math.floor((views + likes * 10 + comments * 25) * platformMult);
-  const signupScore = signups * 500;
+  const qualityScore = views * 0.02 + likes * 5 + comments * 15;
+  const baseByPlatform = input.platform === "whatsapp" ? 100 : input.platform === "youtube" && input.postType === "long" ? 2_000 : 500;
+  const signupScore = signups * 900;
   const vipScore = vipRefs * 5_000;
 
-  const xp = Math.min(60_000, 500 + Math.floor((contentScore + signupScore + vipScore) / 8));
-  const creatorXp = xp;
+  const rawXp = Math.floor(baseByPlatform + qualityScore + signupScore + vipScore);
+  const rawTc = Math.floor((input.platform === "whatsapp" ? 250 : 1_000) + qualityScore * 2 + signups * 1_000 + vipRefs * VIP_REFERRAL_TC);
+  const rawGc = vipRefs * 2_500;
+  const rawCapBoost = vipRefs * 5_000 + signups * 500;
+  const clamped = clampReward({
+    platform: input.platform,
+    xp: rawXp,
+    tc: rawTc,
+    gc: rawGc,
+    verifiedSignups: signups,
+    vipReferrals: vipRefs,
+    capBoostGc: rawCapBoost,
+  });
+
   const valueXp = vipRefs > 0 ? vipRefs * VIP_REFERRAL_XP : signups * 150;
-
-  const tc = Math.min(150_000, 1_000 + Math.floor((contentScore + signupScore) / 2) + vipRefs * VIP_REFERRAL_TC);
-
-  let gc = 0;
-  if (input.platform === "youtube") {
-    if (views >= 1_000) gc += input.postType === "long" ? 1_000 : 500;
-    if (views >= 10_000) gc += input.postType === "long" ? 4_000 : 2_000;
-    if (views >= 50_000) gc += input.postType === "long" ? 12_000 : 6_000;
-  }
-  gc += vipRefs * 2_500;
-  gc = Math.min(gc, vipRefs > 0 ? 25_000 : 8_000);
-
-  const capBoostGc = vipRefs > 0 ? Math.min(50_000, vipRefs * 5_000 + signups * 500) : 0;
-  return { xp, creatorXp, valueXp, tc, gc, capBoostGc };
+  return { xp: clamped.xp, creatorXp: clamped.xp, valueXp, tc: clamped.tc, gc: clamped.gc, capBoostGc: clamped.capBoostGc };
 }
 
 const SubmitContentBody = z.object({
@@ -152,7 +175,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
 
   const pattern = URL_PATTERNS[platform];
   if (pattern && !pattern.test(url)) {
-    res.status(400).json({ error: `Invalid ${platform} URL. Please submit a valid public link.` });
+    res.status(400).json({ error: `Invalid ${platform} URL. Please submit a valid public link or screenshot proof.` });
     return;
   }
 
@@ -162,7 +185,8 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     return;
   }
 
-  const dailyLimit = DAILY_LIMITS[platform] ?? 1;
+  const vip = isVipActive(user);
+  const dailyLimit = getDailyLimit(platform, vip);
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
   const todaySubmissions = await db
@@ -171,7 +195,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     .where(and(eq(contentSubmissionsTable.telegramId, authedId), eq(contentSubmissionsTable.platform, platform), sql`${contentSubmissionsTable.createdAt} >= ${todayStart}`, sql`${contentSubmissionsTable.status} NOT IN ('rejected')`));
 
   if (todaySubmissions.length >= dailyLimit) {
-    res.status(429).json({ error: `Daily ${platform} creator submission limit reached (${dailyLimit}/day).` });
+    res.status(429).json({ error: `Daily ${platform} creator submission limit reached (${dailyLimit}/day). VIP users get higher limits.` });
     return;
   }
 
@@ -182,6 +206,8 @@ router.post("/content/submit", async (req, res): Promise<void> => {
   }
 
   const fingerprint = dailyFingerprint(authedId, platform, todaySubmissions.length);
+  const submitXp = vip ? CREATOR_SUBMIT_XP_VIP : CREATOR_SUBMIT_XP;
+  const deletionCheckAt = platform === "whatsapp" ? null : new Date(Date.now() + CREATOR_RECHECK_HOURS * 60 * 60 * 1000);
 
   try {
     const [submission] = await db.insert(contentSubmissionsTable).values({
@@ -192,15 +218,17 @@ router.post("/content/submit", async (req, res): Promise<void> => {
       caption,
       status: "pending",
       dailyFingerprint: fingerprint,
+      deletionCheckAt,
       gcAwarded: 0,
-      xpAwarded: 50,
-      creatorXpAwarded: 50,
+      tcAwarded: 0,
+      xpAwarded: submitXp,
+      creatorXpAwarded: submitXp,
     }).returning();
 
     await db.update(usersTable).set({
-      rankXp: sql`${usersTable.rankXp} + 50`,
-      creatorXp: sql`${usersTable.creatorXp} + 50`,
-      rankLevel: sql`GREATEST(${usersTable.rankLevel}, ${rankLevelForXp((user.rankXp ?? 0) + 50)})`,
+      rankXp: sql`${usersTable.rankXp} + ${submitXp}`,
+      creatorXp: sql`${usersTable.creatorXp} + ${submitXp}`,
+      rankLevel: sql`GREATEST(${usersTable.rankLevel}, ${rankLevelForXp((user.rankXp ?? 0) + submitXp)})`,
     }).where(eq(usersTable.telegramId, authedId));
 
     res.status(201).json({
@@ -208,8 +236,9 @@ router.post("/content/submit", async (req, res): Promise<void> => {
       platform,
       postType,
       status: "pending",
-      xpAwarded: 50,
-      message: "+50 XP submitted. Admin review will unlock bigger XP, TC, and possible GC.",
+      xpAwarded: submitXp,
+      dailyLimit,
+      message: `+${submitXp} XP submitted. Rewards stay pending until review; big rewards require real signups or VIP referrals.`,
     });
   } catch (err: any) {
     if (err?.code === "23505" && err?.constraint?.includes("uq_content_url")) {
@@ -230,16 +259,18 @@ router.get("/content/:telegramId", async (req, res): Promise<void> => {
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authedId) return;
 
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
+  const vip = user ? isVipActive(user) : false;
   const submissions = await db.select().from(contentSubmissionsTable).where(eq(contentSubmissionsTable.telegramId, authedId)).orderBy(desc(contentSubmissionsTable.createdAt)).limit(50);
   res.json({
     submissions: serializeRows(submissions as Record<string, unknown>[]),
     rewards: {
-      submit: { xp: 50 },
-      youtubeShort: { note: "Higher tiers unlock after admin verifies views/signups." },
-      youtubeLong: { note: "Long-form receives the strongest view multiplier." },
-      vipReferral: { xp: VIP_REFERRAL_XP, tc: VIP_REFERRAL_TC, note: "Unlimited income via VIP referral commission." },
+      submit: { xp: vip ? CREATOR_SUBMIT_XP_VIP : CREATOR_SUBMIT_XP },
+      whatsapp: { note: "Small daily XP/TC streak style reward only; no big GC without conversions." },
+      youtubeMega: { note: "100K+ real YouTube views can be owner-reviewed for the special $25 USDT bonus." },
+      vipReferral: { xp: VIP_REFERRAL_XP, tc: VIP_REFERRAL_TC, note: "Highest-value path; rewards require payment cleared." },
     },
-    dailyLimits: DAILY_LIMITS,
+    dailyLimits: vip ? DAILY_LIMITS_VIP : DAILY_LIMITS_FREE,
     requiredCaptionKeywords: REQUIRED_CAPTION_KEYWORDS,
   });
 });
@@ -307,12 +338,21 @@ router.post("/admin/content/submissions/:id/approve", async (req, res): Promise<
         verifiedSignups: parsed.data.verifiedSignups,
         vipReferrals: parsed.data.vipReferrals,
       });
-      const xp = parsed.data.xp ?? reward.xp;
+      const manual = clampReward({
+        platform: submission.platform,
+        xp: parsed.data.xp ?? reward.xp,
+        tc: parsed.data.tc ?? reward.tc,
+        gc: parsed.data.gc ?? reward.gc,
+        capBoostGc: parsed.data.capBoostGc ?? reward.capBoostGc,
+        verifiedSignups: parsed.data.verifiedSignups,
+        vipReferrals: parsed.data.vipReferrals,
+      });
+      const xp = manual.xp;
       const creatorXp = xp;
       const valueXp = parsed.data.vipReferrals > 0 ? parsed.data.vipReferrals * VIP_REFERRAL_XP : reward.valueXp;
-      const tc = parsed.data.tc ?? reward.tc;
-      const gc = parsed.data.gc ?? reward.gc;
-      const capBoostGc = parsed.data.capBoostGc ?? reward.capBoostGc;
+      const tc = manual.tc;
+      const gc = manual.gc;
+      const capBoostGc = manual.capBoostGc;
 
       const [user] = await tx.select().from(usersTable).where(eq(usersTable.telegramId, submission.telegramId)).for("update").limit(1);
       if (!user) throw new Error("USER_NOT_FOUND");
@@ -386,7 +426,7 @@ router.post("/content/deletion-check", async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const now = new Date();
   const dueSubmissions = await db.select().from(contentSubmissionsTable).where(and(eq(contentSubmissionsTable.status, "approved"), eq(contentSubmissionsTable.deletionChecked, false), lte(contentSubmissionsTable.deletionCheckAt, now))).limit(100);
-  res.json({ checked: dueSubmissions.length, passed: 0, clawedBack: 0, note: "Creator Missions v1 uses manual review. Deletion checks can be enabled later." });
+  res.json({ checked: dueSubmissions.length, passed: 0, clawedBack: 0, note: "Deletion check queue is exposed for admin review. Automatic clawback is intentionally disabled until payout policy is final." });
 });
 
 export default router;
