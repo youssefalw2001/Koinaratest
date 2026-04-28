@@ -6,12 +6,14 @@ import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
 import gemsRouter from "./gems";
+import contentSubmitGuardRouter from "./contentSubmitGuard";
 import contentStatusGuardRouter from "./contentStatusGuard";
 import contentRouter from "./content";
 import crashRouter from "./crash";
 import marketRouter from "./market";
 import featuresRouter from "./features";
 import exchangeRouter from "./exchange";
+import minesPassPurchaseGuardRouter from "./minesPassPurchaseGuard";
 import minesPassCapRouter from "./minesPassCap";
 import minesRouter from "./mines";
 
@@ -24,16 +26,17 @@ router.use(questsRouter);
 router.use(rewardsRouter);
 router.use(withdrawalsRouter);
 router.use(gemsRouter);
-// Must be mounted before contentRouter to protect /content/status/:submissionId
-// from the older unauthenticated handler in content.ts.
+// Must be mounted before contentRouter to replace/protect old content handlers.
+router.use(contentSubmitGuardRouter);
 router.use(contentStatusGuardRouter);
 router.use(contentRouter);
 router.use(crashRouter);
 router.use(marketRouter);
 router.use(featuresRouter);
 router.use(exchangeRouter);
-// Must be mounted before the default Mines router so pass-aware /mines/start
-// and /mines/cashout handlers run first.
+// Must be mounted before Mines routers so pass purchase memo binding and pass-aware
+// start/cashout handlers run first.
+router.use(minesPassPurchaseGuardRouter);
 router.use(minesPassCapRouter);
 router.use(minesRouter);
 
