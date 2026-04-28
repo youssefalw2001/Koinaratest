@@ -78,9 +78,10 @@ async function isUrlLive(url: string): Promise<boolean> {
   }
 }
 
-function dailyFingerprint(telegramId: string, platform: string, index: number): string {
+function dailyFingerprint(telegramId: string, platform: string): string {
   const today = new Date().toISOString().slice(0, 10);
-  return crypto.createHash("sha256").update(`${telegramId}:${platform}:${today}:${index}`).digest("hex");
+  const nonce = crypto.randomUUID();
+  return crypto.createHash("sha256").update(`${telegramId}:${platform}:${today}:${nonce}`).digest("hex");
 }
 
 function getDailyLimit(platform: string, vip: boolean): number {
@@ -205,7 +206,7 @@ router.post("/content/submit", async (req, res): Promise<void> => {
     return;
   }
 
-  const fingerprint = dailyFingerprint(authedId, platform, todaySubmissions.length);
+  const fingerprint = dailyFingerprint(authedId, platform);
   const submitXp = vip ? CREATOR_SUBMIT_XP_VIP : CREATOR_SUBMIT_XP;
   const deletionCheckAt = platform === "whatsapp" ? null : new Date(Date.now() + CREATOR_RECHECK_HOURS * 60 * 60 * 1000);
 
@@ -243,6 +244,10 @@ router.post("/content/submit", async (req, res): Promise<void> => {
   } catch (err: any) {
     if (err?.code === "23505" && err?.constraint?.includes("uq_content_url")) {
       res.status(409).json({ error: "This content URL has already been submitted." });
+      return;
+    }
+    if (err?.code === "23505" && err?.constraint?.includes("uq_content_daily_fingerprint")) {
+      res.status(409).json({ error: "Creator submission already recorded. Please refresh and try again." });
       return;
     }
     logger.error({ err, telegramId: authedId }, "Creator content submission failed");
