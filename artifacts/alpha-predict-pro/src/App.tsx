@@ -37,6 +37,7 @@ const queryClient = new QueryClient({
 const FREE_WITHDRAWAL_MIN_GC = 14000;
 const FREE_TRADE_CAP_GC = 7000;
 const FREE_MINES_CAP_GC = 5000;
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
 
 function TonPaymentBridge() {
   const [tonConnectUI] = useTonConnectUI();
@@ -68,6 +69,109 @@ function TonPaymentBridge() {
   return null;
 }
 
+function MinesPassDirectPaymentBridge() {
+  const [location] = useLocation();
+  const { user, refreshUser } = useTelegram();
+  const walletAddress = useTonAddress();
+
+  useEffect(() => {
+    if (location !== "/mines" && location !== "/crash") return;
+    if (!user?.telegramId) return;
+
+    const tierAmount: Record<string, Record<number, string>> = {
+      bronze: { 1: "50000000", 5: "195000000", 10: "345000000" },
+      silver: { 1: "100000000", 5: "390000000", 10: "690000000" },
+      gold: { 1: "250000000", 5: "975000000", 10: "1725000000" },
+    };
+
+    const getSelectedTier = () => {
+      const page = document.body.textContent?.toLowerCase() ?? "";
+      if (page.includes("gold mode")) return "gold";
+      if (page.includes("silver mode")) return "silver";
+      return "bronze";
+    };
+
+    const getPackSize = (text: string) => {
+      if (/10\s*[×x]/i.test(text)) return 10;
+      if (/5\s*[×x]/i.test(text)) return 5;
+      if (/1\s*[×x]/i.test(text)) return 1;
+      return null;
+    };
+
+    const onClick = async (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const button = target?.closest?.("button") as HTMLButtonElement | null;
+      if (!button) return;
+      const pageText = document.body.textContent ?? "";
+      if (!pageText.includes("Round Passes")) return;
+      const text = button.textContent ?? "";
+      const packSize = getPackSize(text);
+      if (!packSize) return;
+
+      const tier = getSelectedTier();
+      const amount = tierAmount[tier]?.[packSize];
+      if (!amount) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      const tonConnect = (window as any)?.tonConnectUI;
+      if (!tonConnect) {
+        window.alert?.("TON wallet is loading. Please try again.");
+        return;
+      }
+
+      const operatorWallet = (import.meta.env.VITE_TON_WALLET || import.meta.env.VITE_KOINARA_TON_WALLET) as string | undefined;
+      if (!operatorWallet) {
+        window.alert?.("TON payments are not configured.");
+        return;
+      }
+
+      if (!tonConnect.connected && typeof tonConnect.openModal === "function") {
+        await tonConnect.openModal();
+        window.alert?.("Connect your TON wallet, then tap the pass again to pay.");
+        return;
+      }
+
+      const senderAddress = tonConnect.account?.address || walletAddress || user.walletAddress;
+      if (!senderAddress) {
+        window.alert?.("Connect your TON wallet, then tap the pass again to pay.");
+        return;
+      }
+
+      try {
+        await tonConnect.sendTransaction({
+          validUntil: Math.floor(Date.now() / 1000) + 600,
+          messages: [{ address: operatorWallet, amount }],
+        });
+
+        await new Promise((r) => setTimeout(r, 5000));
+        const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
+        const res = await fetch(`${API_BASE}/mines/passes/purchase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
+          body: JSON.stringify({ telegramId: user.telegramId, tier, packSize, senderAddress }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error ?? "Payment verification failed. Please try again.");
+        refreshUser();
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+        window.alert?.(`${packSize}× ${tier} Mines pass added.`);
+        window.location.reload();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Payment failed. Please try again.";
+        window.alert?.(message.includes("Cancelled") || message.includes("rejected") ? "Transaction cancelled." : message);
+      }
+    };
+
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [location, user?.telegramId, user?.walletAddress, walletAddress, refreshUser]);
+
+  return null;
+}
+
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo } = useTelegram();
   const [, setLocation] = useLocation();
@@ -78,11 +182,16 @@ function VipPromoModal() {
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const link = target?.closest?.("a") as HTMLAnchorElement | null;
-      if (!link) return;
-      const label = (link.textContent ?? "").toLowerCase();
-      const href = link.getAttribute("href") ?? "";
-      if ((href.endsWith("/wallet") || href === "/wallet") && label.includes("activate vip")) {
+      const clickable = target?.closest?.("a,button") as HTMLElement | null;
+      if (!clickable) return;
+      const label = (clickable.textContent ?? "").toLowerCase();
+      const href = link?.getAttribute("href") ?? "";
+      const looksLikeVip = label.includes("activate vip") || label.includes("go vip") || label.includes("purchase vip");
+      const goesWallet = href.endsWith("/wallet") || href === "/wallet";
+      if (looksLikeVip && (goesWallet || label.includes("activate vip"))) {
         event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
         setManualVipPromo(true);
       }
     };
@@ -187,6 +296,7 @@ function Router() {
   return (
     <Layout>
       <TonPaymentBridge />
+      <MinesPassDirectPaymentBridge />
       <HomeWalletTrustPanel />
       <Switch>
         <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
