@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bomb, Eye, Gem, Trophy, TrendingUp } from "lucide-react";
+import { Bomb, Gem, Trophy, TrendingUp } from "lucide-react";
 import Mines from "./Mines";
 import { useTelegram } from "@/lib/TelegramProvider";
-
-const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
 
 type RecentMineBet = {
   id: string;
@@ -13,14 +11,6 @@ type RecentMineBet = {
   currency: string;
   multiplier?: number;
   at: number;
-};
-
-type ActiveRoundLite = {
-  roundId: number;
-  revealed: number[];
-  minesCount: number;
-  tier?: string | null;
-  activeGems?: { safe_reveal_used?: boolean };
 };
 
 const STORAGE_KEY_PREFIX = "koinara_recent_mines_v1";
@@ -47,27 +37,11 @@ function currencyForResult(data: any, isCashout: boolean): string {
 }
 
 function amountForCashout(data: any): number {
-  return pickNumber(
-    data?.gcPayout,
-    data?.tcPayout,
-    data?.payout,
-    data?.goldCoinsAwarded,
-    data?.tradeCreditsAwarded,
-    data?.reward,
-    data?.cashoutValue,
-  ) ?? 0;
+  return pickNumber(data?.gcPayout, data?.tcPayout, data?.payout, data?.goldCoinsAwarded, data?.tradeCreditsAwarded, data?.reward, data?.cashoutValue) ?? 0;
 }
 
 function amountForBust(data: any): number {
-  return pickNumber(
-    data?.bet,
-    data?.stake,
-    data?.amount,
-    data?.lostAmount,
-    data?.round?.bet,
-    data?.activeRound?.bet,
-    data?.refund,
-  ) ?? 0;
+  return pickNumber(data?.bet, data?.stake, data?.amount, data?.lostAmount, data?.round?.bet, data?.activeRound?.bet, data?.refund) ?? 0;
 }
 
 function timeAgo(ts: number): string {
@@ -82,28 +56,6 @@ export default function MinesWithFeedback() {
   const storageKey = `${STORAGE_KEY_PREFIX}:${user?.telegramId ?? "guest"}`;
   const [recent, setRecent] = useState<RecentMineBet[]>([]);
   const [winToast, setWinToast] = useState<RecentMineBet | null>(null);
-  const [activeRound, setActiveRound] = useState<ActiveRoundLite | null>(null);
-  const [safeRevealBusy, setSafeRevealBusy] = useState(false);
-  const [safeRevealMessage, setSafeRevealMessage] = useState<string | null>(null);
-  const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
-
-  const loadActiveRound = async () => {
-    if (!user?.telegramId) return;
-    try {
-      const res = await fetch(`${API_BASE}/mines/active/${encodeURIComponent(user.telegramId)}`, {
-        headers: initData ? { "x-telegram-init-data": initData } : {},
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      setActiveRound(data?.active ?? null);
-    } catch {}
-  };
-
-  useEffect(() => {
-    loadActiveRound();
-    const interval = setInterval(loadActiveRound, 5000);
-    return () => clearInterval(interval);
-  }, [user?.telegramId, initData]);
 
   useEffect(() => {
     try {
@@ -122,19 +74,11 @@ export default function MinesWithFeedback() {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const isMinesCashout = url.includes("/api/mines/cashout");
       const isMinesReveal = url.includes("/api/mines/reveal");
-      const isMinesStart = url.includes("/api/mines/start");
-
-      if (isMinesStart || isMinesReveal || isMinesCashout) {
-        window.setTimeout(loadActiveRound, 350);
-      }
-
       if (!isMinesCashout && !isMinesReveal) return response;
 
       try {
-        const clone = response.clone();
-        const data = await clone.json();
+        const data = await response.clone().json();
         if (!response.ok) return response;
-
         const isBust = isMinesReveal && data?.hit === true && data?.shielded !== true;
         const won = isMinesCashout || data?.secondChance === true;
         if (!isMinesCashout && !isBust) return response;
@@ -153,12 +97,13 @@ export default function MinesWithFeedback() {
           localStorage.setItem(storageKey, JSON.stringify(next));
           return next;
         });
+
         if (won && item.amount > 0) {
           setWinToast(item);
           window.setTimeout(() => setWinToast(null), 2800);
         }
       } catch {
-        // Leave game flow untouched if parsing fails.
+        // Leave game flow untouched if response parsing fails.
       }
       return response;
     };
@@ -168,62 +113,11 @@ export default function MinesWithFeedback() {
     };
   }, [storageKey, user?.telegramId]);
 
-  const handleSafeReveal = async () => {
-    if (!user?.telegramId || !activeRound || safeRevealBusy) return;
-    setSafeRevealBusy(true);
-    setSafeRevealMessage(null);
-    try {
-      const res = await fetch(`${API_BASE}/mines/safe-reveal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
-        body: JSON.stringify({ telegramId: user.telegramId, roundId: activeRound.roundId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error ?? "Safe Reveal failed.");
-      setSafeRevealMessage(data?.message ?? "Safe Reveal activated.");
-      await loadActiveRound();
-      window.setTimeout(() => window.location.reload(), 450);
-    } catch (err) {
-      setSafeRevealMessage(err instanceof Error ? err.message : "Safe Reveal failed.");
-    } finally {
-      setSafeRevealBusy(false);
-      window.setTimeout(() => setSafeRevealMessage(null), 3500);
-    }
-  };
-
   const visibleRecent = useMemo(() => recent.slice(0, 5), [recent]);
-  const revealedCount = activeRound?.revealed?.length ?? 0;
-  const safeRevealLockedReason = !activeRound
-    ? null
-    : activeRound.tier === "gold"
-      ? "Disabled on Gold mode"
-      : activeRound.minesCount > 10
-        ? "Unavailable above 10 bombs"
-        : activeRound.activeGems?.safe_reveal_used
-          ? "Used this round"
-          : revealedCount < 3
-            ? `Unlocks after ${3 - revealedCount} more safe tile${3 - revealedCount === 1 ? "" : "s"}`
-            : null;
 
   return (
     <div className="relative">
       <Mines />
-
-      {activeRound && (
-        <section className="mx-4 -mt-2 mb-3 rounded-3xl border border-[#00BFFF]/22 bg-[#00BFFF]/8 p-3 shadow-[0_0_26px_rgba(0,191,255,.10)] relative z-20">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl border border-[#00BFFF]/30 bg-[#00BFFF]/12 flex items-center justify-center shrink-0"><Eye size={18} className="text-[#00BFFF]" /></div>
-            <div className="flex-1 min-w-0">
-              <div className="font-black text-[#00BFFF]">Safe Reveal</div>
-              <div className="font-mono text-[10px] text-white/42">Reveals 1 safe tile after you survive 3 tiles. Consumed immediately.</div>
-              {safeRevealMessage && <div className="mt-1 font-mono text-[10px] text-[#FFD700]">{safeRevealMessage}</div>}
-            </div>
-            <button onClick={handleSafeReveal} disabled={!!safeRevealLockedReason || safeRevealBusy} className="rounded-2xl border border-[#00BFFF]/35 bg-[#00BFFF]/10 px-3 py-2 font-mono text-[10px] font-black text-[#00BFFF] disabled:opacity-40">
-              {safeRevealBusy ? "Using" : safeRevealLockedReason ?? "Activate"}
-            </button>
-          </div>
-        </section>
-      )}
 
       <AnimatePresence>
         {winToast && (
@@ -246,12 +140,18 @@ export default function MinesWithFeedback() {
         )}
       </AnimatePresence>
 
-      {visibleRecent.length > 0 && (
-        <section className="mx-4 -mt-20 mb-28 rounded-3xl border border-[#FFD700]/16 bg-[#090b12]/88 p-3 shadow-[0_0_34px_rgba(0,0,0,.36)] backdrop-blur-xl relative z-20">
-          <div className="flex items-center justify-between mb-3">
-            <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/42">Past 5 Mines Bets</div>
-            <Gem size={14} className="text-[#FFD700]" />
+      <section className="mx-4 -mt-20 mb-28 rounded-3xl border border-[#FFD700]/16 bg-[#090b12]/88 p-3 shadow-[0_0_34px_rgba(0,0,0,.36)] backdrop-blur-xl relative z-20">
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/42">Past 5 Mines Bets</div>
+          <Gem size={14} className="text-[#FFD700]" />
+        </div>
+        {visibleRecent.length === 0 ? (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-center">
+            <Bomb size={22} className="mx-auto mb-2 text-white/25" />
+            <div className="font-black text-white/70">No Mines results yet</div>
+            <p className="mt-1 font-mono text-[10px] text-white/35">Your recent Mines wins and busts will appear here after you play.</p>
           </div>
+        ) : (
           <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleRecent.map((item) => (
               <div key={item.id} className="min-w-[118px] rounded-2xl border border-white/10 bg-white/[0.035] p-3">
@@ -267,8 +167,8 @@ export default function MinesWithFeedback() {
               </div>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
     </div>
   );
 }
