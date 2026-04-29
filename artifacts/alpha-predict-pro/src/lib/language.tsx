@@ -3,7 +3,6 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 export type AppLanguage = "en" | "hi" | "ar";
 
 type TranslationKey =
-  // App / nav
   | "appName"
   | "trade"
   | "crash"
@@ -23,7 +22,6 @@ type TranslationKey =
   | "gemShop"
   | "walletTitle"
   | "profileTitle"
-  // Shared controls
   | "connect"
   | "cancel"
   | "confirm"
@@ -38,7 +36,6 @@ type TranslationKey =
   | "insufficient"
   | "ton"
   | "comingSoon"
-  // Terminal / trading
   | "longLabel"
   | "shortLabel"
   | "betTc"
@@ -52,7 +49,6 @@ type TranslationKey =
   | "selectPair"
   | "winPayout"
   | "waitingRound"
-  // Mines
   | "minesGame"
   | "minesBlurb"
   | "gridSize"
@@ -65,7 +61,6 @@ type TranslationKey =
   | "newRound"
   | "verifyRound"
   | "provablyFair"
-  // Exchange
   | "exchange"
   | "exchangeBlurb"
   | "gcToTc"
@@ -83,7 +78,6 @@ type TranslationKey =
   | "jumboPack"
   | "buy"
   | "confirmingTx"
-  // Lootbox
   | "lootbox"
   | "lootboxBlurb"
   | "basicTier"
@@ -191,57 +185,57 @@ const hi: Record<TranslationKey, string> = {
   wallet: "वॉलेट",
   profile: "प्रोफाइल",
   leaderboard: "लीडरबोर्ड",
-  vip: "वीआईपी",
+  vip: "VIP",
   language: "भाषा",
-  english: "अंग्रेज़ी",
+  english: "English",
   hindi: "हिंदी",
   arabic: "अरबी",
-  tradeArena: "ट्रेड एरीना",
-  earnCenter: "अर्न सेंटर",
-  gemShop: "जेम शॉप",
+  tradeArena: "प्रीमियम ट्रेड एरीना",
+  earnCenter: "अर्निंग सेंटर",
+  gemShop: "पावर-अप शॉप",
   walletTitle: "कोइनारा वॉलेट",
-  profileTitle: "प्रोफाइल",
-  connect: "कनेक्ट करें",
+  profileTitle: "आपकी प्रोफाइल",
+  connect: "वॉलेट कनेक्ट करें",
   cancel: "रद्द करें",
-  confirm: "पुष्टि करें",
+  confirm: "कन्फर्म करें",
   close: "बंद करें",
-  retry: "फिर कोशिश करें",
+  retry: "दोबारा कोशिश करें",
   loading: "लोड हो रहा है...",
   balance: "बैलेंस",
   gold: "गोल्ड कॉइन्स",
   credits: "ट्रेड क्रेडिट्स",
-  won: "जीत",
-  lost: "हार",
+  won: "जीत गए",
+  lost: "हार गए",
   insufficient: "बैलेंस पर्याप्त नहीं है",
   ton: "TON",
   comingSoon: "जल्द आ रहा है",
   longLabel: "ऊपर",
   shortLabel: "नीचे",
   betTc: "बेट (TC)",
-  placeBet: "बेट लगाएँ",
-  placing: "लगाया जा रहा है...",
+  placeBet: "ट्रेड लगाएँ",
+  placing: "ट्रेड लग रही है...",
   round: "राउंड",
-  duration: "अवधि",
+  duration: "समय",
   multiplier: "मल्टीप्लायर",
   liveChart: "लाइव",
-  vipPayout: "वीआईपी पेआउट",
+  vipPayout: "VIP पेआउट",
   selectPair: "पेयर चुनें",
   winPayout: "जीत का पेआउट",
-  waitingRound: "राउंड खत्म होने का इंतज़ार...",
+  waitingRound: "राउंड पूरा होने का इंतज़ार...",
   minesGame: "माइंस",
-  minesBlurb: "मल्टीप्लायर बढ़ाने के लिए जेम्स खोलें। माइन लगने पर स्टेक हार जाएगा। कभी भी कैश आउट करें।",
+  minesBlurb: "सेफ टाइल खोलें, मल्टीप्लायर बढ़ाएँ और सही समय पर कैश आउट करें। माइन लगते ही स्टेक खत्म।",
   gridSize: "ग्रिड",
   minesLabel: "माइंस",
   startRound: "राउंड शुरू करें",
   cashout: "कैश आउट",
-  nextSafe: "अगली सुरक्षित टाइल",
+  nextSafe: "अगली सेफ टाइल",
   busted: "बस्ट",
-  cashedOut: "कैश आउट हो गया",
+  cashedOut: "कैश आउट पूरा",
   newRound: "नया राउंड",
-  verifyRound: "इस राउंड को सत्यापित करें",
-  provablyFair: "साबित करने योग्य निष्पक्ष · क्लाइंट सीड",
+  verifyRound: "राउंड वेरिफाई करें",
+  provablyFair: "प्रूवेबली फेयर · क्लाइंट सीड",
   exchange: "एक्सचेंज",
-  exchangeBlurb: "गोल्ड कॉइन्स को ट्रेड क्रेडिट्स में बदलें, या TON से TC पैक खरीदें।",
+  exchangeBlurb: "GC को TC में बदलें या TON से प्रीमियम TC पैक खरीदें।",
   gcToTc: "GC → TC",
   buyTcTon: "TC खरीदें · TON",
   gcToSpend: "खर्च करने के लिए GC",
@@ -256,105 +250,19 @@ const hi: Record<TranslationKey, string> = {
   whalePack: "व्हेल पैक",
   jumboPack: "जंबो वॉल्ट",
   buy: "खरीदें",
-  confirmingTx: "कन्फर्म हो रहा है...",
+  confirmingTx: "पेमेंट कन्फर्म हो रही है...",
   tradeCredits: "ट्रेड क्रेडिट्स",
   lootbox: "लूटबॉक्स",
-  lootboxBlurb: "TC/GC रोल स्पिन करें, या रेयर रिवॉर्ड्स के लिए मेगा बॉक्स पर किस्मत आज़माएँ।",
+  lootboxBlurb: "TC/GC रिवार्ड रोल करें या रेयर रिवॉर्ड्स के लिए मेगा बॉक्स खोलें।",
   basicTier: "बेसिक",
   proTier: "प्रो",
   megaTier: "मेगा",
   openLootbox: "लूटबॉक्स खोलें",
-  lootResult: "लूट रिज़ल्ट",
+  lootResult: "रिवॉर्ड रिज़ल्ट",
   cost: "लागत",
 };
 
-const ar: Record<TranslationKey, string> = {
-  appName: "كوينارا",
-  trade: "تداول",
-  crash: "كراش",
-  mines: "الألغام",
-  earn: "اكسب",
-  shop: "المتجر",
-  wallet: "المحفظة",
-  profile: "الملف",
-  leaderboard: "المتصدرين",
-  vip: "النخبة",
-  language: "اللغة",
-  english: "الإنجليزية",
-  hindi: "الهندية",
-  arabic: "العربية",
-  tradeArena: "ساحة التداول",
-  earnCenter: "مركز المكافآت",
-  gemShop: "متجر التعزيزات",
-  walletTitle: "محفظة كوينارا",
-  profileTitle: "الملف الشخصي",
-  connect: "اتصال",
-  cancel: "إلغاء",
-  confirm: "تأكيد",
-  close: "إغلاق",
-  retry: "إعادة المحاولة",
-  loading: "جاري التحميل...",
-  balance: "الرصيد",
-  gold: "العملات الذهبية",
-  credits: "أرصدة التداول",
-  won: "فوز",
-  lost: "خسارة",
-  insufficient: "الرصيد غير كافٍ",
-  ton: "TON",
-  comingSoon: "قريباً",
-  longLabel: "شراء",
-  shortLabel: "بيع",
-  betTc: "الرهان (TC)",
-  placeBet: "ضع الرهان",
-  placing: "جاري التنفيذ...",
-  round: "الجولة",
-  duration: "المدة",
-  multiplier: "المضاعف",
-  liveChart: "مباشر",
-  vipPayout: "عائد النخبة",
-  selectPair: "اختر الزوج",
-  winPayout: "عائد الفوز",
-  waitingRound: "بانتظار انتهاء الجولة...",
-  minesGame: "لعبة الألغام",
-  minesBlurb: "اكشف الجواهر لزيادة المضاعف. إذا ضربت لغماً تخسر الرهان. يمكنك السحب في أي وقت.",
-  gridSize: "الشبكة",
-  minesLabel: "الألغام",
-  startRound: "ابدأ الجولة",
-  cashout: "اسحب الأرباح",
-  nextSafe: "الخانة الآمنة التالية",
-  busted: "انفجار",
-  cashedOut: "تم السحب",
-  newRound: "جولة جديدة",
-  verifyRound: "تحقق من هذه الجولة",
-  provablyFair: "عدل قابل للإثبات · بذرة العميل",
-  exchange: "التبديل",
-  exchangeBlurb: "حوّل العملات الذهبية إلى أرصدة تداول، أو اشترِ حزم TC مقابل عملة TON.",
-  gcToTc: "GC → TC",
-  buyTcTon: "شراء TC · TON",
-  gcToSpend: "كمية GC للإنفاق",
-  youReceive: "ستحصل على",
-  convert: "تحويل",
-  converting: "جاري التحويل...",
-  rate: "السعر",
-  minimum: "الحد الأدنى",
-  maximum: "الحد الأقصى",
-  starterPack: "حزمة البداية",
-  traderPack: "حزمة المتداول",
-  whalePack: "حزمة الحوت",
-  jumboPack: "الخزينة الكبرى",
-  buy: "شراء",
-  confirmingTx: "جاري التأكيد...",
-  tradeCredits: "أرصدة التداول",
-  lootbox: "صندوق الحظ",
-  lootboxBlurb: "جرّب حظك بصناديق TC/GC، أو ارفع السقف بصندوق ميجا لمكافآت نادرة.",
-  basicTier: "أساسي",
-  proTier: "محترف",
-  megaTier: "ميجا",
-  openLootbox: "افتح الصندوق",
-  lootResult: "نتيجة الصندوق",
-  cost: "التكلفة",
-};
-
+const ar: Record<TranslationKey, string> = hi;
 const translations: Record<AppLanguage, Record<TranslationKey, string>> = { en, hi, ar };
 
 interface LanguageContextShape {
@@ -371,16 +279,14 @@ const LanguageContext = createContext<LanguageContextShape | null>(null);
 function readStoredLanguage(): AppLanguage {
   try {
     const stored = localStorage.getItem("koinara.language");
-    return stored === "ar" || stored === "hi" || stored === "en" ? stored : "en";
+    return stored === "hi" || stored === "en" ? stored : "en";
   } catch {
     return "en";
   }
 }
 
 function nextLanguage(current: AppLanguage): AppLanguage {
-  if (current === "en") return "hi";
-  if (current === "hi") return "ar";
-  return "en";
+  return current === "hi" ? "en" : "hi";
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
@@ -392,16 +298,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     } catch {
       // no-op
     }
-    document.documentElement.lang = language;
-    document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
+    document.documentElement.lang = language === "hi" ? "hi" : "en";
+    document.documentElement.dir = "ltr";
   }, [language]);
 
   const value = useMemo<LanguageContextShape>(() => {
     return {
       language,
-      setLanguage,
+      setLanguage: (next) => setLanguage(next === "hi" ? "hi" : "en"),
       toggleLanguage: () => setLanguage((prev) => nextLanguage(prev)),
-      isArabic: language === "ar",
+      isArabic: false,
       isHindi: language === "hi",
       t: (key: TranslationKey) => translations[language][key] ?? translations.en[key],
     };

@@ -75,15 +75,11 @@ function useDailyResetCountdown(): string {
 }
 
 function languageShortLabel(language: "en" | "hi" | "ar"): string {
-  if (language === "en") return "HI";
-  if (language === "hi") return "AR";
-  return "EN";
+  return language === "hi" ? "EN" : "HI";
 }
 
 function languageFullLabel(language: "en" | "hi" | "ar"): string {
-  if (language === "en") return "Hindi";
-  if (language === "hi") return "Arabic";
-  return "English";
+  return language === "hi" ? "English" : "हिंदी";
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
