@@ -87,6 +87,18 @@ jobs:
               ;;
           esac
 
+      - name: Validate TON wallet frontend secrets
+        env:
+          VITE_TON_WALLET: ${{ secrets.VITE_TON_WALLET }}
+          VITE_KOINARA_TON_WALLET: ${{ secrets.VITE_KOINARA_TON_WALLET }}
+        run: |
+          if [ -z "${VITE_TON_WALLET}" ]; then
+            echo "::warning::VITE_TON_WALLET secret is not set. TC pack payments and Wallet fallback may show not configured."
+          fi
+          if [ -z "${VITE_KOINARA_TON_WALLET}" ]; then
+            echo "::warning::VITE_KOINARA_TON_WALLET secret is not set. Wallet uses VITE_TON_WALLET fallback if present."
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -117,6 +129,8 @@ jobs:
           PORT: "4173"
           BASE_PATH: "/${{ github.event.repository.name }}/"
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_TON_WALLET: ${{ secrets.VITE_TON_WALLET }}
+          VITE_KOINARA_TON_WALLET: ${{ secrets.VITE_KOINARA_TON_WALLET }}
 
       - name: Deploy static site to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
