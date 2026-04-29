@@ -10,6 +10,7 @@ import {
   Crown,
   History,
   Loader2,
+  RefreshCw,
   Shield,
   Sparkles,
   Wallet,
@@ -52,6 +53,12 @@ function makeIdempotencyKey(prefix: string, parts: Array<string | number>): stri
 
 function commentPayload(comment: string): string {
   return beginCell().storeUint(0, 32).storeStringTail(comment).endCell().toBoc().toString("base64");
+}
+
+function shortAddress(address?: string | null): string {
+  if (!address) return "Not connected";
+  if (address.length <= 14) return address;
+  return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
 function statusTone(status: string): { label: string; color: string; bg: string } {
@@ -115,6 +122,18 @@ export default function WalletPremium() {
       }).catch(() => {});
     }
   }, [walletAddress, user?.telegramId, user?.walletAddress, updateWallet, queryClient, refreshUser]);
+
+  const handleSwitchWallet = async () => {
+    setWithdrawError(null);
+    try {
+      if (tonConnectUI.connected) {
+        await tonConnectUI.disconnect();
+      }
+      await tonConnectUI.openModal();
+    } catch (err) {
+      setWithdrawError((err as { message?: string })?.message ?? "Could not open wallet selector. Please try again.");
+    }
+  };
 
   const handleTonVip = async () => {
     if (!user) return;
@@ -222,6 +241,21 @@ export default function WalletPremium() {
           <div className="flex items-end justify-between mb-2"><div className="text-3xl font-black">{goldCoins.toLocaleString()}</div><div className="font-mono text-sm text-white/45">/ {minGc.toLocaleString()} GC</div></div>
           <div className="h-3 rounded-full bg-white/8 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-[#FFD700] to-[#FFB800] shadow-[0_0_18px_rgba(255,215,0,.38)]" style={{ width: `${progress}%` }} /></div>
         </div>
+      </section>
+
+      <section className="wallet-glass rounded-3xl p-3 mb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="h-10 w-10 rounded-2xl border border-[#4DA3FF]/25 bg-[#4DA3FF]/10 flex items-center justify-center shrink-0"><Wallet size={18} className="text-[#8BC3FF]" /></div>
+            <div className="min-w-0">
+              <div className="font-mono text-[9px] tracking-[0.18em] uppercase text-white/36">Connected TON wallet</div>
+              <div className={`font-mono text-sm font-black truncate ${walletAddress ? "text-[#8BC3FF]" : "text-white/35"}`}>{shortAddress(walletAddress)}</div>
+              <div className="font-mono text-[10px] text-white/35 mt-1 leading-relaxed">Payments open this connected wallet. To pay with another app, switch wallets first.</div>
+            </div>
+          </div>
+          <button onClick={handleSwitchWallet} className="rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/8 px-3 py-2 font-mono text-[10px] font-black text-[#FFD700] flex items-center gap-1.5 shrink-0"><RefreshCw size={12} />{walletAddress ? "Switch" : "Connect"}</button>
+        </div>
+        <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px] text-white/35 flex items-start gap-2"><Sparkles size={13} className="text-[#FFD700] shrink-0 mt-0.5" />Tip: tap Switch to disconnect the current TON Connect session and choose Tonkeeper, Telegram Wallet, or another supported wallet.</div>
       </section>
 
       <section className="grid grid-cols-2 gap-2 mb-3">
