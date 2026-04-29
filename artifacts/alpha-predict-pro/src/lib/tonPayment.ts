@@ -72,7 +72,7 @@ export function inferKoinaraMemoFromAmount(input: { amount: string; telegramId: 
     "10000000000": `KNR-PACK-whale-${id}`,
   };
   const overtimePass: Record<string, string> = {
-    "500000000": `KNR-OVERTIME-trade_overtime-${id}`,
+    "200000000": `KNR-OVERTIME-trade_overtime-${id}`,
   };
   const minesPass: Record<string, string> = {
     "50000000": `KNR-MINES-bronze-1-${id}`,
