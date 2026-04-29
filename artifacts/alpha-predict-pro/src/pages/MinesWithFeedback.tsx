@@ -15,19 +15,49 @@ type RecentMineBet = {
 
 const STORAGE_KEY_PREFIX = "koinara_recent_mines_v1";
 
-function currencyForResult(data: any): string {
-  if (typeof data?.gcPayout === "number") return "GC";
-  if (typeof data?.tcPayout === "number") return "TC";
+function pickNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function currencyForResult(data: any, isCashout: boolean): string {
+  if (isCashout) {
+    if (pickNumber(data?.gcPayout, data?.goldCoinsAwarded, data?.goldCoins, data?.payout) !== null) return "GC";
+    if (pickNumber(data?.tcPayout, data?.tradeCreditsAwarded, data?.tradeCredits) !== null) return "TC";
+  }
   if (data?.mode === "gc" && data?.tier !== "gold") return "GC";
+  if (data?.currency === "gc" || data?.betCurrency === "gc") return "GC";
   return "TC";
 }
 
-function amountForResult(data: any): number {
-  if (typeof data?.gcPayout === "number") return data.gcPayout;
-  if (typeof data?.tcPayout === "number") return data.tcPayout;
-  if (typeof data?.payout === "number") return data.payout;
-  if (typeof data?.refund === "number") return data.refund;
-  return 0;
+function amountForCashout(data: any): number {
+  return pickNumber(
+    data?.gcPayout,
+    data?.tcPayout,
+    data?.payout,
+    data?.goldCoinsAwarded,
+    data?.tradeCreditsAwarded,
+    data?.reward,
+    data?.cashoutValue,
+  ) ?? 0;
+}
+
+function amountForBust(data: any): number {
+  return pickNumber(
+    data?.bet,
+    data?.stake,
+    data?.amount,
+    data?.lostAmount,
+    data?.round?.bet,
+    data?.activeRound?.bet,
+    data?.refund,
+  ) ?? 0;
 }
 
 function timeAgo(ts: number): string {
@@ -68,15 +98,16 @@ export default function MinesWithFeedback() {
         const data = await clone.json();
         if (!response.ok) return response;
 
+        const isBust = isMinesReveal && data?.hit === true && data?.shielded !== true;
         const won = isMinesCashout || data?.secondChance === true;
-        if (!isMinesCashout && !data?.hit) return response;
+        if (!isMinesCashout && !isBust) return response;
 
         const item: RecentMineBet = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           won,
-          amount: won ? amountForResult(data) : 0,
-          currency: currencyForResult(data),
-          multiplier: typeof data?.multiplier === "number" ? data.multiplier : undefined,
+          amount: won ? amountForCashout(data) : amountForBust(data),
+          currency: currencyForResult(data, isMinesCashout),
+          multiplier: pickNumber(data?.multiplier) ?? undefined,
           at: Date.now(),
         };
 
@@ -142,7 +173,8 @@ export default function MinesWithFeedback() {
                   </div>
                   <div className={`font-black text-xs ${item.won ? "text-[#FFD700]" : "text-[#FF1744]"}`}>{item.won ? "WIN" : "BUST"}</div>
                 </div>
-                <div className="font-mono text-sm font-black text-white">{item.won ? "+" : ""}{item.amount.toLocaleString()} {item.currency}</div>
+                <div className="font-mono text-sm font-black text-white">{item.won ? "+" : "-"}{item.amount.toLocaleString()} {item.currency}</div>
+                {item.multiplier && <div className="font-mono text-[9px] text-[#FFD700]/60 mt-1">at {item.multiplier.toFixed(2)}×</div>}
                 <div className="font-mono text-[9px] text-white/28 mt-1">{timeAgo(item.at)} ago</div>
               </div>
             ))}
