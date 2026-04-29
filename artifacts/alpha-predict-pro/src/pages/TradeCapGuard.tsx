@@ -126,7 +126,7 @@ export default function TradeCapGuard() {
           </div>
         </div>
       )}
-      <TerminalLaunch />
+      <TerminalLaunch tradeCap={cap} onTradeResolved={loadCap} />
     </div>
   );
 }
