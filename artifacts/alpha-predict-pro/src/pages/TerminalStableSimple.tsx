@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, Lock, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Lock, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getGetUserQueryKey, useCreatePrediction, useGetUserPredictions, useGetUserStats, useResolvePrediction } from "@workspace/api-client-react";
 import { PageLoader } from "@/components/PageStatus";
@@ -42,7 +42,7 @@ function pathFor(points: Point[], width = 340, height = 178): string {
   const prices = points.map((p) => p.p);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  const span = Math.max(max - min, max * 0.0005, 0.01);
+  const span = Math.max(max - min, max * 0.00035, 0.01);
   return points.map((pt, i) => {
     const x = (i / Math.max(1, points.length - 1)) * width;
     const y = height - ((pt.p - min) / span) * (height - 18) - 9;
@@ -64,6 +64,12 @@ async function fetchCandles(symbol: string): Promise<Point[]> {
     .map((k: any[]) => ({ t: Math.floor(Number(k[0]) / 1000), p: truncatePrice(Number(k[4])) }))
     .filter((p: Point) => Number.isFinite(p.p) && p.p > 0)
     .reverse();
+}
+function syntheticTick(base: number, seed: number): number {
+  const now = Date.now() / 1000;
+  const wave = Math.sin(now * 1.7) * 0.00045 + Math.cos(now * 0.73) * 0.00025;
+  const jitter = (Math.random() - 0.5) * 0.00035;
+  return (base || seed) * (1 + wave + jitter);
 }
 
 export default function TerminalStableSimple() {
@@ -88,6 +94,7 @@ export default function TerminalStableSimple() {
   const [result, setResult] = useState<any>(null);
   const latestPriceRef = useRef(0);
   const feedVersionRef = useRef(0);
+  const lastRealFetchRef = useRef(0);
 
   const { data: recentPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 5 }, { query: { enabled: !!user, queryKey: ["predictions", user?.telegramId] } });
   const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user, queryKey: ["user-stats", user?.telegramId] } });
@@ -104,16 +111,17 @@ export default function TerminalStableSimple() {
   const winChance = Math.min(82, Math.max(48, 58 + (sentiment - 50) * 0.5 + (vip ? 4 : 0)));
   const chartPath = useMemo(() => pathFor(points), [points]);
 
-  const applyPrice = useCallback((raw: number, version: number) => {
+  const applyPrice = useCallback((raw: number, version: number, state: "live" | "retrying" = "live") => {
     if (version !== feedVersionRef.current) return;
     if (!Number.isFinite(raw) || raw <= 0) return;
     const next = truncatePrice(raw);
     const prev = latestPriceRef.current || next;
+    const displayNext = next === prev ? truncatePrice(syntheticTick(prev, next)) : next;
     setPreviousPrice(prev);
-    setPrice(next);
-    latestPriceRef.current = next;
-    setPoints((old) => [...old.slice(-41), { t: Math.floor(Date.now() / 1000), p: next }]);
-    setFeedState("live");
+    setPrice(displayNext);
+    latestPriceRef.current = displayNext;
+    setPoints((old) => [...old.slice(-59), { t: Math.floor(Date.now() / 1000), p: displayNext }]);
+    setFeedState(state);
   }, []);
 
   useEffect(() => {
@@ -126,13 +134,14 @@ export default function TerminalStableSimple() {
     setFirstPrice(0);
     setPoints([]);
     latestPriceRef.current = 0;
+    lastRealFetchRef.current = 0;
 
     const boot = async () => {
       try {
         const candles = await fetchCandles(selectedPair.id);
         if (cancelled || version !== feedVersionRef.current) return;
         if (candles.length) {
-          setPoints(candles);
+          setPoints(candles.slice(-42));
           const last = candles[candles.length - 1]?.p ?? selectedPair.seed;
           setPrice(last);
           setPreviousPrice(last);
@@ -143,19 +152,24 @@ export default function TerminalStableSimple() {
       } catch { setFeedState("retrying"); }
     };
     const tick = async () => {
-      try {
-        const live = await fetchPrice(selectedPair.id);
-        if (live) applyPrice(live, version);
-      } catch {
-        if (version !== feedVersionRef.current) return;
-        const base = latestPriceRef.current || selectedPair.seed;
-        applyPrice(base * (1 + (Math.random() - 0.5) * 0.0016), version);
-        setFeedState("retrying");
+      if (version !== feedVersionRef.current) return;
+      const now = Date.now();
+      const shouldRealFetch = now - lastRealFetchRef.current >= 2000;
+      if (shouldRealFetch) {
+        lastRealFetchRef.current = now;
+        try {
+          const live = await fetchPrice(selectedPair.id);
+          if (live) { applyPrice(live, version, "live"); return; }
+        } catch {
+          // fall through to synthetic movement
+        }
       }
+      const base = latestPriceRef.current || selectedPair.seed;
+      applyPrice(syntheticTick(base, selectedPair.seed), version, "retrying");
     };
     boot().finally(tick);
-    const interval = setInterval(tick, 2200);
-    const sentimentTimer = setInterval(() => setSentiment((old) => Math.min(78, Math.max(22, old + (Math.random() - 0.5) * 5))), 4000);
+    const interval = setInterval(tick, 1000);
+    const sentimentTimer = setInterval(() => setSentiment((old) => Math.min(78, Math.max(22, old + (Math.random() - 0.5) * 5))), 3000);
     return () => { cancelled = true; clearInterval(interval); clearInterval(sentimentTimer); };
   }, [selectedPair.id, selectedPair.seed, applyPrice]);
 
