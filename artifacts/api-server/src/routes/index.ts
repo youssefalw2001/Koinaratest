@@ -17,6 +17,7 @@ import tradeCapRouter from "./tradeCap";
 import minesPassPurchaseGuardRouter from "./minesPassPurchaseGuard";
 import minesAtomicStartGuardRouter from "./minesAtomicStartGuard";
 import minesPassCapRouter from "./minesPassCap";
+import minesSafeRevealGuardRouter from "./minesSafeRevealGuard";
 import minesRouter from "./mines";
 
 const router: IRouter = Router();
@@ -38,10 +39,11 @@ router.use(featuresRouter);
 router.use(exchangeRouter);
 router.use(tradeCapRouter);
 // Must be mounted before Mines routers so pass purchase memo binding, atomic start,
-// and pass-aware cashout handlers run first.
+// pass-aware cashout, and safe-reveal activation rules run first.
 router.use(minesPassPurchaseGuardRouter);
 router.use(minesAtomicStartGuardRouter);
 router.use(minesPassCapRouter);
+router.use(minesSafeRevealGuardRouter);
 router.use(minesRouter);
 
 export default router;

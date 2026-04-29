@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bomb, Gem, Trophy, TrendingUp } from "lucide-react";
+import { Bomb, Eye, Gem, Trophy, TrendingUp } from "lucide-react";
 import Mines from "./Mines";
 import { useTelegram } from "@/lib/TelegramProvider";
+
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
 
 type RecentMineBet = {
   id: string;
@@ -11,6 +13,14 @@ type RecentMineBet = {
   currency: string;
   multiplier?: number;
   at: number;
+};
+
+type ActiveRoundLite = {
+  roundId: number;
+  revealed: number[];
+  minesCount: number;
+  tier?: string | null;
+  activeGems?: { safe_reveal_used?: boolean };
 };
 
 const STORAGE_KEY_PREFIX = "koinara_recent_mines_v1";
@@ -72,6 +82,28 @@ export default function MinesWithFeedback() {
   const storageKey = `${STORAGE_KEY_PREFIX}:${user?.telegramId ?? "guest"}`;
   const [recent, setRecent] = useState<RecentMineBet[]>([]);
   const [winToast, setWinToast] = useState<RecentMineBet | null>(null);
+  const [activeRound, setActiveRound] = useState<ActiveRoundLite | null>(null);
+  const [safeRevealBusy, setSafeRevealBusy] = useState(false);
+  const [safeRevealMessage, setSafeRevealMessage] = useState<string | null>(null);
+  const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
+
+  const loadActiveRound = async () => {
+    if (!user?.telegramId) return;
+    try {
+      const res = await fetch(`${API_BASE}/mines/active/${encodeURIComponent(user.telegramId)}`, {
+        headers: initData ? { "x-telegram-init-data": initData } : {},
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveRound(data?.active ?? null);
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadActiveRound();
+    const interval = setInterval(loadActiveRound, 5000);
+    return () => clearInterval(interval);
+  }, [user?.telegramId, initData]);
 
   useEffect(() => {
     try {
@@ -90,6 +122,11 @@ export default function MinesWithFeedback() {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const isMinesCashout = url.includes("/api/mines/cashout");
       const isMinesReveal = url.includes("/api/mines/reveal");
+      const isMinesStart = url.includes("/api/mines/start");
+
+      if (isMinesStart || isMinesReveal || isMinesCashout) {
+        window.setTimeout(loadActiveRound, 350);
+      }
 
       if (!isMinesCashout && !isMinesReveal) return response;
 
@@ -129,13 +166,64 @@ export default function MinesWithFeedback() {
     return () => {
       window.fetch = originalFetch;
     };
-  }, [storageKey]);
+  }, [storageKey, user?.telegramId]);
+
+  const handleSafeReveal = async () => {
+    if (!user?.telegramId || !activeRound || safeRevealBusy) return;
+    setSafeRevealBusy(true);
+    setSafeRevealMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/mines/safe-reveal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
+        body: JSON.stringify({ telegramId: user.telegramId, roundId: activeRound.roundId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Safe Reveal failed.");
+      setSafeRevealMessage(data?.message ?? "Safe Reveal activated.");
+      await loadActiveRound();
+      window.setTimeout(() => window.location.reload(), 450);
+    } catch (err) {
+      setSafeRevealMessage(err instanceof Error ? err.message : "Safe Reveal failed.");
+    } finally {
+      setSafeRevealBusy(false);
+      window.setTimeout(() => setSafeRevealMessage(null), 3500);
+    }
+  };
 
   const visibleRecent = useMemo(() => recent.slice(0, 5), [recent]);
+  const revealedCount = activeRound?.revealed?.length ?? 0;
+  const safeRevealLockedReason = !activeRound
+    ? null
+    : activeRound.tier === "gold"
+      ? "Disabled on Gold mode"
+      : activeRound.minesCount > 10
+        ? "Unavailable above 10 bombs"
+        : activeRound.activeGems?.safe_reveal_used
+          ? "Used this round"
+          : revealedCount < 3
+            ? `Unlocks after ${3 - revealedCount} more safe tile${3 - revealedCount === 1 ? "" : "s"}`
+            : null;
 
   return (
     <div className="relative">
       <Mines />
+
+      {activeRound && (
+        <section className="mx-4 -mt-2 mb-3 rounded-3xl border border-[#00BFFF]/22 bg-[#00BFFF]/8 p-3 shadow-[0_0_26px_rgba(0,191,255,.10)] relative z-20">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl border border-[#00BFFF]/30 bg-[#00BFFF]/12 flex items-center justify-center shrink-0"><Eye size={18} className="text-[#00BFFF]" /></div>
+            <div className="flex-1 min-w-0">
+              <div className="font-black text-[#00BFFF]">Safe Reveal</div>
+              <div className="font-mono text-[10px] text-white/42">Reveals 1 safe tile after you survive 3 tiles. Consumed immediately.</div>
+              {safeRevealMessage && <div className="mt-1 font-mono text-[10px] text-[#FFD700]">{safeRevealMessage}</div>}
+            </div>
+            <button onClick={handleSafeReveal} disabled={!!safeRevealLockedReason || safeRevealBusy} className="rounded-2xl border border-[#00BFFF]/35 bg-[#00BFFF]/10 px-3 py-2 font-mono text-[10px] font-black text-[#00BFFF] disabled:opacity-40">
+              {safeRevealBusy ? "Using" : safeRevealLockedReason ?? "Activate"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <AnimatePresence>
         {winToast && (
