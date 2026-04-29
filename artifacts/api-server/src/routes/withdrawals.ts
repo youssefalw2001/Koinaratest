@@ -27,7 +27,7 @@ const WITHDRAWAL_MAX_24H_COUNT = 6;
 
 // ─── TON verification (verify-fee endpoint) ─────────────────────────────────
 const TONAPI_BASE = "https://tonapi.io/v2";
-const TON_VERIFY_NANO = BigInt("400000000"); // 0.4 TON ≈ $1.99 verification fee
+const TON_VERIFY_NANO = BigInt("200000000"); // 0.2 TON ≈ $0.99 launch verification fee
 
 type TonApiAccount = { address: string };
 type TonApiTx = {
@@ -95,10 +95,6 @@ async function verifyTonVerificationFee(
       if (destRaw !== operatorRaw) continue;
       const valueNano = BigInt(Math.floor(msg.value ?? 0));
       if (valueNano < minNano) continue;
-      // Cryptographic user binding: the tx comment must contain the expected
-      // per-user memo. Because the TON tx is signed by the sender, only the
-      // sender can include this comment — preventing attackers from hijacking
-      // a legitimate payer's on-chain tx to verify their own account.
       const comment = msg.decoded_body?.text ?? "";
       if (comment !== expectedComment) continue;
       return { ok: true, txHash: tx.hash };
@@ -138,8 +134,6 @@ function todayStr(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-// ─── Zod validators ──────────────────────────────────────────────────────────
-// TRC-20 addresses: start with "T", 34 chars total, base58 charset
 const TRC20_REGEX = /^T[A-Za-z1-9]{33}$/;
 
 const RequestWithdrawalBody = z.object({
@@ -177,7 +171,7 @@ async function hasActiveVipReferral(telegramId: string): Promise<boolean> {
 }
 
 // ─── POST /withdrawals/verify-fee ────────────────────────────────────────────
-// Verifies the one-time $1.99 identity verification payment on-chain.
+// Verifies the one-time $0.99 identity verification payment on-chain.
 // Sets hasVerified=true on the user upon successful TON transaction confirmation.
 router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
   const body = VerifyFeeBody.safeParse(req.body);
@@ -207,8 +201,6 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     return;
   }
 
-  // Per-user comment binds the on-chain tx to the authenticated Telegram user.
-  // Any caller must include this exact text in their TON tx memo.
   const expectedComment = `KNR-VERIFY-${authedId}`;
 
   const verification = await verifyTonVerificationFee(senderAddress, expectedComment);
@@ -221,7 +213,6 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     return;
   }
 
-  // Anti-replay: ensure this tx hash has never been used to verify any user.
   const verifiedTxHash = verification.txHash!;
   const [existingTx] = await db
     .select()
@@ -235,7 +226,6 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
     return;
   }
 
-  // Persist tx hash to prevent replay, then mark user as verified.
   await db.transaction(async (tx) => {
     await tx.insert(vipTxHashesTable).values({
       txHash: verifiedTxHash,
@@ -252,7 +242,6 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
   res.json({ success: true, alreadyVerified: false });
 });
 
-// ─── POST /withdrawals/request ───────────────────────────────────────────────
 router.post("/withdrawals/request", async (req, res): Promise<void> => {
   const body = RequestWithdrawalBody.safeParse(req.body);
   if (!body.success) {
@@ -264,29 +253,13 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   const idempotency = await beginIdempotency(req, {
     scope: "withdrawals.request",
     requireHeader: true,
-    fingerprintData: {
-      telegramId,
-      gcAmount,
-      usdtWallet,
-    },
+    fingerprintData: { telegramId, gcAmount, usdtWallet },
     ttlMs: 6 * 60 * 60 * 1000,
   });
-  if (idempotency.kind === "missing") {
-    res.status(400).json({ error: idempotency.message });
-    return;
-  }
-  if (idempotency.kind === "replay") {
-    res.status(idempotency.statusCode).json(idempotency.responseBody);
-    return;
-  }
-  if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") {
-    res.status(409).json({ error: idempotency.message });
-    return;
-  }
-  if (idempotency.kind !== "acquired") {
-    res.status(500).json({ error: "Idempotency precondition failed." });
-    return;
-  }
+  if (idempotency.kind === "missing") { res.status(400).json({ error: idempotency.message }); return; }
+  if (idempotency.kind === "replay") { res.status(idempotency.statusCode).json(idempotency.responseBody); return; }
+  if (idempotency.kind === "in_progress" || idempotency.kind === "conflict") { res.status(409).json({ error: idempotency.message }); return; }
+  if (idempotency.kind !== "acquired") { res.status(500).json({ error: "Idempotency precondition failed." }); return; }
   const idempotencyHandle = idempotency;
 
   const replyWithCommit = async (statusCode: number, payload: unknown): Promise<void> => {
@@ -295,81 +268,34 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   };
 
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
-  if (!authedId) {
-    await idempotencyHandle.abort();
-    return;
-  }
+  if (!authedId) { await idempotencyHandle.abort(); return; }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.telegramId, authedId))
-    .limit(1);
-
-  if (!user) {
-    await idempotencyHandle.abort();
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
+  if (!user) { await idempotencyHandle.abort(); res.status(404).json({ error: "User not found" }); return; }
 
   const recentThreshold = new Date(Date.now() - WITHDRAWAL_COOLDOWN_MS);
-  const [recent] = await db
-    .select()
-    .from(withdrawalQueueTable)
-    .where(
-      and(
-        eq(withdrawalQueueTable.telegramId, authedId),
-        gt(withdrawalQueueTable.createdAt, recentThreshold),
-      ),
-    )
-    .limit(1);
+  const [recent] = await db.select().from(withdrawalQueueTable).where(and(eq(withdrawalQueueTable.telegramId, authedId), gt(withdrawalQueueTable.createdAt, recentThreshold))).limit(1);
   if (recent) {
     logger.warn({ telegramId: authedId, gcAmount }, "Withdrawal blocked by cooldown guard");
-    await replyWithCommit(429, {
-      error: "Withdrawal cooldown active. Please wait a few minutes before requesting again.",
-      code: "WITHDRAWAL_COOLDOWN",
-    });
+    await replyWithCommit(429, { error: "Withdrawal cooldown active. Please wait a few minutes before requesting again.", code: "WITHDRAWAL_COOLDOWN" });
     return;
   }
 
   const dayThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const last24hRows = await db
-    .select({ id: withdrawalQueueTable.id })
-    .from(withdrawalQueueTable)
-    .where(
-      and(
-        eq(withdrawalQueueTable.telegramId, authedId),
-        gt(withdrawalQueueTable.createdAt, dayThreshold),
-      ),
-    );
+  const last24hRows = await db.select({ id: withdrawalQueueTable.id }).from(withdrawalQueueTable).where(and(eq(withdrawalQueueTable.telegramId, authedId), gt(withdrawalQueueTable.createdAt, dayThreshold)));
   if (last24hRows.length >= WITHDRAWAL_MAX_24H_COUNT) {
-    logger.warn(
-      { telegramId: authedId, last24hCount: last24hRows.length },
-      "Withdrawal blocked by daily velocity guard",
-    );
-    await replyWithCommit(429, {
-      error: "Too many withdrawal requests in the last 24 hours. Please try later.",
-      code: "WITHDRAWAL_DAILY_VELOCITY",
-    });
+    logger.warn({ telegramId: authedId, last24hCount: last24hRows.length }, "Withdrawal blocked by daily velocity guard");
+    await replyWithCommit(429, { error: "Too many withdrawal requests in the last 24 hours. Please try later.", code: "WITHDRAWAL_DAILY_VELOCITY" });
     return;
   }
 
-  const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
-    !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
-  const hasVipReferralWaiver = !isVipUser && !user.hasVerified
-    ? await hasActiveVipReferral(authedId)
-    : false;
+  const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) || !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
+  const hasVipReferralWaiver = !isVipUser && !user.hasVerified ? await hasActiveVipReferral(authedId) : false;
 
-  // Free users must complete one-time identity verification before withdrawing,
-  // unless they referred 1 currently active paid VIP user.
-  // VIP users are exempt — their TON VIP payment serves as identity verification.
   if (!isVipUser && !user.hasVerified && !hasVipReferralWaiver) {
-    logger.warn(
-      { telegramId: authedId, gcAmount, usdtWalletSuffix: usdtWallet.slice(-6) },
-      "Withdrawal blocked: verification required",
-    );
+    logger.warn({ telegramId: authedId, gcAmount, usdtWalletSuffix: usdtWallet.slice(-6) }, "Withdrawal blocked: verification required");
     await replyWithCommit(403, {
-      error: "Identity verification required. Pay the one-time $1.99 (0.4 TON) verification fee to unlock withdrawals, or invite 1 VIP referral to waive it.",
+      error: "Identity verification required. Pay the one-time $0.99 (0.2 TON) verification fee to unlock withdrawals, or invite 1 VIP referral to waive it.",
       code: "VERIFICATION_REQUIRED",
     });
     return;
@@ -382,33 +308,20 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   if (gcAmount < minGc) {
     const shortfall = minGc - gcAmount;
-    await replyWithCommit(400, {
-      error: `Minimum withdrawal is ${minGc.toLocaleString()} GC ($${(minGc / gcPerUsd).toFixed(2)}). You need ${shortfall.toLocaleString()} more GC.`,
-    });
+    await replyWithCommit(400, { error: `Minimum withdrawal is ${minGc.toLocaleString()} GC ($${(minGc / gcPerUsd).toFixed(2)}). You need ${shortfall.toLocaleString()} more GC.` });
     return;
   }
 
   if (user.goldCoins < gcAmount) {
-    await replyWithCommit(400, {
-      error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.`,
-    });
+    await replyWithCommit(400, { error: `Insufficient balance. You have ${user.goldCoins.toLocaleString()} GC.` });
     return;
   }
 
-  // Compute maxDailyPayoutGc from previous day's revenue (immutable data, safe to read outside tx).
   const yesterday = new Date();
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-  const [prevDayStats] = await db
-    .select()
-    .from(platformDailyStatsTable)
-    .where(eq(platformDailyStatsTable.date, yesterdayStr))
-    .limit(1);
-
-  // Strict operator safeguard: max daily payouts = 50% of previous day's tracked revenue.
-  // When no prior revenue is recorded (e.g. app launch day), the cap is 0 and all
-  // withdrawals are blocked until VIP subscriptions / deposits generate revenue.
+  const [prevDayStats] = await db.select().from(platformDailyStatsTable).where(eq(platformDailyStatsTable.date, yesterdayStr)).limit(1);
   const prevRevenueGc = prevDayStats?.totalRevenueGc ?? 0;
   const maxDailyPayoutGc = Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO);
 
@@ -418,152 +331,53 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   const netUsd   = netGc / gcPerUsd;
   const tier     = isVipUser ? "vip" : "free";
   const weekStart = getWeekStart();
-
-  // ── Atomic transaction with built-in weekly cap enforcement ─────────────────
-  // The WHERE clause on the UPDATE includes a cap predicate so concurrent
-  // requests cannot both succeed even under READ COMMITTED isolation.
   let weeklyRemainingGc = 0;
 
   try {
     await db.transaction(async (tx) => {
       const userUpdate: Record<string, unknown> = {
         goldCoins: sql`${usersTable.goldCoins} - ${gcAmount}`,
-        weeklyWithdrawnGc: sql`
-          CASE
-            WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
-              OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
-            THEN ${gcAmount}
-            ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
-          END`,
+        weeklyWithdrawnGc: sql`CASE WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart} THEN ${gcAmount} ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount} END`,
         weeklyWithdrawnResetAt: weekStart,
       };
       if (hasVipReferralWaiver) userUpdate.hasVerified = true;
 
-      const updated = await tx
-        .update(usersTable)
-        .set(userUpdate)
-        .where(and(
-          eq(usersTable.telegramId, authedId),
-          // Balance must still cover the request
-          gte(usersTable.goldCoins, gcAmount),
-          // Atomic weekly cap: new weekly total must not exceed the limit
-          sql`(
-            CASE
-              WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL
-                OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart}
-              THEN ${gcAmount}
-              ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount}
-            END
-          ) <= ${weeklyMaxGc}`,
-        ))
-        .returning();
+      const updated = await tx.update(usersTable).set(userUpdate).where(and(
+        eq(usersTable.telegramId, authedId),
+        gte(usersTable.goldCoins, gcAmount),
+        sql`(CASE WHEN ${usersTable.weeklyWithdrawnResetAt} IS NULL OR ${usersTable.weeklyWithdrawnResetAt} < ${weekStart} THEN ${gcAmount} ELSE ${usersTable.weeklyWithdrawnGc} + ${gcAmount} END) <= ${weeklyMaxGc}`,
+      )).returning();
 
       if (updated.length === 0) {
-        // Either balance too low or weekly cap exceeded — determine which
-        const [fresh] = await tx
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.telegramId, authedId))
-          .limit(1);
-
-        if (!fresh || fresh.goldCoins < gcAmount) {
-          throw new Error("INSUFFICIENT_BALANCE");
-        }
-        // Cap must have been exceeded
-        const freshWeekly = (!fresh.weeklyWithdrawnResetAt || fresh.weeklyWithdrawnResetAt < weekStart)
-          ? 0
-          : (fresh.weeklyWithdrawnGc ?? 0);
+        const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
+        if (!fresh || fresh.goldCoins < gcAmount) throw new Error("INSUFFICIENT_BALANCE");
+        const freshWeekly = (!fresh.weeklyWithdrawnResetAt || fresh.weeklyWithdrawnResetAt < weekStart) ? 0 : (fresh.weeklyWithdrawnGc ?? 0);
         const remaining = Math.max(0, weeklyMaxGc - freshWeekly);
         const remainingUsd = (remaining / gcPerUsd).toFixed(2);
         throw Object.assign(new Error("WEEKLY_CAP_EXCEEDED"), { weeklyRemainingGc: remaining, remainingUsd });
       }
 
-      // Compute weekly remaining from the updated row
       const updatedRow = updated[0]!;
       weeklyRemainingGc = Math.max(0, weeklyMaxGc - (updatedRow.weeklyWithdrawnGc ?? gcAmount));
 
-      // Atomically enforce daily payout cap inside the transaction.
-      // 1) Ensure a stats row exists for today (no-op if already there).
-      await tx
-        .insert(platformDailyStatsTable)
-        .values({ date: todayStr(), totalPaidOutGc: 0 })
-        .onConflictDoNothing();
+      await tx.insert(platformDailyStatsTable).values({ date: todayStr(), totalPaidOutGc: 0 }).onConflictDoNothing();
+      const [dailyUpdated] = await tx.update(platformDailyStatsTable).set({ totalPaidOutGc: sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount}` }).where(and(eq(platformDailyStatsTable.date, todayStr()), sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount} <= ${maxDailyPayoutGc}`)).returning();
+      if (!dailyUpdated) throw new Error("DAILY_CAP_EXCEEDED");
 
-      // 2) Increment paidOutGc ONLY if cap is not exceeded. Returning 0 rows = cap hit.
-      const [dailyUpdated] = await tx
-        .update(platformDailyStatsTable)
-        .set({ totalPaidOutGc: sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount}` })
-        .where(and(
-          eq(platformDailyStatsTable.date, todayStr()),
-          sql`${platformDailyStatsTable.totalPaidOutGc} + ${gcAmount} <= ${maxDailyPayoutGc}`,
-        ))
-        .returning();
-
-      if (!dailyUpdated) {
-        throw new Error("DAILY_CAP_EXCEEDED");
-      }
-
-      await tx.insert(withdrawalQueueTable).values({
-        telegramId: authedId,
-        amountGc: gcAmount,
-        feePct: FEE_PCT,
-        feeGc,
-        netGc,
-        usdValue,
-        netUsd,
-        walletAddress: usdtWallet,
-        isVip: isVipUser ? 1 : 0,
-        tier,
-        status: "pending",
-      });
+      await tx.insert(withdrawalQueueTable).values({ telegramId: authedId, amountGc: gcAmount, feePct: FEE_PCT, feeGc, netGc, usdValue, netUsd, walletAddress: usdtWallet, isVip: isVipUser ? 1 : 0, tier, status: "pending" });
     });
   } catch (err: unknown) {
     const e = err as Error & { weeklyRemainingGc?: number; remainingUsd?: string };
-    if (e.message === "INSUFFICIENT_BALANCE") {
-      logger.info({ telegramId: authedId, gcAmount }, "Withdrawal rejected: insufficient balance");
-      await replyWithCommit(400, { error: "Insufficient balance." });
-      return;
-    }
-    if (e.message === "WEEKLY_CAP_EXCEEDED") {
-      logger.info(
-        { telegramId: authedId, gcAmount, weeklyRemainingGc: e.weeklyRemainingGc ?? 0 },
-        "Withdrawal rejected: weekly cap exceeded",
-      );
-      await replyWithCommit(400, {
-        error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`,
-        weeklyRemainingGc: e.weeklyRemainingGc ?? 0,
-      });
-      return;
-    }
-    if (e.message === "DAILY_CAP_EXCEEDED") {
-      logger.warn({ telegramId: authedId, gcAmount }, "Withdrawal rejected: platform daily payout cap exceeded");
-      await replyWithCommit(503, {
-        error: "Daily payout limit reached. Please try again tomorrow.",
-      });
-      return;
-    }
+    if (e.message === "INSUFFICIENT_BALANCE") { logger.info({ telegramId: authedId, gcAmount }, "Withdrawal rejected: insufficient balance"); await replyWithCommit(400, { error: "Insufficient balance." }); return; }
+    if (e.message === "WEEKLY_CAP_EXCEEDED") { logger.info({ telegramId: authedId, gcAmount, weeklyRemainingGc: e.weeklyRemainingGc ?? 0 }, "Withdrawal rejected: weekly cap exceeded"); await replyWithCommit(400, { error: `Weekly withdrawal limit reached. You can withdraw up to $${e.remainingUsd ?? "0.00"} more this week (resets Monday).`, weeklyRemainingGc: e.weeklyRemainingGc ?? 0 }); return; }
+    if (e.message === "DAILY_CAP_EXCEEDED") { logger.warn({ telegramId: authedId, gcAmount }, "Withdrawal rejected: platform daily payout cap exceeded"); await replyWithCommit(503, { error: "Daily payout limit reached. Please try again tomorrow." }); return; }
     await idempotencyHandle.abort();
     throw err;
   }
 
-  const [updated] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.telegramId, authedId))
-    .limit(1);
+  const [updated] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
 
-  logger.info(
-    {
-      telegramId: authedId,
-      gcAmount,
-      feeGc,
-      netUsd: Number(netUsd.toFixed(4)),
-      weeklyRemainingGc,
-      tier,
-      verificationWaivedByVipReferral: hasVipReferralWaiver,
-    },
-    "Withdrawal queued successfully",
-  );
+  logger.info({ telegramId: authedId, gcAmount, feeGc, netUsd: Number(netUsd.toFixed(4)), weeklyRemainingGc, tier, verificationWaivedByVipReferral: hasVipReferralWaiver }, "Withdrawal queued successfully");
 
   await replyWithCommit(200, {
     success: true,
@@ -578,51 +392,27 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
   });
 });
 
-// ─── GET /withdrawals/:telegramId ─────────────────────────────────────────────
-// Returns only the requesting user's withdrawal history.
 router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
   const telegramId = req.params.telegramId;
-  if (!telegramId) {
-    res.status(400).json({ error: "telegramId required" });
-    return;
-  }
+  if (!telegramId) { res.status(400).json({ error: "telegramId required" }); return; }
 
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authedId) return;
 
-  const rows = await db
-    .select()
-    .from(withdrawalQueueTable)
-    .where(eq(withdrawalQueueTable.telegramId, authedId))
-    .orderBy(desc(withdrawalQueueTable.createdAt))
-    .limit(50);
-
+  const rows = await db.select().from(withdrawalQueueTable).where(eq(withdrawalQueueTable.telegramId, authedId)).orderBy(desc(withdrawalQueueTable.createdAt)).limit(50);
   const weekStart = getWeekStart();
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.telegramId, authedId))
-    .limit(1);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
 
-  if (!user) {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-  const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) ||
-    !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
-
+  const isVipUser = !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date()) || !!(user.vipTrialExpiresAt && new Date(user.vipTrialExpiresAt) > new Date());
   const gcPerUsd     = isVipUser ? VIP_GC_PER_USD  : FREE_GC_PER_USD;
   const weeklyMaxUsd = isVipUser ? VIP_WEEKLY_MAX_USD : FREE_WEEKLY_MAX_USD;
   const weeklyMaxGc  = weeklyMaxUsd * gcPerUsd;
 
-  const freshWeekly = (!user.weeklyWithdrawnResetAt || user.weeklyWithdrawnResetAt < weekStart)
-    ? 0
-    : (user.weeklyWithdrawnGc ?? 0);
+  const freshWeekly = (!user.weeklyWithdrawnResetAt || user.weeklyWithdrawnResetAt < weekStart) ? 0 : (user.weeklyWithdrawnGc ?? 0);
   const weeklyRemainingGc = Math.max(0, weeklyMaxGc - freshWeekly);
-  const vipReferralWaiverAvailable = !isVipUser && !(user.hasVerified ?? false)
-    ? await hasActiveVipReferral(authedId)
-    : false;
+  const vipReferralWaiverAvailable = !isVipUser && !(user.hasVerified ?? false) ? await hasActiveVipReferral(authedId) : false;
 
   res.json({
     withdrawals: rows.map(r => serializeRow(r as Record<string, unknown>)),
@@ -636,76 +426,36 @@ router.get("/withdrawals/:telegramId", async (req, res): Promise<void> => {
     freeGcPerUsd: FREE_GC_PER_USD,
     vipGcPerUsd: VIP_GC_PER_USD,
     feePct: FEE_PCT,
+    verificationTonNano: TON_VERIFY_NANO.toString(),
+    verificationTon: "0.2",
+    verificationUsd: "$0.99",
   });
 });
 
-// ─── PATCH /withdrawals/:id/status  (admin-only) ─────────────────────────────
 router.patch("/withdrawals/:id/status", async (req, res): Promise<void> => {
-  // This endpoint mutates payout records — it requires admin authorization.
   if (!requireAdmin(req, res)) return;
 
   const id = parseInt(req.params.id ?? "", 10);
-  if (isNaN(id)) {
-    res.status(400).json({ error: "Invalid withdrawal id" });
-    return;
-  }
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid withdrawal id" }); return; }
 
   const body = UpdateWithdrawalStatusBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid body" });
-    return;
-  }
+  if (!body.success) { res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid body" }); return; }
 
   const { status, txHash } = body.data;
-
-  // Atomic: only update rows that haven't already been completed/failed.
-  // This prevents accidental double-approvals or re-opening completed withdrawals.
   const updateData: Record<string, unknown> = { status };
   if (txHash) updateData.txHash = txHash;
-  if (status === "complete" || status === "processing") {
-    updateData.processesAt = new Date();
-  }
+  if (status === "complete" || status === "processing") updateData.processesAt = new Date();
 
-  const [updated] = await db
-    .update(withdrawalQueueTable)
-    .set(updateData)
-    .where(and(
-      eq(withdrawalQueueTable.id, id),
-      // Only allow transitions from non-terminal states
-      sql`${withdrawalQueueTable.status} NOT IN ('complete', 'failed')`,
-    ))
-    .returning();
+  const [updated] = await db.update(withdrawalQueueTable).set(updateData).where(and(eq(withdrawalQueueTable.id, id), sql`${withdrawalQueueTable.status} NOT IN ('complete', 'failed')`)).returning();
 
   if (!updated) {
-    // Check if the row exists at all
-    const [existing] = await db
-      .select()
-      .from(withdrawalQueueTable)
-      .where(eq(withdrawalQueueTable.id, id))
-      .limit(1);
-
-    if (!existing) {
-      res.status(404).json({ error: "Withdrawal not found" });
-      return;
-    }
-    // Row exists but is in a terminal state
-    res.status(409).json({
-      error: `Cannot update a withdrawal that is already ${existing.status}.`,
-      currentStatus: existing.status,
-    });
+    const [existing] = await db.select().from(withdrawalQueueTable).where(eq(withdrawalQueueTable.id, id)).limit(1);
+    if (!existing) { res.status(404).json({ error: "Withdrawal not found" }); return; }
+    res.status(409).json({ error: `Cannot update a withdrawal that is already ${existing.status}.`, currentStatus: existing.status });
     return;
   }
 
-  logger.info(
-    {
-      withdrawalId: updated.id,
-      telegramId: updated.telegramId,
-      statusFrom: "non-terminal",
-      statusTo: updated.status,
-      txHash: updated.txHash ?? null,
-    },
-    "Withdrawal status updated",
-  );
+  logger.info({ withdrawalId: updated.id, telegramId: updated.telegramId, statusFrom: "non-terminal", statusTo: updated.status, txHash: updated.txHash ?? null }, "Withdrawal status updated");
   res.json(serializeRow(updated as Record<string, unknown>));
 });
 

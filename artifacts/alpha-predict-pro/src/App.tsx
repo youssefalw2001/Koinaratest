@@ -141,11 +141,7 @@ function MinesPassDirectPaymentBridge() {
       }
 
       try {
-        await tonConnect.sendTransaction({
-          validUntil: Math.floor(Date.now() / 1000) + 600,
-          messages: [{ address: operatorWallet, amount }],
-        });
-
+        await tonConnect.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: operatorWallet, amount }] });
         await new Promise((r) => setTimeout(r, 5000));
         const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
         const res = await fetch(`${API_BASE}/mines/passes/purchase`, {
@@ -200,7 +196,11 @@ function VipPromoModal() {
   }, []);
 
   const dismiss = () => { setManualVipPromo(false); dismissVipPromo(); };
-  const handleGoVip = () => { dismiss(); setLocation("/wallet"); };
+  const handleGoVip = () => {
+    try { localStorage.setItem("koinara_auto_vip_checkout", "1"); } catch {}
+    dismiss();
+    setLocation("/wallet");
+  };
   return (
     <AnimatePresence>
       {visible && (
