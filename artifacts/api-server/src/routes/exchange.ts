@@ -8,8 +8,6 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// ---------- TC Pack definitions ----------
-
 type TcPack = {
   id: "micro" | "starter" | "pro" | "whale";
   label: string;
@@ -40,9 +38,9 @@ const TC_PACKS: readonly TcPack[] = [
 const TRADE_OVERTIME_PASS: OvertimePass = {
   id: "trade_overtime",
   label: "Trade Overtime Pass",
-  priceTonNano: 500_000_000n,
-  priceTonLabel: "0.5",
-  priceUsdLabel: "$2.49",
+  priceTonNano: 200_000_000n,
+  priceTonLabel: "0.2",
+  priceUsdLabel: "$0.99",
   boostGc: 3_000,
   maxPerDay: 1,
 };
