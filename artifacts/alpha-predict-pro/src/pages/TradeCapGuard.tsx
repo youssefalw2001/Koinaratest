@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { Clock, RefreshCw, Sparkles, Zap } from "lucide-react";
-import TerminalLaunch from "./TerminalStableSimple";
+import TerminalLaunch from "./TerminalTradeHotfix";
 import { useTelegram } from "@/lib/TelegramProvider";
 
 const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
