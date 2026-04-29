@@ -27,6 +27,27 @@ function toFiniteNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function todayStr(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+export function getTradeCapBoostForToday(user: { dailyTradeCapBoostGc?: number | null; dailyTradeCapBoostDate?: string | null }): number {
+  const today = todayStr();
+  return user.dailyTradeCapBoostDate === today ? Math.max(0, user.dailyTradeCapBoostGc ?? 0) : 0;
+}
+
+export function getEffectiveDailyTradeCap(user: { isVip: boolean; vipExpiresAt: Date | null; vipTrialExpiresAt: Date | null; dailyTradeCapBoostGc?: number | null; dailyTradeCapBoostDate?: string | null }): number {
+  const vipNow = isVipActive(user);
+  return (vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE) + getTradeCapBoostForToday(user);
+}
+
+export function getDailyTradeResetAt(): string {
+  const now = new Date();
+  const reset = new Date(now);
+  reset.setUTCHours(24, 0, 0, 0);
+  return reset.toISOString();
+}
+
 export async function resolvePredictionLogic(
   predictionId: number,
   exitPrice: number,
@@ -83,10 +104,10 @@ export async function resolvePredictionLogic(
       return { ok: true, prediction: claimed };
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayStr();
     const currentDailyGc = user.dailyGcDate === today ? user.dailyGcEarned : 0;
     const vipNow = isVipActive(user);
-    const dailyCap = vipNow ? DAILY_GC_CAP_VIP : DAILY_GC_CAP_FREE;
+    const dailyCap = getEffectiveDailyTradeCap(user);
     const perTradeCap = vipNow ? MAX_TRADE_PAYOUT_VIP : MAX_TRADE_PAYOUT_FREE;
 
     const storedMultiplier = toFiniteNumber(prediction.multiplier, DEFAULT_MULTIPLIER);
