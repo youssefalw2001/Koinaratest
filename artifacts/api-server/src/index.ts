@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { startAutoResolveSweeper } from "./lib/sweeper";
 import { startCrashRuntimeLoop } from "./lib/crashRuntime";
 import { runStartupValidation } from "./lib/startupValidation";
+import { runStartupMigrations } from "./lib/startupMigrations";
 
 const rawPort = process.env["PORT"];
 
@@ -20,13 +21,22 @@ if (Number.isNaN(port) || port <= 0) {
 
 runStartupValidation();
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+async function main() {
+  await runStartupMigrations();
 
-  logger.info({ port }, "Server listening");
-  startAutoResolveSweeper();
-  startCrashRuntimeLoop();
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+    startAutoResolveSweeper();
+    startCrashRuntimeLoop();
+  });
+}
+
+main().catch((err) => {
+  logger.error({ err }, "Server startup failed");
+  process.exit(1);
 });
