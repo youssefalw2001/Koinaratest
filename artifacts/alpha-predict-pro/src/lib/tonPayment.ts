@@ -24,6 +24,14 @@ export async function fetchTcPackMemo(input: { telegramId: string; packId: strin
   return data.memo as string;
 }
 
+export async function fetchOvertimePassMemo(input: { telegramId: string; passId: "trade_overtime"; initData: string }): Promise<string> {
+  const url = `${API_BASE}/exchange/overtime-pass/memo?telegramId=${encodeURIComponent(input.telegramId)}&passId=${encodeURIComponent(input.passId)}`;
+  const res = await fetch(url, { headers: input.initData ? { "x-telegram-init-data": input.initData } : {} });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.memo) throw new Error(data?.error ?? "Could not load Overtime Pass memo.");
+  return data.memo as string;
+}
+
 export async function fetchMinesPassMemo(input: { telegramId: string; tier: string; packSize: number; initData: string }): Promise<string> {
   const url = `${API_BASE}/mines/passes/memo?telegramId=${encodeURIComponent(input.telegramId)}&tier=${encodeURIComponent(input.tier)}&packSize=${input.packSize}`;
   const res = await fetch(url, { headers: input.initData ? { "x-telegram-init-data": input.initData } : {} });
@@ -43,6 +51,17 @@ export async function verifyTcPackPurchase(input: { telegramId: string; packId: 
   return data;
 }
 
+export async function verifyOvertimePassPurchase(input: { telegramId: string; passId: "trade_overtime"; senderAddress: string; initData: string }) {
+  const res = await fetch(`${API_BASE}/exchange/overtime-pass/purchase`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(input.initData ? { "x-telegram-init-data": input.initData } : {}) },
+    body: JSON.stringify({ telegramId: input.telegramId, passId: input.passId, senderAddress: input.senderAddress }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? "Overtime Pass payment verification failed.");
+  return data;
+}
+
 export function inferKoinaraMemoFromAmount(input: { amount: string; telegramId: string }): string | null {
   const amount = input.amount;
   const id = input.telegramId;
@@ -51,6 +70,9 @@ export function inferKoinaraMemoFromAmount(input: { amount: string; telegramId: 
     "600000000": `KNR-PACK-starter-${id}`,
     "2000000000": `KNR-PACK-pro-${id}`,
     "10000000000": `KNR-PACK-whale-${id}`,
+  };
+  const overtimePass: Record<string, string> = {
+    "500000000": `KNR-OVERTIME-trade_overtime-${id}`,
   };
   const minesPass: Record<string, string> = {
     "50000000": `KNR-MINES-bronze-1-${id}`,
@@ -63,7 +85,7 @@ export function inferKoinaraMemoFromAmount(input: { amount: string; telegramId: 
     "975000000": `KNR-MINES-gold-5-${id}`,
     "1725000000": `KNR-MINES-gold-10-${id}`,
   };
-  return tcPack[amount] ?? minesPass[amount] ?? null;
+  return tcPack[amount] ?? overtimePass[amount] ?? minesPass[amount] ?? null;
 }
 
 export function withRequiredMemo(tx: TonTransaction, telegramId: string): TonTransaction {
