@@ -132,6 +132,9 @@ jobs:
           VITE_TON_WALLET: ${{ secrets.VITE_TON_WALLET }}
           VITE_KOINARA_TON_WALLET: ${{ secrets.VITE_KOINARA_TON_WALLET }}
 
+      - name: Add SPA refresh fallback
+        run: cp artifacts/alpha-predict-pro/dist/public/index.html artifacts/alpha-predict-pro/dist/public/404.html
+
       - name: Deploy static site to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
