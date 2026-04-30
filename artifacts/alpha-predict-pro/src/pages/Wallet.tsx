@@ -17,6 +17,7 @@ import {
   getGetUserQueryKey,
   getGetWithdrawalsQueryKey,
 } from "@workspace/api-client-react";
+import { Link } from "react-router-dom";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
@@ -24,13 +25,13 @@ import { getVipCountdownLabel } from "@/lib/vipExpiry";
 import { ConfettiBurst } from "@/components/particles/ConfettiBurst";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const FREE_GC_PER_USD = 4000;
+const FREE_GC_PER_USD = 5000;
 const VIP_GC_PER_USD  = 2500;
-const FREE_MIN_GC     = 10000;
+const FREE_MIN_GC     = 14000;
 const VIP_MIN_GC      = 2500;
 const FREE_WEEKLY_MAX_USD = 25;
 const VIP_WEEKLY_MAX_USD  = 100;
-const FEE_PCT = 0.025;
+const FEE_PCT = 0.06;
 const MILESTONE_GC = 10000;
 
 // Monthly only — $5.99 at ~1.7 TON
@@ -96,6 +97,18 @@ export default function WalletPage() {
   const [verifyDone, setVerifyDone]         = useState(false);
   const [copiedTxHash, setCopiedTxHash]     = useState<number | null>(null);
   const [showWithdrawConfetti, setShowWithdrawConfetti] = useState(false);
+
+  const [crSummary, setCrSummary] = useState<{
+    creatorCredits: number;
+    pendingCr: number;
+    withdrawableCr: number;
+    totalCrEarned: number;
+    creatorPassPaid: boolean;
+  } | null>(null);
+  const [crWithdrawAmount, setCrWithdrawAmount] = useState<string>("");
+  const [crSubmitting, setCrSubmitting] = useState(false);
+  const [crError, setCrError] = useState<string | null>(null);
+  const [crSuccess, setCrSuccess] = useState(false);
 
   const vipCountdown = useVipCountdown(user?.vipExpiresAt);
 
@@ -227,6 +240,61 @@ export default function WalletPage() {
 
   const canWithdraw = gcAmount >= minGc && !overBalance && usdtWallet.length >= 10 && !needsVerification;
 
+  const handleCrWithdraw = async () => {
+    const amount = parseInt(crWithdrawAmount, 10);
+    if (isNaN(amount) || amount < 1000) {
+      setCrError("Minimum withdrawal is 1,000 CR");
+      return;
+    }
+    if (!crSummary || amount > crSummary.withdrawableCr) {
+      setCrError("Insufficient withdrawable CR balance");
+      return;
+    }
+    if (!usdtWallet || usdtWallet.length < 10) {
+      setCrError("Please set your USDT wallet address first");
+      return;
+    }
+    setCrSubmitting(true);
+    setCrError(null);
+    try {
+      const base = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+      const tgData = (window as any).Telegram?.WebApp?.initData || "";
+      const res = await fetch(`${base}/api/withdrawals/creator`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(tgData ? { "x-telegram-init-data": tgData } : {}),
+        },
+        body: JSON.stringify({
+          telegramId: user?.telegramId,
+          crAmount: amount,
+          walletAddress: usdtWallet,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCrError(data.error || "Withdrawal failed");
+      } else {
+        setCrSuccess(true);
+        setCrWithdrawAmount("");
+        setCrSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                creatorCredits: prev.creatorCredits - amount,
+                withdrawableCr: prev.withdrawableCr - amount,
+              }
+            : prev,
+        );
+        setTimeout(() => setCrSuccess(false), 4000);
+      }
+    } catch {
+      setCrError("Network error. Please try again.");
+    } finally {
+      setCrSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!withdrawSuccess || !user) return;
     const key = `koinara:firstWithdrawalCelebrated:${user.telegramId}`;
@@ -248,6 +316,21 @@ export default function WalletPage() {
     }
     return;
   }, [withdrawSuccess, user]);
+
+  useEffect(() => {
+    if (!user?.telegramId) return;
+    const base = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+    const tgData = (window as any).Telegram?.WebApp?.initData || "";
+    fetch(`${base}/api/creator/${user.telegramId}/cr-summary`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(tgData ? { "x-telegram-init-data": tgData } : {}),
+      },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setCrSummary(d); })
+      .catch(() => {});
+  }, [user?.telegramId]);
 
   if (historyLoading) return <PageLoader rows={3} />;
   if (historyError) return <PageError message="Could not load wallet data" onRetry={refetchHistory} />;
@@ -330,7 +413,7 @@ export default function WalletPage() {
         <div className="flex items-center gap-2">
           <Coins size={13} className="text-[#FFD700]" />
           <span className="font-mono text-[10px] text-white/50">
-            {vipActive ? "VIP Rate: 2,500 GC = $1" : "Free Rate: 4,000 GC = $1"}
+            {vipActive ? "VIP Rate: 2,500 GC = $1" : "Free Rate: 5,000 GC = $1"}
           </span>
         </div>
         {!vipActive && (
@@ -506,7 +589,7 @@ export default function WalletPage() {
                 <span className="font-mono text-[11px] text-white">${usdGross.toFixed(4)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-mono text-[11px] text-white/40">Platform fee (4.5%)</span>
+                <span className="font-mono text-[11px] text-white/40">Platform fee ({(FEE_PCT * 100).toFixed(0)}%)</span>
                 <span className="font-mono text-[11px] text-[#ff2d78]">-${feeUsd.toFixed(4)}</span>
               </div>
               <div className="flex justify-between">
@@ -612,6 +695,139 @@ export default function WalletPage() {
                 <ChevronRight size={12} className="text-[#f5c518]/40" />
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CREATOR BALANCE (CR) SECTION ── */}
+      {crSummary === null ? (
+        <div
+          className="mt-4 p-4 rounded-2xl border animate-pulse"
+          style={{ borderColor: "rgba(0,245,160,0.3)", background: "rgba(0,245,160,0.04)" }}
+        >
+          <div className="h-3 w-32 rounded bg-[#00F5A0]/10 mb-2" />
+          <div className="h-6 w-24 rounded bg-[#00F5A0]/10 mb-2" />
+          <div className="h-3 w-40 rounded bg-[#00F5A0]/10" />
+        </div>
+      ) : !crSummary.creatorPassPaid ? (
+        <div
+          className="mt-4 p-4 rounded-2xl border"
+          style={{ borderColor: "rgba(0,245,160,0.3)", background: "rgba(0,245,160,0.04)" }}
+        >
+          <div className="font-mono text-xs font-black text-[#00F5A0] mb-1">Creator Balance (CR)</div>
+          <div className="font-mono text-[11px] text-white/50 mb-3">
+            Earn CR by referring users to Koinara. Creator Pass required.
+          </div>
+          <Link
+            to="/earn"
+            className="inline-flex items-center font-mono text-xs font-black text-[#00F5A0] border border-[#00F5A0]/40 px-3 py-1.5 rounded-lg"
+          >
+            Get Creator Pass →
+          </Link>
+        </div>
+      ) : (
+        <div
+          className="mt-4 p-4 rounded-2xl border space-y-4"
+          style={{
+            borderColor: "rgba(0,245,160,0.35)",
+            background: "linear-gradient(165deg, rgba(0,245,160,0.07), rgba(10,12,18,0.88))",
+            boxShadow: "0 0 20px rgba(0,245,160,0.12)",
+          }}
+        >
+          <div>
+            <div className="font-mono text-[9px] text-[#00F5A0]/60 tracking-widest mb-1">CREATOR BALANCE (CR)</div>
+            <div className="font-mono text-3xl font-black text-[#00F5A0]">
+              {crSummary.creatorCredits.toLocaleString()} CR
+            </div>
+            <div className="font-mono text-[11px] text-white/50 mt-0.5">
+              ≈ ${(crSummary.withdrawableCr / 1000).toFixed(2)} withdrawable
+            </div>
+            {crSummary.pendingCr > 0 && (
+              <div className="font-mono text-[10px] text-white/30 mt-0.5">
+                {crSummary.pendingCr.toLocaleString()} CR pending 48hr review
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="font-mono text-[10px] text-white/40 tracking-widest block mb-1.5">
+              AMOUNT TO WITHDRAW (CR)
+            </label>
+            <input
+              type="number"
+              value={crWithdrawAmount}
+              onChange={(e) => { setCrWithdrawAmount(e.target.value); setCrError(null); }}
+              placeholder="Min 1,000 CR"
+              className="w-full px-3 py-3 rounded-xl bg-white/[0.04] border border-white/10 font-mono text-base font-bold text-white placeholder:text-white/20 focus:outline-none focus:border-[#00F5A0]/50"
+            />
+            {(() => {
+              const amt = parseInt(crWithdrawAmount || "0", 10);
+              if (!isNaN(amt) && amt >= 1000) {
+                const net = Math.floor(amt * 0.9);
+                return (
+                  <div className="mt-2 space-y-0.5">
+                    <div className="font-mono text-[10px] text-white/40">
+                      10% fee: {amt - net} CR
+                    </div>
+                    <div className="font-mono text-[10px] text-[#00F5A0]">
+                      You receive: {net} CR = ${(net / 1000).toFixed(2)}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            <div className="font-mono text-[10px] text-white/25 mt-1.5">
+              Uses your USDT wallet address above
+            </div>
+          </div>
+          {crError && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/8">
+              <XCircle size={12} className="text-red-400 shrink-0" />
+              <span className="font-mono text-[11px] text-red-400">{crError}</span>
+            </div>
+          )}
+          <AnimatePresence>
+            {crSuccess && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="p-3 rounded-xl border-2 border-[#00F5A0] bg-[#00F5A0]/10"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle size={14} className="text-[#00F5A0]" />
+                  <span className="font-mono text-xs font-black text-[#00F5A0]">
+                    CR withdrawal queued. Processed within 48 hours.
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {(() => {
+            const amt = parseInt(crWithdrawAmount || "0", 10);
+            const enabled = !isNaN(amt) && amt >= 1000 && amt <= crSummary.withdrawableCr && !crSubmitting;
+            return (
+              <button
+                onClick={handleCrWithdraw}
+                disabled={!enabled}
+                className="w-full py-4 rounded-xl font-mono text-sm font-black disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                style={{
+                  background: enabled ? "linear-gradient(135deg, #00F5A0, #00c87a)" : "rgba(0,245,160,0.1)",
+                  border: "2px solid #00F5A0",
+                  color: enabled ? "#000" : "#00F5A0",
+                  boxShadow: enabled ? "0 0 20px rgba(0,245,160,0.25)" : "none",
+                }}
+              >
+                {crSubmitting ? (
+                  <><Loader2 size={16} className="animate-spin" /> PROCESSING...</>
+                ) : (
+                  <>Withdraw CR</>
+                )}
+              </button>
+            );
+          })()}
+          <div className="font-mono text-[9px] text-white/25 text-center">
+            No daily cap · Creator Pass holders only · Minimum 1,000 CR · 10% fee applies
           </div>
         </div>
       )}
