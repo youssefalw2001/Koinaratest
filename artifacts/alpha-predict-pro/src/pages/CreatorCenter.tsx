@@ -7,6 +7,8 @@ import { isVipActive } from "@/lib/vipActive";
 const USD_TO_INR_EST = 83;
 const FREE_GC_PER_USD = 5000;
 const VIP_GC_PER_USD = 2500;
+const CREATOR_UNLOCK_USD = 0.99;
+const CREATOR_UNLOCK_TON = 0.2;
 
 const CREATOR_RANKS = [
   { name: "Starter", min: 0, next: 3, tone: "#8BC3FF", perk: "Creator Center unlocked" },
@@ -89,6 +91,7 @@ export default function CreatorCenter() {
   const weeklyRank = Math.max(183, 8421 - activeReferrals * 530 - Math.floor(referralGc / 75) - Math.floor(creatorXp / 6));
   const milestoneTarget = rank.next ?? 100;
   const milestoneNeeded = rank.next ? Math.max(0, rank.next - activeReferrals) : 0;
+  const creatorUnlockInr = Math.round(CREATOR_UNLOCK_USD * USD_TO_INR_EST);
 
   const notifyCopied = (key: string) => {
     setCopied(key);
@@ -107,6 +110,7 @@ export default function CreatorCenter() {
       "I am building my Koinara creator network.",
       `Creator rank: ${rank.name}`,
       `Weekly pace: ${weeklyPaceGc.toLocaleString()} GC (${compactMoneyFromGc(weeklyPaceGc, gcPerUsd)})`,
+      `Creator rewards unlock: $${CREATOR_UNLOCK_USD.toFixed(2)} / ${CREATOR_UNLOCK_TON} TON one-time verification`,
       `Creator code: ${creatorCode}`,
       referralLink ? `Join here: ${referralLink}` : "Join Koinara on Telegram.",
       "Estimates only. Rewards depend on real activity and review.",
@@ -117,7 +121,7 @@ export default function CreatorCenter() {
 
   const handleShareInvite = () => {
     if (!referralLink) return;
-    const text = encodeURIComponent("Join my Koinara creator network. Play Trade/Mines, climb the Grind Board, and unlock creator rewards.");
+    const text = encodeURIComponent("Join my Koinara creator network. Unlock creator rewards, post content, and climb the Grind Board.");
     const url = encodeURIComponent(referralLink);
     const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
     window.Telegram?.WebApp?.openTelegramLink?.(shareUrl) ?? window.open(shareUrl, "_blank");
@@ -141,8 +145,33 @@ export default function CreatorCenter() {
         <div className="relative z-10">
           <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/8 px-2.5 py-1 font-mono text-[9px] font-black tracking-[0.16em] uppercase text-[#FFE266]"><Sparkles size={11}/>Creator rewards lane</div>
           <h1 className="text-3xl font-black leading-tight">Grow your Koinara network</h1>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/46">Invite real users, track active referrals, and build creator rewards from verified activity. No guaranteed income, no fake traffic, no self-referrals.</p>
+          <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/46">Invite real users, unlock content rewards, and build creator rewards from verified activity. No guaranteed income, no fake traffic, no self-referrals.</p>
         </div>
+      </section>
+
+      <section className="creator-card mb-4 overflow-hidden rounded-3xl border-[#00F5A0]/35 p-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#00F5A0]">Content Rewards Unlock</div>
+            <div className="mt-1 text-2xl font-black">${CREATOR_UNLOCK_USD.toFixed(2)} / {CREATOR_UNLOCK_TON} TON</div>
+            <div className="mt-1 font-mono text-[10px] text-white/42">One-time creator verification · ≈ ₹{creatorUnlockInr}</div>
+          </div>
+          <div className={`rounded-2xl px-3 py-2 text-right border ${vip ? "border-[#FFD700]/30 bg-[#FFD700]/10" : "border-[#00F5A0]/25 bg-[#00F5A0]/10"}`}>
+            <div className="font-mono text-[9px] text-white/38">Status</div>
+            <div className={`font-mono text-xs font-black ${vip ? "text-[#FFD700]" : "text-[#00F5A0]"}`}>{vip ? "VIP skips" : "Unlock"}</div>
+          </div>
+        </div>
+        <p className="mb-3 font-mono text-[10px] leading-relaxed text-white/48">Users can make money by posting approved Koinara content, bringing real users, and passing review. You earn from the unlock fee, VIP upgrades, verification, and creator-driven paid users.</p>
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 1</div><div className="font-black text-[#FFD700]">Unlock</div><div className="font-mono text-[8px] text-white/35">$0.99 / 0.2 TON</div></div>
+          <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 2</div><div className="font-black text-[#00F5FF]">Post</div><div className="font-mono text-[8px] text-white/35">Reels, Shorts, Stories</div></div>
+          <div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 3</div><div className="font-black text-[#FF4D8D]">Earn</div><div className="font-mono text-[8px] text-white/35">After review</div></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Link href="/wallet"><button className="w-full rounded-2xl bg-[#00F5A0] py-3 font-black text-black">{vip ? "VIP Unlocked" : "Unlock Creator Rewards"}</button></Link>
+          <Link href="/earn"><button className="w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-black text-[#FFD700]">Submit Content</button></Link>
+        </div>
+        <p className="mt-3 font-mono text-[9px] leading-relaxed text-white/32">Unlocking does not guarantee rewards. Fake views, stolen content, duplicate accounts, or self-referrals can be rejected.</p>
       </section>
 
       <section className="creator-card mb-4 overflow-hidden rounded-3xl p-4 border-[#FFD700]/35">
