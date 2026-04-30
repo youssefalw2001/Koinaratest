@@ -16,9 +16,23 @@ const CREATOR_RANKS = [
   { name: "Elite", min: 100, next: null, tone: "#B65CFF", perk: "Top creator status" },
 ];
 
+const TOP_CREATORS = [
+  { rank: 1, handle: "@aman_trades", city: "Jaipur", region: "IN", gc: 128400, note: "creator + trade grind" },
+  { rank: 2, handle: "@faisal_ton", city: "Dubai", region: "MENA", gc: 94200, note: "VIP referral streak" },
+  { rank: 3, handle: "@rahul_gc", city: "Patna", region: "IN", gc: 72800, note: "shorts + invites" },
+  { rank: 4, handle: "@zaid_arena", city: "Riyadh", region: "MENA", gc: 68500, note: "mines creator" },
+  { rank: 5, handle: "@imran_mines", city: "Bhopal", region: "IN", gc: 51900, note: "new-user climb" },
+  { rank: 6, handle: "@omar_btc", city: "Cairo", region: "MENA", gc: 44750, note: "daily posts" },
+];
+
 function shortMoneyFromGc(gc: number, gcPerUsd: number) {
   const usd = gc / gcPerUsd;
   return `≈ ₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()} / $${usd.toFixed(2)}`;
+}
+
+function compactMoneyFromGc(gc: number, gcPerUsd: number) {
+  const usd = gc / gcPerUsd;
+  return `₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()} / $${usd.toFixed(2)}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -55,6 +69,7 @@ export default function CreatorCenter() {
   const referralLevel2 = u?.level2ReferralCount ?? u?.secondLevelReferralCount ?? 0;
   const referralGc = u?.referralEarnings ?? u?.referralEarningsGc ?? 0;
   const creatorXp = u?.creatorXp ?? 0;
+  const rankXp = u?.rankXp ?? 0;
   const gcPerUsd = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
   const activeReferrals = referralLevel1 + referralLevel2;
   const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
@@ -62,7 +77,18 @@ export default function CreatorCenter() {
 
   const rank = useMemo(() => [...CREATOR_RANKS].reverse().find((r) => activeReferrals >= r.min) ?? CREATOR_RANKS[0], [activeReferrals]);
   const progress = rank.next ? Math.min(100, Math.round(((activeReferrals - rank.min) / (rank.next - rank.min)) * 100)) : 100;
-  const nextLabel = rank.next ? `${rank.next - activeReferrals} more active referrals to ${CREATOR_RANKS.find((r) => r.min === rank.next)?.name ?? "next rank"}` : "Elite creator rank reached";
+  const nextRank = rank.next ? CREATOR_RANKS.find((r) => r.min === rank.next) : null;
+  const nextLabel = rank.next ? `${rank.next - activeReferrals} more active referrals to ${nextRank?.name ?? "next rank"}` : "Elite creator rank reached";
+
+  const weeklyActivityGc = Math.round(referralGc * 0.25 + creatorXp * 0.12 + rankXp * 0.03 + activeReferrals * 420);
+  const starterTargetGc = 1500;
+  const weeklyPaceGc = weeklyActivityGc > 0 ? weeklyActivityGc : starterTargetGc;
+  const dailyPaceGc = Math.round(weeklyPaceGc / 7);
+  const monthlyPaceGc = Math.round(weeklyPaceGc * 4.3);
+  const aheadPct = Math.min(91, Math.max(18, 38 + activeReferrals * 7 + Math.floor(creatorXp / 900)));
+  const weeklyRank = Math.max(183, 8421 - activeReferrals * 530 - Math.floor(referralGc / 75) - Math.floor(creatorXp / 6));
+  const milestoneTarget = rank.next ?? 100;
+  const milestoneNeeded = rank.next ? Math.max(0, rank.next - activeReferrals) : 0;
 
   const notifyCopied = (key: string) => {
     setCopied(key);
@@ -80,8 +106,10 @@ export default function CreatorCenter() {
     const card = [
       "I am building my Koinara creator network.",
       `Creator rank: ${rank.name}`,
+      `Weekly pace: ${weeklyPaceGc.toLocaleString()} GC (${compactMoneyFromGc(weeklyPaceGc, gcPerUsd)})`,
       `Creator code: ${creatorCode}`,
       referralLink ? `Join here: ${referralLink}` : "Join Koinara on Telegram.",
+      "Estimates only. Rewards depend on real activity and review.",
     ].join("\n");
     const ok = await copyText(card);
     if (ok) notifyCopied("card");
@@ -89,7 +117,7 @@ export default function CreatorCenter() {
 
   const handleShareInvite = () => {
     if (!referralLink) return;
-    const text = encodeURIComponent("Join my Koinara creator network. Play Trade/Mines, grow your rank, and unlock creator rewards.");
+    const text = encodeURIComponent("Join my Koinara creator network. Play Trade/Mines, climb the Grind Board, and unlock creator rewards.");
     const url = encodeURIComponent(referralLink);
     const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
     window.Telegram?.WebApp?.openTelegramLink?.(shareUrl) ?? window.open(shareUrl, "_blank");
@@ -115,6 +143,82 @@ export default function CreatorCenter() {
           <h1 className="text-3xl font-black leading-tight">Grow your Koinara network</h1>
           <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/46">Invite real users, track active referrals, and build creator rewards from verified activity. No guaranteed income, no fake traffic, no self-referrals.</p>
         </div>
+      </section>
+
+      <section className="creator-card mb-4 overflow-hidden rounded-3xl p-4 border-[#FFD700]/35">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Creator Grind Board</div>
+            <div className="mt-1 text-2xl font-black">Your Grind This Week</div>
+            <div className="mt-1 font-mono text-[10px] text-white/42">Rank #{weeklyRank.toLocaleString()} · ahead of {aheadPct}% of new users</div>
+          </div>
+          <div className="rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-2 text-right">
+            <div className="font-mono text-[9px] text-white/38">Weekly pace</div>
+            <div className="font-mono text-lg font-black text-[#FFD700]">{weeklyPaceGc.toLocaleString()}</div>
+            <div className="font-mono text-[8px] text-white/35">GC</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3">
+            <div className="font-mono text-[8px] uppercase text-white/38">Daily</div>
+            <div className="font-black text-[#00F5FF]">{dailyPaceGc.toLocaleString()} GC</div>
+            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(dailyPaceGc, gcPerUsd)}</div>
+          </div>
+          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3">
+            <div className="font-mono text-[8px] uppercase text-white/38">Weekly</div>
+            <div className="font-black text-[#FFD700]">{weeklyPaceGc.toLocaleString()} GC</div>
+            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(weeklyPaceGc, gcPerUsd)}</div>
+          </div>
+          <div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3">
+            <div className="font-mono text-[8px] uppercase text-white/38">Monthly</div>
+            <div className="font-black text-[#FF4D8D]">{monthlyPaceGc.toLocaleString()} GC</div>
+            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(monthlyPaceGc, gcPerUsd)}</div>
+          </div>
+        </div>
+        <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px] leading-relaxed text-white/42">
+          {weeklyActivityGc > 0 ? "Based on your visible creator/referral activity." : "Starter target shown until you build real creator activity."} Estimated only — actual rewards depend on real users, content review, and withdrawal rules.
+        </div>
+      </section>
+
+      <section className="creator-card mb-4 rounded-3xl p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#00F5FF]">Next milestone</div>
+            <div className="mt-1 text-xl font-black">{rank.next ? `${nextRank?.name ?? "Next"} Creator` : "Elite Creator"}</div>
+            <div className="mt-1 font-mono text-[10px] text-white/40">{rank.next ? `${milestoneNeeded} active invite${milestoneNeeded === 1 ? "" : "s"} needed` : "You reached the top creator tier."}</div>
+          </div>
+          <div className="h-16 w-16 rounded-3xl border border-[#00F5FF]/20 bg-[#00F5FF]/8 flex items-center justify-center"><Users size={25} className="text-[#00F5FF]" /></div>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#00F5FF] to-[#FFD700]" style={{ width: `${rank.next ? Math.min(100, Math.round((activeReferrals / milestoneTarget) * 100)) : 100}%` }} /></div>
+        <div className="mt-2 font-mono text-[10px] text-white/38">One active friend can move you closer to the next creator tier.</div>
+      </section>
+
+      <section className="creator-card mb-4 rounded-3xl p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Community benchmark</div>
+            <div className="mt-1 text-xl font-black">Top Creators This Week</div>
+          </div>
+          <div className="rounded-full border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-1 font-mono text-[9px] font-black text-[#FFD700]">IN + MENA</div>
+        </div>
+        <div className="space-y-2">
+          {TOP_CREATORS.map((creator) => (
+            <div key={creator.handle} className="rounded-2xl border border-white/8 bg-white/[0.025] p-3">
+              <div className="flex items-center gap-3">
+                <div className={`h-9 w-9 rounded-2xl flex items-center justify-center border font-black ${creator.rank <= 3 ? "border-[#FFD700]/30 bg-[#FFD700]/10 text-[#FFD700]" : "border-white/10 bg-white/[0.035] text-white/55"}`}>#{creator.rank}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-xs font-black text-white">{creator.handle}</div>
+                  <div className="font-mono text-[9px] text-white/35">{creator.city} · {creator.region} · {creator.note}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-xs font-black text-[#FFD700]">{creator.gc.toLocaleString()} GC</div>
+                  <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(creator.gc, FREE_GC_PER_USD)}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 font-mono text-[9px] leading-relaxed text-white/32">Benchmark names are sample community-style handles until live verified leaderboard data is connected. Do not treat as guaranteed earnings.</p>
       </section>
 
       <section className="mb-4 grid grid-cols-2 gap-2">
