@@ -23,7 +23,7 @@ import Terminal from "./pages/TradeCapGuard";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/EarnCreatorLaunch";
 import Shop from "./pages/ShopPremiumLaunch";
-import Wallet from "./pages/WalletPremiumV2";
+import Wallet from "./pages/WalletSimplified";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/ProfilePremiumLaunch";
 import Academy from "./pages/Academy";
