@@ -14,7 +14,6 @@ import {
   Bomb,
   Trophy,
   BookOpen,
-  Rocket,
 } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -23,12 +22,11 @@ import { formatGcUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/language";
 
 const tabs = [
-  { path: "/", icon: Zap, labelKey: "trade" as const },
-  { path: "/mines", icon: Bomb, labelKey: "mines" as const },
-  { path: "/earn", icon: Gift, labelKey: "earn" as const },
-  { path: "/creator", icon: Rocket, label: "Creator" },
-  { path: "/exchange", icon: Gem, labelKey: "exchange" as const },
-  { path: "/wallet", icon: Wallet, labelKey: "wallet" as const },
+  { path: "/", icon: Zap, label: "Trade" },
+  { path: "/mines", icon: Bomb, label: "Mines" },
+  { path: "/earn", icon: Gift, label: "Earn" },
+  { path: "/exchange", icon: Gem, label: "Shop" },
+  { path: "/wallet", icon: Wallet, label: "Wallet" },
 ];
 
 const FREE_TRADE_CAP_GC = 7000;
@@ -162,7 +160,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/profile"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors" aria-label={t("profile")}><User size={14} className="text-white/60" /></button></Link>
-            <Link href="/creator"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/[0.06] hover:bg-[#FFD700]/10 transition-colors" aria-label="Creator Center"><Rocket size={14} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,.35)]" /></button></Link>
             <Link href="/academy"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/[0.06] hover:bg-[#FFD700]/10 transition-colors" aria-label="Koinara Academy"><BookOpen size={14} className="text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,.35)]" /></button></Link>
             <Link href="/leaderboard"><button className="pressable inline-flex items-center justify-center w-8 h-8 rounded-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] transition-colors" aria-label={t("leaderboard")}><Trophy size={14} className="text-white/60" /></button></Link>
             <button onClick={toggleLanguage} title={`${t("language")}: ${languageFullLabel(language)}`} className="pressable inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[9px] font-bold text-white/60 hover:text-white transition-colors"><Languages size={11} />{languageShortLabel(language)}</button>
@@ -236,7 +233,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {tabs.map((tab) => {
             const { path, icon: Icon } = tab;
             const active = location === path || (path !== "/" && location.startsWith(path));
-            const label = "label" in tab ? tab.label : t(tab.labelKey);
+            const label = tab.label;
             return (
               <Link key={path} href={path} className="relative group">
                 <div className={`flex flex-col items-center py-2 px-2 gap-1.5 transition-all duration-300 ${active ? "text-[#FFD700]" : "text-white/30 hover:text-white/50"}`}>
