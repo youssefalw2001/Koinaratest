@@ -216,8 +216,8 @@ function VipPromoModal() {
                   "20,000 GC daily Trade cap instead of 7,000",
                   "20,000 GC daily Mines cap instead of 5,000",
                   "Lower withdrawal requirement + faster cashout path",
-                  "20% direct VIP referral commission + 5% level 2",
-                  "VIP-only creator rewards and premium missions",
+                  "Creator Pass included — referral commissions activated automatically",
+                  "Monthly renewal rewards from active VIP referrals",
                 ].map(perk => <div key={perk} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#f5c518]/20 bg-[#f5c518]/5"><CheckCircle size={12} className="text-[#f5c518] shrink-0" /><span className="font-mono text-xs text-white text-left">{perk}</span></div>)}
               </div>
               <button onClick={handleGoVip} className="w-full py-4 rounded-2xl font-mono text-base font-black text-black mb-3" style={{ background: "linear-gradient(90deg, #f5c518, #ff9900)", boxShadow: "0 0 25px rgba(245,197,24,0.5)" }}>PURCHASE NOW</button>
