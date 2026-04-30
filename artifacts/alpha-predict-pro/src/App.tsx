@@ -22,6 +22,7 @@ import { withRequiredMemo } from "@/lib/tonPayment";
 import Terminal from "./pages/TradeCapGuard";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/EarnCreatorLaunch";
+import CreatorCenter from "./pages/CreatorCenterV1";
 import Shop from "./pages/ShopPremiumLaunch";
 import Wallet from "./pages/WalletPremiumV2";
 import Leaderboard from "./pages/Leaderboard";
@@ -306,6 +307,7 @@ function Router() {
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
+        <Route path="/creator" component={() => <Bounded><CreatorCenter /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
         <Route path="/leaderboard" component={() => <Bounded><Leaderboard /></Bounded>} />
