@@ -39,29 +39,75 @@ const MAX_SELECTED_BINARY_GEMS = 2;
 
 const TRUSTED_PRICE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"] as const;
 type TrustedPriceSymbol = (typeof TRUSTED_PRICE_SYMBOLS)[number];
+type TrustedQuote = { symbol: TrustedPriceSymbol; price: number; source: string };
 
-async function fetchTrustedPrice(symbol: TrustedPriceSymbol): Promise<number | null> {
+function normalizeTrustedSymbol(raw: unknown): TrustedPriceSymbol | null {
+  if (typeof raw !== "string") return null;
+  const compact = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return TRUSTED_PRICE_SYMBOLS.includes(compact as TrustedPriceSymbol) ? (compact as TrustedPriceSymbol) : null;
+}
+
+function okxSymbol(symbol: TrustedPriceSymbol): string {
+  return symbol.replace("USDT", "-USDT");
+}
+
+async function fetchJson(url: string, timeoutMs = 3500): Promise<unknown | null> {
   try {
-    const resp = await fetch(
-      `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`,
-      { signal: AbortSignal.timeout(5000) },
-    );
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "accept": "application/json", "user-agent": "Koinara/1.0" },
+    });
     if (!resp.ok) return null;
-    const data = (await resp.json()) as { result?: { list?: Array<{ lastPrice?: string }> } };
-    const lastPrice = data.result?.list?.[0]?.lastPrice;
-    const price = Number(lastPrice);
-    if (!Number.isFinite(price) || price <= 0) return null;
-    return Math.trunc(price * 100) / 100;
+    return await resp.json();
   } catch {
     return null;
   }
 }
 
-async function resolveTrustedExitPrice(entryPrice: number): Promise<{ price: number; symbol: TrustedPriceSymbol }> {
-  const quotes = await Promise.all(
-    TRUSTED_PRICE_SYMBOLS.map(async (symbol) => ({ symbol, price: await fetchTrustedPrice(symbol) })),
-  );
-  const validQuotes = quotes.filter((q): q is { symbol: TrustedPriceSymbol; price: number } => q.price != null);
+function cleanPrice(raw: unknown): number | null {
+  const price = Number(raw);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  return Math.trunc(price * 100) / 100;
+}
+
+async function fetchBybitPrice(symbol: TrustedPriceSymbol): Promise<number | null> {
+  const data = (await fetchJson(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`)) as { result?: { list?: Array<{ lastPrice?: string }> } } | null;
+  return cleanPrice(data?.result?.list?.[0]?.lastPrice);
+}
+
+async function fetchBinancePrice(symbol: TrustedPriceSymbol): Promise<number | null> {
+  const data = (await fetchJson(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)) as { price?: string } | null;
+  return cleanPrice(data?.price);
+}
+
+async function fetchOkxPrice(symbol: TrustedPriceSymbol): Promise<number | null> {
+  const data = (await fetchJson(`https://www.okx.com/api/v5/market/ticker?instId=${okxSymbol(symbol)}`)) as { data?: Array<{ last?: string }> } | null;
+  return cleanPrice(data?.data?.[0]?.last);
+}
+
+async function fetchTrustedPrice(symbol: TrustedPriceSymbol): Promise<TrustedQuote | null> {
+  const attempts = await Promise.allSettled([
+    fetchBybitPrice(symbol).then((price) => (price ? { symbol, price, source: "bybit" } : null)),
+    fetchBinancePrice(symbol).then((price) => (price ? { symbol, price, source: "binance" } : null)),
+    fetchOkxPrice(symbol).then((price) => (price ? { symbol, price, source: "okx" } : null)),
+  ]);
+
+  const quotes = attempts
+    .map((result) => (result.status === "fulfilled" ? result.value : null))
+    .filter((quote): quote is TrustedQuote => !!quote);
+  if (quotes.length === 0) return null;
+
+  const bybit = quotes.find((q) => q.source === "bybit");
+  if (bybit) return bybit;
+
+  const average = quotes.reduce((sum, q) => sum + q.price, 0) / quotes.length;
+  return quotes.reduce((best, quote) => Math.abs(quote.price - average) < Math.abs(best.price - average) ? quote : best, quotes[0]!);
+}
+
+async function resolveTrustedExitPrice(entryPrice: number, requestedSymbol?: TrustedPriceSymbol | null): Promise<{ price: number; symbol: TrustedPriceSymbol; source: string }> {
+  const symbols = requestedSymbol ? [requestedSymbol] : TRUSTED_PRICE_SYMBOLS;
+  const quotes = await Promise.all(symbols.map((symbol) => fetchTrustedPrice(symbol)));
+  const validQuotes = quotes.filter((q): q is TrustedQuote => q != null);
   if (validQuotes.length === 0) throw new Error("TRUSTED_PRICE_UNAVAILABLE");
 
   const closest = validQuotes.reduce((best, quote) => {
@@ -73,7 +119,7 @@ async function resolveTrustedExitPrice(entryPrice: number): Promise<{ price: num
   const distance = Math.abs(closest.price - entryPrice) / Math.max(entryPrice, 1);
   if (distance > PRICE_MATCH_TOLERANCE) throw new Error("PRICE_SYMBOL_MISMATCH");
 
-  return { price: closest.price, symbol: closest.symbol };
+  return { price: closest.price, symbol: closest.symbol, source: closest.source };
 }
 
 function parseSelectedGemIds(raw: unknown): number[] {
@@ -96,6 +142,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const { telegramId, direction, amount, entryPrice } = parsed.data;
+  const requestedSymbol = normalizeTrustedSymbol((parsed.data as { pair?: unknown; symbol?: unknown }).pair ?? (parsed.data as { pair?: unknown; symbol?: unknown }).symbol);
 
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authedId) return;
@@ -175,8 +222,8 @@ router.post("/predictions", async (req, res): Promise<void> => {
 
   const effectiveMultiplier = expectedBaseMultiplier * selectedGemMultiplier(selectedGemTypes);
 
-  const trustedEntry = await resolveTrustedExitPrice(entryPrice).catch((err: Error) => {
-    logger.warn({ err, entryPrice }, "Failed to validate trusted entry price");
+  const trustedEntry = await resolveTrustedExitPrice(entryPrice, requestedSymbol).catch((err: Error) => {
+    logger.warn({ err, entryPrice, requestedSymbol }, "Failed to validate trusted entry price");
     return null;
   });
   if (!trustedEntry) {
@@ -218,6 +265,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
         .returning();
     });
 
+    logger.info({ predictionId: prediction.id, trustedSymbol: trustedEntry.symbol, trustedSource: trustedEntry.source, trustedEntryPrice: trustedEntry.price }, "Prediction created with trusted server price");
     res.status(201).json(serializeRow(prediction as Record<string, unknown>));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "UNKNOWN";
@@ -314,7 +362,7 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
 
-  logger.info({ predictionId: params.data.id, trustedSymbol: trustedExit.symbol, trustedExitPrice: trustedExit.price }, "Prediction resolved with trusted server price");
+  logger.info({ predictionId: params.data.id, trustedSymbol: trustedExit.symbol, trustedSource: trustedExit.source, trustedExitPrice: trustedExit.price }, "Prediction resolved with trusted server price");
 
   await replyWithCommit(200, ResolvePredictionResponse.parse(serializeRow(result.prediction as unknown as Record<string, unknown>)));
 });
