@@ -37,5 +37,15 @@ export async function runStartupMigrations(): Promise<void> {
     )
   `);
 
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS creator_pass_tx_hashes (
+      id serial PRIMARY KEY,
+      tx_hash text NOT NULL UNIQUE,
+      telegram_id text NOT NULL,
+      payment_method text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
   logger.info("Startup migrations completed");
 }
