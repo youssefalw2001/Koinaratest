@@ -7,5 +7,6 @@ export * from "./gems";
 export * from "./vipTxHashes";
 export * from "./tcPackTxHashes";
 export * from "./contentSubmissions";
+export * from "./crTransactions";
 export * from "./crash";
 export * from "./mines";
