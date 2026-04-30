@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { CheckCircle, ChevronDown, Copy, Crown, ExternalLink, Rocket, ShieldCheck, Share2, Sparkles, Trophy, Users, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle, Copy, Crown, ExternalLink, Lock, Rocket, Send, ShieldCheck, Share2, Trophy, Users, Video, Wallet } from "lucide-react";
 import { Link } from "wouter";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -7,34 +7,40 @@ import { isVipActive } from "@/lib/vipActive";
 const USD_TO_INR_EST = 83;
 const FREE_GC_PER_USD = 5000;
 const VIP_GC_PER_USD = 2500;
-const CREATOR_UNLOCK_USD = 0.99;
-const CREATOR_UNLOCK_TON = 0.2;
+const CREATOR_PASS_USD = 0.99;
+const CREATOR_PASS_INR = 82;
+const CREATOR_PASS_TON = 0.2;
 
 const CREATOR_RANKS = [
-  { name: "Starter", min: 0, next: 3, tone: "#8BC3FF", perk: "Creator Center unlocked" },
-  { name: "Bronze", min: 3, next: 10, tone: "#FFD700", perk: "Referral proof badge" },
-  { name: "Silver", min: 10, next: 25, tone: "#00F5FF", perk: "Higher campaign visibility" },
-  { name: "Gold", min: 25, next: 100, tone: "#FF4D8D", perk: "Priority creator reviews" },
+  { name: "Starter", min: 0, next: 3, tone: "#8BC3FF", perk: "Creator link + content access after pass" },
+  { name: "Bronze", min: 3, next: 10, tone: "#FFD700", perk: "Bronze creator badge" },
+  { name: "Silver", min: 10, next: 25, tone: "#00F5FF", perk: "Higher creator visibility" },
+  { name: "Gold", min: 25, next: 100, tone: "#FF4D8D", perk: "Priority content review" },
   { name: "Elite", min: 100, next: null, tone: "#B65CFF", perk: "Top creator status" },
 ];
 
-const TOP_CREATORS = [
-  { rank: 1, handle: "@aman_trades", city: "Jaipur", region: "IN", gc: 128400, note: "creator + trade grind" },
-  { rank: 2, handle: "@faisal_ton", city: "Dubai", region: "MENA", gc: 94200, note: "VIP referral streak" },
-  { rank: 3, handle: "@rahul_gc", city: "Patna", region: "IN", gc: 72800, note: "shorts + invites" },
-  { rank: 4, handle: "@zaid_arena", city: "Riyadh", region: "MENA", gc: 68500, note: "mines creator" },
-  { rank: 5, handle: "@imran_mines", city: "Bhopal", region: "IN", gc: 51900, note: "new-user climb" },
-  { rank: 6, handle: "@omar_btc", city: "Cairo", region: "MENA", gc: 44750, note: "daily posts" },
+const REWARD_TIERS = [
+  { views: "1K views", reward: "TC + creator XP review", note: "real views only" },
+  { views: "10K views", reward: "higher GC/TC review", note: "engagement checked" },
+  { views: "100K views", reward: "premium reward review", note: "owner verifies" },
+  { views: "1M views", reward: "elite campaign review", note: "manual approval" },
 ];
 
-function shortMoneyFromGc(gc: number, gcPerUsd: number) {
-  const usd = gc / gcPerUsd;
-  return `≈ ₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()} / $${usd.toFixed(2)}`;
+type CreatorSubmission = { id: number | string; platform?: string; postType?: string; url: string; status: string; gcAwarded?: number; createdAt?: string };
+type Platform = "whatsapp" | "instagram" | "youtube" | "tiktok" | "x";
+type PostType = "story" | "post" | "short" | "long";
+
+function apiBase() {
+  return (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 }
 
-function compactMoneyFromGc(gc: number, gcPerUsd: number) {
-  const usd = gc / gcPerUsd;
-  return `₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()} / $${usd.toFixed(2)}`;
+function usdForGc(gc: number, rate: number): number {
+  return gc / rate;
+}
+
+function moneyFromGc(gc: number, rate: number): string {
+  const usd = usdForGc(gc, rate);
+  return `$${usd.toFixed(2)} / ₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -65,267 +71,126 @@ export default function CreatorCenter() {
   const u = user as any;
   const vip = isVipActive(user);
   const [copied, setCopied] = useState<string | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [contentUrl, setContentUrl] = useState("");
+  const [platform, setPlatform] = useState<Platform>("whatsapp");
+  const [postType, setPostType] = useState<PostType>("story");
+  const [submitting, setSubmitting] = useState(false);
+  const [submissions, setSubmissions] = useState<CreatorSubmission[]>([]);
 
-  const referralLevel1 = u?.referralCount ?? u?.directReferralCount ?? 0;
-  const referralLevel2 = u?.level2ReferralCount ?? u?.secondLevelReferralCount ?? 0;
-  const referralGc = u?.referralEarnings ?? u?.referralEarningsGc ?? 0;
-  const creatorXp = u?.creatorXp ?? 0;
-  const rankXp = u?.rankXp ?? 0;
+  const creatorPassActive = vip || !!u?.creatorPassPaid;
+  const creatorPassMissingBackend = !vip && typeof u?.creatorPassPaid === "undefined";
   const gcPerUsd = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
-  const activeReferrals = referralLevel1 + referralLevel2;
   const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
   const creatorCode = user?.telegramId ? `KNR-${String(user.telegramId).slice(-6)}` : "KNR-YOURCODE";
 
+  const level1Count = u?.directReferralCount ?? u?.referralCount ?? 0;
+  const level2Count = u?.level2ReferralCount ?? u?.secondLevelReferralCount ?? 0;
+  const paidReferralCount = u?.paidReferralCount ?? 0;
+  const vipReferralCount = u?.vipReferralCount ?? 0;
+  const directCommissionGc = u?.directCommissionGc ?? 0;
+  const networkCommissionGc = u?.level2CommissionGc ?? u?.networkCommissionGc ?? 0;
+  const totalCreatorGc = u?.referralEarnings ?? u?.referralEarningsGc ?? directCommissionGc + networkCommissionGc;
+  const pendingCreatorGc = u?.pendingCreatorGc ?? 0;
+  const withdrawableCreatorGc = u?.withdrawableCreatorGc ?? totalCreatorGc;
+  const activeReferrals = level1Count + level2Count;
+
   const rank = useMemo(() => [...CREATOR_RANKS].reverse().find((r) => activeReferrals >= r.min) ?? CREATOR_RANKS[0], [activeReferrals]);
-  const progress = rank.next ? Math.min(100, Math.round(((activeReferrals - rank.min) / (rank.next - rank.min)) * 100)) : 100;
   const nextRank = rank.next ? CREATOR_RANKS.find((r) => r.min === rank.next) : null;
-  const nextLabel = rank.next ? `${rank.next - activeReferrals} more active referrals to ${nextRank?.name ?? "next rank"}` : "Elite creator rank reached";
+  const progress = rank.next ? Math.min(100, Math.round(((activeReferrals - rank.min) / (rank.next - rank.min)) * 100)) : 100;
 
-  const weeklyActivityGc = Math.round(referralGc * 0.25 + creatorXp * 0.12 + rankXp * 0.03 + activeReferrals * 420);
-  const starterTargetGc = 1500;
-  const weeklyPaceGc = weeklyActivityGc > 0 ? weeklyActivityGc : starterTargetGc;
-  const dailyPaceGc = Math.round(weeklyPaceGc / 7);
-  const monthlyPaceGc = Math.round(weeklyPaceGc * 4.3);
-  const aheadPct = Math.min(91, Math.max(18, 38 + activeReferrals * 7 + Math.floor(creatorXp / 900)));
-  const weeklyRank = Math.max(183, 8421 - activeReferrals * 530 - Math.floor(referralGc / 75) - Math.floor(creatorXp / 6));
-  const milestoneTarget = rank.next ?? 100;
-  const milestoneNeeded = rank.next ? Math.max(0, rank.next - activeReferrals) : 0;
-  const creatorUnlockInr = Math.round(CREATOR_UNLOCK_USD * USD_TO_INR_EST);
-
-  const notifyCopied = (key: string) => {
-    setCopied(key);
-    window.setTimeout(() => setCopied(null), 1600);
+  const fetchSubmissions = async () => {
+    if (!user?.telegramId) return;
+    try {
+      const initData = window.Telegram?.WebApp?.initData ?? "";
+      const res = await fetch(`${apiBase()}/api/content/${user.telegramId}`, { headers: initData ? { "x-telegram-init-data": initData } : {} });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSubmissions(Array.isArray(data?.submissions) ? data.submissions : []);
+    } catch {}
   };
+
+  useEffect(() => { fetchSubmissions(); }, [user?.telegramId]);
 
   const handleCopyInvite = async () => {
     if (!referralLink) return;
     const ok = await copyText(referralLink);
-    if (ok) notifyCopied("invite");
-    else handleShareInvite();
+    setCopied(ok ? "link" : null);
+    setNotice(ok ? "Creator link copied." : "Copy failed. Use Telegram share.");
+    window.setTimeout(() => { setCopied(null); setNotice(null); }, 1600);
   };
 
-  const handleCopyCard = async () => {
-    const card = [
-      "I am building my Koinara creator network.",
-      `Creator rank: ${rank.name}`,
-      `Weekly pace: ${weeklyPaceGc.toLocaleString()} GC (${compactMoneyFromGc(weeklyPaceGc, gcPerUsd)})`,
-      `Creator rewards unlock: $${CREATOR_UNLOCK_USD.toFixed(2)} / ${CREATOR_UNLOCK_TON} TON one-time verification`,
-      `Creator code: ${creatorCode}`,
-      referralLink ? `Join here: ${referralLink}` : "Join Koinara on Telegram.",
-      "Estimates only. Rewards depend on real activity and review.",
-    ].join("\n");
-    const ok = await copyText(card);
-    if (ok) notifyCopied("card");
-  };
-
-  const handleShareInvite = () => {
+  const handleShareTelegram = () => {
     if (!referralLink) return;
-    const text = encodeURIComponent("Join my Koinara creator network. Unlock creator rewards, post content, and climb the Grind Board.");
-    const url = encodeURIComponent(referralLink);
-    const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Join me on Koinara. Creator Pass lets users earn from verified referral purchases and approved content.")}`;
     window.Telegram?.WebApp?.openTelegramLink?.(shareUrl) ?? window.open(shareUrl, "_blank");
   };
 
-  return (
-    <div className="min-h-screen bg-black px-4 pb-28 pt-4 text-white">
-      <style>{`
-        .creator-card{background:linear-gradient(160deg,rgba(13,24,44,.78),rgba(5,6,12,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 18px 55px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05)}
-        .creator-pill{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.035)}
-      `}</style>
+  const handleUnavailablePayment = (method: string) => {
+    setNotice(`${method} Creator Pass checkout needs backend payment verification before launch.`);
+    window.setTimeout(() => setNotice(null), 3200);
+  };
 
-      <div className="mb-4 flex items-center gap-2">
-        <Rocket size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
-        <span className="font-mono text-xs tracking-[0.18em] text-white/60 uppercase">Creator Center</span>
-        <Link href="/earn"><span className="ml-auto rounded-full border border-[#00F5FF]/25 bg-[#00F5FF]/10 px-3 py-1 font-mono text-[10px] font-black text-[#00F5FF]">Earn page</span></Link>
+  const handleSubmitContent = async () => {
+    if (!user?.telegramId || !contentUrl.trim() || !creatorPassActive) return;
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const initData = window.Telegram?.WebApp?.initData ?? "";
+      const res = await fetch(`${apiBase()}/api/content/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
+        body: JSON.stringify({ telegramId: user.telegramId, platform, postType, url: contentUrl.trim(), caption: `Koinara Creator Pass ${creatorCode}` }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Submission failed");
+      setContentUrl("");
+      setNotice(data?.message ?? "Content submitted. Review pending.");
+      fetchSubmissions();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Content submission failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <div className="min-h-screen bg-black px-4 pb-28 pt-4 text-white">
+    <style>{`.creator-card{background:linear-gradient(160deg,rgba(13,24,44,.78),rgba(5,6,12,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 18px 55px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05)}`}</style>
+
+    <div className="mb-4 flex items-center gap-2"><Rocket size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]"/><span className="font-mono text-xs uppercase tracking-[0.18em] text-white/60">Creator</span><Link href="/earn"><span className="ml-auto rounded-full border border-[#00F5FF]/25 bg-[#00F5FF]/10 px-3 py-1 font-mono text-[10px] font-black text-[#00F5FF]">Earn</span></Link></div>
+    {notice && <div className="mb-4 rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">{notice}</div>}
+
+    <section className="creator-card relative mb-4 overflow-hidden rounded-3xl p-4">
+      <div className="absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[#FFD700]/15 blur-3xl"/>
+      <div className="relative z-10">
+        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/8 px-2.5 py-1 font-mono text-[9px] font-black uppercase tracking-[0.16em] text-[#FFE266]"><Rocket size={11}/>Koinara Creator Pass</div>
+        <h1 className="text-3xl font-black leading-tight">Your creator business starts here</h1>
+        <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/48">Buy Creator Pass, invite real users, earn commissions from verified purchases, and submit approved Koinara content. Estimated only. Not guaranteed.</p>
       </div>
+    </section>
 
-      <section className="creator-card relative mb-4 overflow-hidden rounded-3xl p-4">
-        <div className="absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[#FFD700]/15 blur-3xl" />
-        <div className="relative z-10">
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[#FFD700]/25 bg-[#FFD700]/8 px-2.5 py-1 font-mono text-[9px] font-black tracking-[0.16em] uppercase text-[#FFE266]"><Sparkles size={11}/>Creator rewards lane</div>
-          <h1 className="text-3xl font-black leading-tight">Grow your Koinara network</h1>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-white/46">Invite real users, unlock content rewards, and build creator rewards from verified activity. No guaranteed income, no fake traffic, no self-referrals.</p>
-        </div>
-      </section>
+    {!creatorPassActive ? <section className="creator-card mb-4 rounded-3xl border-[#FFD700]/35 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Koinara Creator Pass</div><div className="mt-1 text-3xl font-black">${CREATOR_PASS_USD.toFixed(2)} / ₹{CREATOR_PASS_INR}</div><div className="mt-1 font-mono text-[10px] text-white/42">Monthly creator access · 0.2 TON option</div></div><div className="rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-2 text-right"><Lock size={18} className="ml-auto text-[#FFD700]"/><div className="font-mono text-[9px] text-white/38">Status</div><div className="font-mono text-xs font-black text-[#FFD700]">Locked</div></div></div>
+      <div className="mb-3 space-y-2 font-mono text-[11px] text-white/65">{["Personal referral link activated", "20% commission on every referral purchase", "5% on your network's referrals", "Content submission unlocked"].map((item) => <div key={item} className="flex gap-2"><CheckCircle size={13} className="mt-0.5 shrink-0 text-[#00F5A0]"/><span>{item}</span></div>)}</div>
+      <div className="mb-3 rounded-3xl border border-[#00F5A0]/25 bg-[#00F5A0]/8 p-3 font-mono text-[10px] leading-relaxed text-white/62"><div>Refer 1 VIP user → earn $1.198/month while active</div><div>Refer 5 VIP users → earn $5.99/month while active</div><div>Refer 10 VIP users → earn $11.98/month while active</div><div className="mt-2 text-white/35">Estimated. Not guaranteed. Based on verified referral activity and payment confirmation.</div></div>
+      <div className="grid grid-cols-2 gap-2"><button onClick={() => handleUnavailablePayment("Stars")} className="rounded-2xl bg-[#FFD700] py-3 font-black text-black">Pay $0.99 with Stars</button><button onClick={() => handleUnavailablePayment("TON")} className="rounded-2xl border border-[#00F5FF]/30 bg-[#00F5FF]/10 py-3 font-black text-[#00F5FF]">Pay {CREATOR_PASS_TON} TON</button></div>
+      {creatorPassMissingBackend && <p className="mt-3 font-mono text-[9px] leading-relaxed text-[#FFD700]/70">TODO backend: add creatorPassPaid + creatorPassPaidAt, then wire successful Stars/TON checkout. Showing locked because real backend status is not available yet.</p>}
+    </section> : <section className="creator-card mb-4 rounded-3xl border-[#00F5A0]/35 p-4"><div className="flex items-center gap-2 text-[#00F5A0]"><CheckCircle size={18}/><span className="font-black">Creator Pass Active ✓</span></div><p className="mt-2 font-mono text-[10px] text-white/45">Your creator link, commissions, content access, and rank dashboard are active.</p></section>}
 
-      <section className="creator-card mb-4 overflow-hidden rounded-3xl border-[#00F5A0]/35 p-4">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#00F5A0]">Content Rewards Unlock</div>
-            <div className="mt-1 text-2xl font-black">${CREATOR_UNLOCK_USD.toFixed(2)} / {CREATOR_UNLOCK_TON} TON</div>
-            <div className="mt-1 font-mono text-[10px] text-white/42">One-time creator verification · ≈ ₹{creatorUnlockInr}</div>
-          </div>
-          <div className={`rounded-2xl px-3 py-2 text-right border ${vip ? "border-[#FFD700]/30 bg-[#FFD700]/10" : "border-[#00F5A0]/25 bg-[#00F5A0]/10"}`}>
-            <div className="font-mono text-[9px] text-white/38">Status</div>
-            <div className={`font-mono text-xs font-black ${vip ? "text-[#FFD700]" : "text-[#00F5A0]"}`}>{vip ? "VIP skips" : "Unlock"}</div>
-          </div>
-        </div>
-        <p className="mb-3 font-mono text-[10px] leading-relaxed text-white/48">Users can make money by posting approved Koinara content, bringing real users, and passing review. You earn from the unlock fee, VIP upgrades, verification, and creator-driven paid users.</p>
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 1</div><div className="font-black text-[#FFD700]">Unlock</div><div className="font-mono text-[8px] text-white/35">$0.99 / 0.2 TON</div></div>
-          <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 2</div><div className="font-black text-[#00F5FF]">Post</div><div className="font-mono text-[8px] text-white/35">Reels, Shorts, Stories</div></div>
-          <div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3"><div className="font-mono text-[8px] uppercase text-white/38">Step 3</div><div className="font-black text-[#FF4D8D]">Earn</div><div className="font-mono text-[8px] text-white/35">After review</div></div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Link href="/wallet"><button className="w-full rounded-2xl bg-[#00F5A0] py-3 font-black text-black">{vip ? "VIP Unlocked" : "Unlock Creator Rewards"}</button></Link>
-          <Link href="/earn"><button className="w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-black text-[#FFD700]">Submit Content</button></Link>
-        </div>
-        <p className="mt-3 font-mono text-[9px] leading-relaxed text-white/32">Unlocking does not guarantee rewards. Fake views, stolen content, duplicate accounts, or self-referrals can be rejected.</p>
-      </section>
+    {creatorPassActive && <>
+      <section className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 font-black text-xl">Section 1 — Your Creator Link</div><div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3 font-mono text-[10px] break-all text-white/50">{referralLink}</div><div className="mb-3 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 p-3 font-mono text-[10px] text-[#FFD700]">Creator code: <b>{creatorCode}</b></div><div className="grid grid-cols-2 gap-2"><button onClick={handleCopyInvite} className="rounded-2xl bg-[#FFD700] py-3 font-black text-black"><Copy size={14} className="inline mr-2"/>{copied === "link" ? "Copied" : "Copy Link"}</button><button onClick={handleShareTelegram} className="rounded-2xl border border-[#00F5FF]/30 bg-[#00F5FF]/10 py-3 font-black text-[#00F5FF]"><Share2 size={14} className="inline mr-2"/>Share to Telegram</button></div></section>
 
-      <section className="creator-card mb-4 overflow-hidden rounded-3xl p-4 border-[#FFD700]/35">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Creator Grind Board</div>
-            <div className="mt-1 text-2xl font-black">Your Grind This Week</div>
-            <div className="mt-1 font-mono text-[10px] text-white/42">Rank #{weeklyRank.toLocaleString()} · ahead of {aheadPct}% of new users</div>
-          </div>
-          <div className="rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-2 text-right">
-            <div className="font-mono text-[9px] text-white/38">Weekly pace</div>
-            <div className="font-mono text-lg font-black text-[#FFD700]">{weeklyPaceGc.toLocaleString()}</div>
-            <div className="font-mono text-[8px] text-white/35">GC</div>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3">
-            <div className="font-mono text-[8px] uppercase text-white/38">Daily</div>
-            <div className="font-black text-[#00F5FF]">{dailyPaceGc.toLocaleString()} GC</div>
-            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(dailyPaceGc, gcPerUsd)}</div>
-          </div>
-          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3">
-            <div className="font-mono text-[8px] uppercase text-white/38">Weekly</div>
-            <div className="font-black text-[#FFD700]">{weeklyPaceGc.toLocaleString()} GC</div>
-            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(weeklyPaceGc, gcPerUsd)}</div>
-          </div>
-          <div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3">
-            <div className="font-mono text-[8px] uppercase text-white/38">Monthly</div>
-            <div className="font-black text-[#FF4D8D]">{monthlyPaceGc.toLocaleString()} GC</div>
-            <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(monthlyPaceGc, gcPerUsd)}</div>
-          </div>
-        </div>
-        <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px] leading-relaxed text-white/42">
-          {weeklyActivityGc > 0 ? "Based on your visible creator/referral activity." : "Starter target shown until you build real creator activity."} Estimated only — actual rewards depend on real users, content review, and withdrawal rules.
-        </div>
-      </section>
+      <section className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 font-black text-xl">Section 2 — Commission Earnings</div><div className="grid grid-cols-3 gap-2"><div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[9px] text-white/38">Level 1</div><div className="text-xl font-black text-[#FFD700]">{directCommissionGc.toLocaleString()}</div><div className="font-mono text-[8px] text-white/35">{moneyFromGc(directCommissionGc, gcPerUsd)}</div></div><div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[9px] text-white/38">Level 2</div><div className="text-xl font-black text-[#00F5FF]">{networkCommissionGc.toLocaleString()}</div><div className="font-mono text-[8px] text-white/35">{moneyFromGc(networkCommissionGc, gcPerUsd)}</div></div><div className="rounded-2xl border border-[#00F5A0]/18 bg-[#00F5A0]/8 p-3"><div className="font-mono text-[9px] text-white/38">Total</div><div className="text-xl font-black text-[#00F5A0]">{totalCreatorGc.toLocaleString()}</div><div className="font-mono text-[8px] text-white/35">{moneyFromGc(totalCreatorGc, gcPerUsd)}</div></div></div><Link href="/wallet"><button className="mt-3 w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-black text-[#FFD700]"><Wallet size={14} className="inline mr-2"/>Withdraw to Wallet</button></Link><p className="mt-3 font-mono text-[9px] leading-relaxed text-white/35">Commissions credited after payment confirmation. Reviewed before withdrawal.</p></section>
 
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#00F5FF]">Next milestone</div>
-            <div className="mt-1 text-xl font-black">{rank.next ? `${nextRank?.name ?? "Next"} Creator` : "Elite Creator"}</div>
-            <div className="mt-1 font-mono text-[10px] text-white/40">{rank.next ? `${milestoneNeeded} active invite${milestoneNeeded === 1 ? "" : "s"} needed` : "You reached the top creator tier."}</div>
-          </div>
-          <div className="h-16 w-16 rounded-3xl border border-[#00F5FF]/20 bg-[#00F5FF]/8 flex items-center justify-center"><Users size={25} className="text-[#00F5FF]" /></div>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#00F5FF] to-[#FFD700]" style={{ width: `${rank.next ? Math.min(100, Math.round((activeReferrals / milestoneTarget) * 100)) : 100}%` }} /></div>
-        <div className="mt-2 font-mono text-[10px] text-white/38">One active friend can move you closer to the next creator tier.</div>
-      </section>
+      <section className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 font-black text-xl">Section 3 — Your Network</div><div className="grid grid-cols-2 gap-2"><div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3"><div className="font-mono text-[9px] text-white/38">Level 1 referrals</div><div className="text-2xl font-black text-[#FFD700]">{level1Count}</div><div className="font-mono text-[8px] text-white/35">active users</div></div><div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/8 p-3"><div className="font-mono text-[9px] text-white/38">Level 2 referrals</div><div className="text-2xl font-black text-[#00F5FF]">{level2Count}</div><div className="font-mono text-[8px] text-white/35">network users</div></div><div className="rounded-2xl border border-[#00F5A0]/18 bg-[#00F5A0]/8 p-3"><div className="font-mono text-[9px] text-white/38">Purchased</div><div className="text-2xl font-black text-[#00F5A0]">{paidReferralCount}</div><div className="font-mono text-[8px] text-white/35">TODO if zero</div></div><div className="rounded-2xl border border-[#FF4D8D]/18 bg-[#FF4D8D]/8 p-3"><div className="font-mono text-[9px] text-white/38">VIP referrals</div><div className="text-2xl font-black text-[#FF4D8D]">{vipReferralCount}</div><div className="font-mono text-[8px] text-white/35">monthly buyers</div></div></div></section>
 
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Community benchmark</div>
-            <div className="mt-1 text-xl font-black">Top Creators This Week</div>
-          </div>
-          <div className="rounded-full border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-1 font-mono text-[9px] font-black text-[#FFD700]">IN + MENA</div>
-        </div>
-        <div className="space-y-2">
-          {TOP_CREATORS.map((creator) => (
-            <div key={creator.handle} className="rounded-2xl border border-white/8 bg-white/[0.025] p-3">
-              <div className="flex items-center gap-3">
-                <div className={`h-9 w-9 rounded-2xl flex items-center justify-center border font-black ${creator.rank <= 3 ? "border-[#FFD700]/30 bg-[#FFD700]/10 text-[#FFD700]" : "border-white/10 bg-white/[0.035] text-white/55"}`}>#{creator.rank}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono text-xs font-black text-white">{creator.handle}</div>
-                  <div className="font-mono text-[9px] text-white/35">{creator.city} · {creator.region} · {creator.note}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono text-xs font-black text-[#FFD700]">{creator.gc.toLocaleString()} GC</div>
-                  <div className="font-mono text-[8px] text-white/35">{compactMoneyFromGc(creator.gc, FREE_GC_PER_USD)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 font-mono text-[9px] leading-relaxed text-white/32">Benchmark names are sample community-style handles until live verified leaderboard data is connected. Do not treat as guaranteed earnings.</p>
-      </section>
+      <section className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 flex items-center justify-between"><div className="font-black text-xl">Section 4 — Content Submissions</div><button onClick={() => document.getElementById("creator-submit")?.scrollIntoView({ behavior: "smooth" })} className="rounded-full border border-[#00F5FF]/25 bg-[#00F5FF]/10 px-3 py-1 font-mono text-[10px] font-black text-[#00F5FF]">Submit New</button></div>{submissions.length === 0 ? <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-center font-mono text-[10px] text-white/38">No submissions yet.</div> : <div className="space-y-2">{submissions.slice(0, 6).map((sub) => <div key={sub.id} className="rounded-2xl border border-white/8 bg-white/[0.025] p-3"><div className="flex items-center gap-3"><Video size={16} className="text-[#FFD700]"/><div className="min-w-0 flex-1"><div className="truncate font-mono text-[10px] text-white/58">{sub.url}</div><div className="font-mono text-[9px] text-white/30">{sub.platform ?? "content"} · {sub.postType ?? "post"}</div></div><span className="rounded-full bg-[#FFD700]/10 px-2 py-1 font-mono text-[9px] font-black text-[#FFD700]">{sub.status}</span></div></div>)}</div>}<div className="mt-3 space-y-2">{REWARD_TIERS.map((tier) => <div key={tier.views} className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.025] p-3"><div><div className="font-black text-sm">{tier.views}</div><div className="font-mono text-[9px] text-white/35">{tier.note}</div></div><div className="font-mono text-[10px] font-black text-[#FFD700]">{tier.reward}</div></div>)}</div></section>
 
-      <section className="mb-4 grid grid-cols-2 gap-2">
-        <div className="creator-card rounded-3xl p-3">
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/36">Creator balance</div>
-          <div className="mt-1 text-3xl font-black text-[#FFD700]">{referralGc.toLocaleString()}</div>
-          <div className="font-mono text-[10px] text-white/35">GC · {shortMoneyFromGc(referralGc, gcPerUsd)}</div>
-        </div>
-        <div className="creator-card rounded-3xl p-3">
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/36">Active referrals</div>
-          <div className="mt-1 text-3xl font-black text-[#00F5FF]">{activeReferrals.toLocaleString()}</div>
-          <div className="font-mono text-[10px] text-white/35">L1 {referralLevel1} · L2 {referralLevel2}</div>
-        </div>
-      </section>
+      <section id="creator-submit" className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 font-black text-xl">Submit New Content</div><div className="mb-3 grid grid-cols-4 gap-1.5">{(["whatsapp", "instagram", "youtube", "tiktok"] as Platform[]).map((p) => <button key={p} onClick={() => setPlatform(p)} className={`rounded-xl border py-2 font-mono text-[10px] font-black capitalize ${platform === p ? "border-[#00F5FF] bg-[#00F5FF]/12 text-[#00F5FF]" : "border-white/10 text-white/35"}`}>{p}</button>)}</div><div className="mb-3 grid grid-cols-4 gap-1.5">{(["story", "short", "long", "post"] as PostType[]).map((p) => <button key={p} onClick={() => setPostType(p)} className={`rounded-xl border py-2 font-mono text-[10px] font-black capitalize ${postType === p ? "border-[#FFD700] bg-[#FFD700]/12 text-[#FFD700]" : "border-white/10 text-white/35"}`}>{p}</button>)}</div><input value={contentUrl} onChange={(e) => setContentUrl(e.target.value)} placeholder="Paste content/proof URL" className="mb-3 w-full rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 font-mono text-xs text-white outline-none focus:border-[#00F5FF]/50"/><button onClick={handleSubmitContent} disabled={!contentUrl.trim() || submitting} className="w-full rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#FF4D8D] py-3 font-black text-black disabled:opacity-45"><Send size={14} className="inline mr-2"/>{submitting ? "Submitting..." : "Submit for Review"}</button></section>
 
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Creator rank</div>
-            <div className="mt-1 flex items-center gap-2"><Trophy size={22} style={{ color: rank.tone }} /><span className="text-2xl font-black">{rank.name}</span></div>
-          </div>
-          <div className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-2 text-right">
-            <div className="font-mono text-[9px] text-white/38">Perk</div>
-            <div className="font-mono text-[10px] font-black text-[#FFD700]">{rank.perk}</div>
-          </div>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#FFD700] via-[#FF4D8D] to-[#00F5FF]" style={{ width: `${progress}%` }} /></div>
-        <div className="mt-2 font-mono text-[10px] text-white/38">{nextLabel}</div>
-        <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.025] p-3 font-mono text-[10px] text-white/42">Creator XP: <span className="text-white font-black">{creatorXp.toLocaleString()}</span> · Code: <span className="text-[#FFD700] font-black">{creatorCode}</span></div>
-      </section>
+      <section className="creator-card mb-4 rounded-3xl p-4"><div className="mb-3 flex items-center gap-2"><Trophy size={18} style={{ color: rank.tone }}/><span className="font-black text-xl">Section 5 — Creator Rank</span></div><div className="mb-2 flex items-center justify-between"><div className="text-2xl font-black">{rank.name}</div><div className="font-mono text-[10px] text-white/38">{nextRank ? `${Math.max(0, rank.next! - activeReferrals)} referrals to ${nextRank.name}` : "Elite reached"}</div></div><div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#FFD700] via-[#FF4D8D] to-[#00F5FF]" style={{ width: `${progress}%` }}/></div><div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/8 p-3 font-mono text-[10px] text-[#FFD700]">Current perk: {rank.perk}</div></section>
+    </>}
 
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center gap-2"><Share2 size={17} className="text-[#00F5FF]"/><span className="font-black text-[#00F5FF]">Invite tools</span></div>
-        <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3 font-mono text-[10px] text-white/44 break-all">{referralLink || "Open inside Telegram to generate your invite link."}</div>
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={handleCopyInvite} className="rounded-2xl bg-[#FFD700] py-3 font-black text-black"><Copy size={14} className="inline mr-1"/>{copied === "invite" ? "Copied" : "Invite"}</button>
-          <button onClick={handleShareInvite} className="rounded-2xl border border-[#00F5FF]/30 bg-[#00F5FF]/10 py-3 font-black text-[#00F5FF]"><ExternalLink size={14} className="inline mr-1"/>Share</button>
-          <button onClick={handleCopyCard} className="rounded-2xl border border-[#FF4D8D]/30 bg-[#FF4D8D]/10 py-3 font-black text-[#FF4D8D]"><Share2 size={14} className="inline mr-1"/>{copied === "card" ? "Copied" : "Card"}</button>
-        </div>
-      </section>
-
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center gap-2"><Wallet size={17} className="text-[#FFD700]"/><span className="font-black text-[#FFD700]">Creator withdrawal path</span></div>
-        <p className="mb-3 font-mono text-[10px] leading-relaxed text-white/45">Creator rewards still withdraw through Wallet after minimums, verification/VIP checks, and manual review. This page keeps creator rewards separate from regular gameplay GC.</p>
-        <Link href="/wallet"><button className="w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-black text-[#FFD700]">Open Wallet</button></Link>
-      </section>
-
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2"><Crown size={17} className="text-[#FFD700]"/><span className="font-black text-[#FFD700]">VIP Creator upgrade</span></div>
-          <span className={`rounded-full px-2 py-1 font-mono text-[9px] font-black ${vip ? "bg-[#FFD700]/12 text-[#FFD700]" : "bg-white/5 text-white/35"}`}>{vip ? "Active" : "Optional"}</span>
-        </div>
-        <p className="mb-3 font-mono text-[10px] leading-relaxed text-white/45">VIP can improve the creator lane with better wallet rules, stronger status, and premium missions. Keep it as a creator tool, not a promise of guaranteed income.</p>
-        {!vip && <Link href="/wallet"><button className="w-full rounded-2xl bg-[#FFD700] py-3 font-black text-black">View VIP</button></Link>}
-      </section>
-
-      <section className="creator-card mb-4 rounded-3xl p-4">
-        <button onClick={() => setShowDetails((v) => !v)} className="flex w-full items-center justify-between text-left">
-          <div><div className="font-black">Level details</div><div className="font-mono text-[10px] text-white/38">Hidden by default to avoid overwhelming new users.</div></div>
-          <ChevronDown className={`text-white/45 transition-transform ${showDetails ? "rotate-180" : ""}`} size={18}/>
-        </button>
-        {showDetails && <div className="mt-3 space-y-2">
-          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3"><div className="font-mono text-[10px] font-black text-[#FFD700]">Level 1</div><div className="font-mono text-[10px] text-white/45">Direct invites who become real active users, verify, upgrade, or contribute meaningful activity.</div></div>
-          <div className="rounded-2xl border border-[#00F5FF]/18 bg-[#00F5FF]/7 p-3"><div className="font-mono text-[10px] font-black text-[#00F5FF]">Level 2</div><div className="font-mono text-[10px] text-white/45">Small network bonus from second-level activity. Kept lower to avoid pyramid-style incentives.</div></div>
-        </div>}
-      </section>
-
-      <section className="rounded-3xl border border-[#00F5A0]/25 bg-[#00F5A0]/8 p-4">
-        <div className="mb-2 flex items-center gap-2 text-[#00F5A0]"><ShieldCheck size={18}/><span className="font-black">Trust rules</span></div>
-        <div className="space-y-2 font-mono text-[10px] leading-relaxed text-white/50">
-          {[
-            "Rewards unlock from real users and real activity only.",
-            "Self-referrals, bot traffic, fake proof, duplicate accounts, or stolen content can remove rewards.",
-            "Creator examples are estimates, not guaranteed earnings.",
-            "Large rewards may require manual review before withdrawal.",
-          ].map((rule) => <div key={rule} className="flex gap-2"><CheckCircle size={12} className="mt-0.5 shrink-0 text-[#00F5A0]"/><span>{rule}</span></div>)}
-        </div>
-      </section>
-    </div>
-  );
+    <section className="rounded-3xl border border-[#00F5A0]/25 bg-[#00F5A0]/8 p-4"><div className="mb-2 flex items-center gap-2 text-[#00F5A0]"><ShieldCheck size={18}/><span className="font-black">Trust rules</span></div><div className="space-y-2 font-mono text-[10px] leading-relaxed text-white/50">{["Creator Pass is not guaranteed income.", "Commissions require successful payment confirmation.", "Fake accounts, self-referrals, bot traffic, fake views, or stolen content can be rejected.", "Creator earnings withdraw the same way as gameplay GC through Wallet."].map((rule) => <div key={rule} className="flex gap-2"><CheckCircle size={12} className="mt-0.5 shrink-0 text-[#00F5A0]"/><span>{rule}</span></div>)}</div></section>
+  </div>;
 }
