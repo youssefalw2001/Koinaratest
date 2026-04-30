@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink, Clock } from "lucide-react";
 import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
@@ -307,6 +308,50 @@ export default function Profile() {
         ))}
       </div>
 
+      {/* Creator Status Card */}
+      {user && (
+        <div
+          className="p-3 rounded-2xl border mb-4"
+          style={{
+            borderColor: user.creatorPassPaid ? "rgba(0,245,160,0.4)" : "rgba(245,197,24,0.2)",
+            background: user.creatorPassPaid ? "rgba(0,245,160,0.06)" : "rgba(255,255,255,0.02)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div
+                className="font-mono text-[10px] font-black"
+                style={{ color: user.creatorPassPaid ? "#00F5A0" : "rgba(245,197,24,0.7)" }}
+              >
+                {user.creatorPassPaid ? "Creator Pass Active" : "Creator Pass"}
+              </div>
+              <div className="font-mono text-[9px] text-white/35 mt-0.5">
+                {user.creatorPassPaid
+                  ? "Open Creator tab to view CR balance and earnings"
+                  : "$0.99 — earn from referral commissions"}
+              </div>
+            </div>
+            {user.creatorPassPaid ? (
+              <Link
+                to="/creator"
+                className="font-mono text-[9px] font-black shrink-0 border px-2 py-1 rounded-lg"
+                style={{ color: "#00F5A0", borderColor: "rgba(0,245,160,0.4)" }}
+              >
+                Creator Dashboard →
+              </Link>
+            ) : (
+              <Link
+                to="/earn"
+                className="font-mono text-[9px] font-black shrink-0 border px-2 py-1 rounded-lg"
+                style={{ color: "rgba(245,197,24,0.8)", borderColor: "rgba(245,197,24,0.3)" }}
+              >
+                Learn More →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Login Streak */}
       <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] mb-4">
         <div className="flex items-center gap-2 mb-3">
@@ -349,8 +394,8 @@ export default function Profile() {
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
             <div className="font-mono text-[9px] text-white/40 mb-0.5">You earn (per referral)</div>
-            <div className="font-mono text-sm font-black text-[#ff2d78]">200 GC</div>
-            <div className="font-mono text-[8px] text-white/30">after their 1st trade</div>
+            <div className="font-mono text-sm font-black text-[#00F5A0]">20% CR</div>
+            <div className="font-mono text-[8px] text-white/30">commission on purchases</div>
           </div>
           <div className="p-2 rounded-xl border border-[#ff2d78]/20 bg-[#ff2d78]/5 text-center">
             <div className="font-mono text-[9px] text-white/40 mb-0.5">Friend earns</div>
@@ -359,21 +404,11 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Pending GC earnings */}
-        {referralData && referralData.pendingGc > 0 && (
-          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-[#f5c518]/30 bg-[#f5c518]/8 mb-3">
-            <Clock size={10} className="text-[#f5c518] shrink-0" />
-            <div className="flex-1">
-              <span className="font-mono text-xs font-bold text-[#f5c518]">{referralData.pendingGc} GC pending</span>
-              {referralData.unlocksAt && (
-                <div className="font-mono text-[9px] text-white/30">
-                  Unlocks {new Date(referralData.unlocksAt).toLocaleDateString()}
-                </div>
-              )}
-            </div>
-            {referralData.isUnlocked && (
-              <span className="font-mono text-[9px] text-[#00f0ff] border border-[#00f0ff]/30 px-1.5 py-0.5 rounded">READY</span>
-            )}
+        {/* Referral earnings note */}
+        {referralData && referralData.referralCount > 0 && (
+          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-[#00F5A0]/20 bg-[#00F5A0]/5 mb-3">
+            <Clock size={10} className="text-[#00F5A0] shrink-0" />
+            <span className="font-mono text-[10px] text-[#00F5A0]/80">Referral earnings tracked in Creator tab</span>
           </div>
         )}
 
@@ -390,7 +425,7 @@ export default function Profile() {
               VIP Commission
             </div>
             <div className={`font-mono text-[9px] leading-relaxed ${vip ? "text-white/50" : "text-white/20"}`}>
-              20% of every purchase + 10% of every withdrawal your referrals make — in GC, for life.
+              Earn 20% commission in CR when your referrals make verified purchases. Track earnings in Creator tab.
             </div>
             {!vip && (
               <div className="font-mono text-[8px] text-[#f5c518]/60 mt-0.5">Requires VIP — activate in Wallet</div>
@@ -422,7 +457,7 @@ export default function Profile() {
         </div>
 
         <div className="font-mono text-[9px] text-white/25 mt-2">
-          Daily cap: 50 new referrals counted · GC locked 14 days before withdrawal
+          Daily cap: 50 new referrals counted · CR commissions reviewed before withdrawal. Open Creator tab to withdraw.
         </div>
       </div>
 
