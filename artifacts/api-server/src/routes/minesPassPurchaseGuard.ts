@@ -1,14 +1,16 @@
 import { Router, type IRouter } from "express";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db, minesRoundPassesTable } from "@workspace/db";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
+import { processCommission } from "./commissions";
 
 const router: IRouter = Router();
 const minesRateLimiter = createRouteRateLimiter("mines-pass-purchase-guard", { limit: 12, windowMs: 10_000, message: "Too many pass purchase requests. Slow down and try again." });
 const TONAPI_BASE = "https://tonapi.io/v2";
+const TON_USD_APPROX = 3.50;
 const getOperatorWallet = () => process.env.KOINARA_TON_WALLET;
 type GcTierId = "bronze" | "silver" | "gold";
 const TIERS: Record<GcTierId, { entryFeeTonNano: bigint; packSizes: number[] }> = {
@@ -28,6 +30,9 @@ function totalNano(tier: GcTierId, packSize: number): bigint {
   if (packSize === 1) return base;
   if (packSize === 5) return (base * 39n) / 10n;
   return (base * 69n) / 10n;
+}
+function tonUsd(nano: bigint): number {
+  return (Number(nano) / 1e9) * TON_USD_APPROX;
 }
 async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: string }> {
   try {
@@ -74,7 +79,8 @@ router.post("/mines/passes/purchase", minesRateLimiter, async (req, res): Promis
   const { tier, packSize, senderAddress } = parsed.data;
   if (!TIERS[tier].packSizes.includes(packSize)) { res.status(400).json({ error: "Invalid pack size." }); return; }
   const requiredMemo = minesPassMemo(telegramId, tier, packSize);
-  const verification = await verifyTonPayment(senderAddress, totalNano(tier, packSize), requiredMemo);
+  const passFeeNano = totalNano(tier, packSize);
+  const verification = await verifyTonPayment(senderAddress, passFeeNano, requiredMemo);
   if (!verification.ok) { res.status(400).json({ error: verification.err ?? "Payment verification failed.", requiredMemo }); return; }
   const txHash = verification.txHash;
   if (!txHash) { res.status(500).json({ error: "TON verifier returned no tx hash." }); return; }
@@ -84,6 +90,14 @@ router.post("/mines/passes/purchase", minesRateLimiter, async (req, res): Promis
       if (existing.length > 0) throw new Error("TX_ALREADY_USED");
       return tx.insert(minesRoundPassesTable).values({ telegramId, tier, remaining: packSize, txHash }).returning();
     });
+
+    await processCommission({
+      buyerTelegramId: telegramId,
+      purchaseType: "mines_pass",
+      grossUsd: tonUsd(passFeeNano),
+      isRenewal: false,
+    });
+
     logger.info({ telegramId, tier, packSize, txHash }, "Mines round pass purchased with bound memo");
     res.status(201).json({ passId: pass.id, tier, remaining: pass.remaining });
   } catch (err: any) {
