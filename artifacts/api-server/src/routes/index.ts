@@ -5,6 +5,7 @@ import predictionsRouter from "./predictions";
 import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
+import creatorWithdrawalsRouter from "./creatorWithdrawals";
 import gemsRouter from "./gems";
 import contentSubmitGuardRouter from "./contentSubmitGuard";
 import contentStatusGuardRouter from "./contentStatusGuard";
@@ -14,6 +15,7 @@ import marketRouter from "./market";
 import featuresRouter from "./features";
 import exchangeRouter from "./exchange";
 import tradeCapRouter from "./tradeCap";
+import commissionsRouter from "./commissions";
 import minesPassPurchaseGuardRouter from "./minesPassPurchaseGuard";
 import minesAtomicStartGuardRouter from "./minesAtomicStartGuard";
 import minesPassCapRouter from "./minesPassCap";
@@ -28,6 +30,7 @@ router.use(predictionsRouter);
 router.use(questsRouter);
 router.use(rewardsRouter);
 router.use(withdrawalsRouter);
+router.use(creatorWithdrawalsRouter);
 router.use(gemsRouter);
 // Must be mounted before contentRouter to replace/protect old content handlers.
 router.use(contentSubmitGuardRouter);
@@ -38,6 +41,7 @@ router.use(marketRouter);
 router.use(featuresRouter);
 router.use(exchangeRouter);
 router.use(tradeCapRouter);
+router.use(commissionsRouter);
 // Must be mounted before Mines routers so pass purchase memo binding, atomic start,
 // pass-aware cashout, and safe-reveal activation rules run first.
 router.use(minesPassPurchaseGuardRouter);
