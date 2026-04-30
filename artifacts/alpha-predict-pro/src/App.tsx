@@ -28,6 +28,7 @@ import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/ProfilePremiumLaunch";
 import Academy from "./pages/Academy";
 import Lootbox from "./pages/Lootbox";
+import CreatorCenter from "./pages/CreatorCenter";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({ onError: (error, query) => console.error(`[API Query Error] ${String(query.queryHash)}:`, error) }),
@@ -304,6 +305,7 @@ function Router() {
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/academy" component={() => <Bounded><Academy /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
+        <Route path="/creator" component={() => <Bounded><CreatorCenter /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
