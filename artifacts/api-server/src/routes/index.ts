@@ -6,6 +6,7 @@ import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
 import creatorWithdrawalsRouter from "./creatorWithdrawals";
+import creatorPassRouter from "./creatorPass";
 import gemsRouter from "./gems";
 import contentSubmitGuardRouter from "./contentSubmitGuard";
 import contentStatusGuardRouter from "./contentStatusGuard";
@@ -31,6 +32,7 @@ router.use(questsRouter);
 router.use(rewardsRouter);
 router.use(withdrawalsRouter);
 router.use(creatorWithdrawalsRouter);
+router.use(creatorPassRouter);
 router.use(gemsRouter);
 // Must be mounted before contentRouter to replace/protect old content handlers.
 router.use(contentSubmitGuardRouter);
