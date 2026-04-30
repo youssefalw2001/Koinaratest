@@ -153,6 +153,8 @@ router.get("/creator/:telegramId/cr-summary", async (req, res): Promise<void> =>
   }
 
   res.json({
+    creatorPassPaid: user.creatorPassPaid ?? false,
+    creatorPassPaidAt: user.creatorPassPaidAt ? new Date(user.creatorPassPaidAt).toISOString() : null,
     creatorCredits: user.creatorCredits ?? 0,
     totalCrEarned: user.totalCrEarned ?? 0,
     totalCrWithdrawn: user.totalCrWithdrawn ?? 0,
