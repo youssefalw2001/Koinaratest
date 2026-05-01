@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { User, Crown, Share2, TrendingUp, Target, Award, Flame, CheckCircle, Copy, Rocket, Star, Lock, ExternalLink, Clock } from "lucide-react";
 import { useGetUserStats, getGetUserStatsQueryKey, useGetReferralStats, getGetReferralStatsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { Trophy, Crown, Rocket, CheckCircle } from "lucide-react";
 import { useGetLeaderboard } from "@workspace/api-client-react";

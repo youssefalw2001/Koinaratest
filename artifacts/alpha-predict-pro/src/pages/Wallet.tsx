@@ -17,7 +17,7 @@ import {
   getGetUserQueryKey,
   getGetWithdrawalsQueryKey,
 } from "@workspace/api-client-react";
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
