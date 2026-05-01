@@ -72,6 +72,11 @@ export const RegisterUserResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional(),
+  creatorPassPaidAt: zod.string().nullish(),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  totalCrWithdrawn: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -128,6 +133,11 @@ export const GetUserResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional(),
+  creatorPassPaidAt: zod.string().nullish(),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  totalCrWithdrawn: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -206,6 +216,11 @@ export const UpdateWalletResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional(),
+  creatorPassPaidAt: zod.string().nullish(),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  totalCrWithdrawn: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -266,6 +281,11 @@ export const ActivateVipTrialResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional(),
+  creatorPassPaidAt: zod.string().nullish(),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  totalCrWithdrawn: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -332,6 +352,11 @@ export const UpgradeToVipResponse = zod.object({
   dailyGcEarned: zod.number(),
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional(),
+  creatorPassPaidAt: zod.string().nullish(),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  totalCrWithdrawn: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
