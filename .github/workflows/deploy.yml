@@ -56,12 +56,13 @@ jobs:
           source = pages.get("source") or {}
           branch = source.get("branch")
           path = source.get("path")
-          # build_type may be "legacy" or "workflow" depending on GitHub's internal
-          # representation of a branch-based deploy; only the source branch matters.
-          if branch != "gh-pages":
-              print("::error::Pages source branch is not gh-pages.")
+          # When GitHub uses its own "pages build and deployment" workflow
+          # source may be null (branch=None). Only fail when branch is
+          # explicitly set to something other than gh-pages.
+          print(f"::notice::Pages config: build_type={build_type!r}, source.branch={branch!r}, source.path={path!r}")
+          if branch and branch != "gh-pages":
+              print("::error::Pages source branch must be gh-pages.")
               print("::error::Set Settings > Pages > Source = Deploy from a branch, Branch = gh-pages, Folder = /(root).")
-              print(f"::error::Current build_type={build_type!r}, source.branch={branch!r}, source.path={path!r}")
               sys.exit(1)
           PY
 
