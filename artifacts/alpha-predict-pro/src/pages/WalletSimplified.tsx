@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { AlertTriangle, ArrowUpRight, CheckCircle, History, Loader2, RefreshCw, Shield, Wallet } from "lucide-react";
 import { getGetUserQueryKey, getGetWithdrawalsQueryKey, requestWithdrawal, useGetWithdrawals } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { PageError, PageLoader } from "@/components/PageStatus";
+import { FREE_GC_PER_USD, VIP_GC_PER_USD } from "@/lib/format";
 
-const FREE_GC_PER_USD = 5000;
-const VIP_GC_PER_USD = 2500;
 const FREE_MIN_GC = 14000;
 const VIP_MIN_GC = 2500;
 const GC_FEE_PCT = 0.06;
@@ -24,6 +24,7 @@ function initHeaders() { const initData = window.Telegram?.WebApp?.initData ?? "
 function inr(usd: number) { return `₹${Math.round(usd * USD_TO_INR_EST).toLocaleString()}`; }
 function usdGc(gc: number, rate: number) { return gc / rate; }
 function usdCr(cr: number) { return cr / CR_PER_USD; }
+function shortAddress(address?: string | null) { return address ? `${address.slice(0, 6)}...${address.slice(-6)}` : "Not connected"; }
 function idem(prefix: string, parts: Array<string | number>) { return `${prefix}:${parts.join(":")}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`; }
 function statusTone(status = "pending") {
   const map: Record<string, { label: string; color: string; bg: string }> = {
@@ -40,6 +41,8 @@ export default function WalletSimplified() {
   const qc = useQueryClient();
   const u = user as any;
   const vip = isVipActive(user);
+  const [tonConnectUI] = useTonConnectUI();
+  const tonAddress = useTonAddress();
   const goldCoins = user?.goldCoins ?? 0;
   const tradeCredits = user?.tradeCredits ?? 0;
   const gcRate = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
@@ -53,7 +56,6 @@ export default function WalletSimplified() {
   const [crSummary, setCrSummary] = useState<CrSummary | null>(null);
 
   const creatorPassPaid = vip || !!u?.creatorPassPaid || !!crSummary?.creatorPassPaid;
-  const creatorCredits = crSummary?.creatorCredits ?? u?.creatorCredits ?? 0;
   const pendingCr = crSummary?.pendingCr ?? 0;
   const withdrawableCr = crSummary?.withdrawableCr ?? 0;
   const totalCrEarned = crSummary?.totalCrEarned ?? u?.totalCrEarned ?? 0;
@@ -122,6 +124,19 @@ export default function WalletSimplified() {
   return <div className="min-h-screen bg-[#05070d] px-3 pt-3 pb-28 text-white">
     <style>{`.wallet-card{background:linear-gradient(160deg,rgba(15,24,42,.84),rgba(6,8,16,.95));border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 55px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(18px)}`}</style>
     <div className="mb-4 flex items-center gap-2"><Wallet size={16} className="text-[#FFD700]"/><span className="font-mono text-xs uppercase tracking-[0.18em] text-white/60">Wallet</span></div>
+
+    <section className="wallet-card mb-4 rounded-[30px] border-[#4DA3FF]/30 p-4">
+      <div className="mb-2 flex items-center gap-2 text-[#8BC3FF]"><Wallet size={16}/><span className="font-black">TON Wallet</span></div>
+      <div className="font-mono text-[10px] text-white/42">Used for Creator Pass, VIP, TC packs, and Mines passes. USDT TRC-20 withdrawals use the separate address field below.</div>
+      <div className="mt-3 rounded-3xl border border-[#4DA3FF]/20 bg-[#4DA3FF]/8 p-3">
+        <div className="font-mono text-[9px] text-white/38">Connected TON wallet</div>
+        <div className="mt-1 font-mono text-sm font-black text-[#8BC3FF] break-all">{tonAddress ? shortAddress(tonAddress) : "Not connected"}</div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button onClick={() => tonConnectUI.openModal()} className="rounded-2xl bg-[#4DA3FF] py-3 font-black text-black">{tonAddress ? "Switch Wallet" : "Connect TON"}</button>
+        <button onClick={() => tonConnectUI.disconnect()} disabled={!tonAddress} className="rounded-2xl border border-white/10 bg-white/[0.04] py-3 font-black text-white/60 disabled:opacity-35">Disconnect</button>
+      </div>
+    </section>
 
     <section className="wallet-card mb-4 rounded-[30px] border-[#FFD700]/30 p-4">
       <div className="mb-3 flex items-center gap-2 text-[#FFD700]"><Shield size={16}/><span className="font-black">Your Balance</span></div>

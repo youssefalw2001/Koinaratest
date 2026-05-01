@@ -19,7 +19,7 @@ import {
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { parseVipExpiry, getVipCountdownLabel } from "@/lib/vipExpiry";
-import { formatGcUsd } from "@/lib/format";
+import { formatGcUsd, FREE_GC_PER_USD, VIP_GC_PER_USD } from "@/lib/format";
 import { useLanguage } from "@/lib/language";
 
 const tabs = [
@@ -95,6 +95,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const u = user as any;
   const { t, toggleLanguage, language, isArabic } = useLanguage();
   const vip = isVipActive(user);
+  const gcRate = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
   const creatorPassPaid = !!u?.creatorPassPaid || vip;
   const creatorCredits = u?.creatorCredits ?? 0;
   const hasPaidVip = !!(user?.isVip && parseVipExpiry(user?.vipExpiresAt) && parseVipExpiry(user?.vipExpiresAt)!.getTime() > Date.now());
@@ -152,7 +153,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {user && (
           <div className="px-5 pb-3 flex items-center gap-2 flex-wrap">
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#4DA3FF] shadow-[0_0_8px_#4DA3FF]" /><span className="font-mono text-[11px] font-bold text-[#8BC3FF] tabular-nums">{(user.tradeCredits ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-white/30">TC</span></div>
-            <div id="gc-balance-pill" className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/20 bg-[#FFD700]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-[11px] font-bold text-[#FFD700] tabular-nums">{(user.goldCoins ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-[#FFD700]/40">GC</span><span className="font-mono text-[8px] text-white/20 ml-1">≈ {formatGcUsd(user.goldCoins ?? 0)}</span><span className="ml-1 h-3.5 w-px bg-[#FFD700]/12" /><span className={`inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 font-mono text-[7px] font-black ${tradeCapped ? "bg-[#FFD700]/12 text-[#FFD700]" : "bg-[#4DA3FF]/10 text-[#8BC3FF]"}`} title={`Trade cap ${Math.min(tradeEarned, tradeCap).toLocaleString()} / ${tradeCap.toLocaleString()} GC`}><Zap size={8} />{tradeCapped ? "CAP" : `${tradePct}%`}</span><span className="inline-flex items-center gap-0.5 rounded-full bg-[#00F5A0]/8 px-1 py-0.5 font-mono text-[7px] font-black text-[#00F5A0]" title={`Mines cap ${minesCap.toLocaleString()} GC/day`}><Bomb size={8} />{(0).toString()}%</span>{tradeCapped && <span className="inline-flex items-center gap-0.5 font-mono text-[7px] font-black text-white/35 tabular-nums"><Clock size={8} />{resetCountdown}</span>}</div>
+            <div id="gc-balance-pill" className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/20 bg-[#FFD700]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-[11px] font-bold text-[#FFD700] tabular-nums">{(user.goldCoins ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-[#FFD700]/40">GC</span><span className="font-mono text-[8px] text-white/20 ml-1">≈ {formatGcUsd(user.goldCoins ?? 0, gcRate)}</span><span className="ml-1 h-3.5 w-px bg-[#FFD700]/12" /><span className={`inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 font-mono text-[7px] font-black ${tradeCapped ? "bg-[#FFD700]/12 text-[#FFD700]" : "bg-[#4DA3FF]/10 text-[#8BC3FF]"}`} title={`Trade cap ${Math.min(tradeEarned, tradeCap).toLocaleString()} / ${tradeCap.toLocaleString()} GC`}><Zap size={8} />{tradeCapped ? "CAP" : `${tradePct}%`}</span><span className="inline-flex items-center gap-0.5 rounded-full bg-[#00F5A0]/8 px-1 py-0.5 font-mono text-[7px] font-black text-[#00F5A0]" title={`Mines cap ${minesCap.toLocaleString()} GC/day`}><Bomb size={8} />{(0).toString()}%</span>{tradeCapped && <span className="inline-flex items-center gap-0.5 font-mono text-[7px] font-black text-white/35 tabular-nums"><Clock size={8} />{resetCountdown}</span>}</div>
             {creatorPassPaid ? <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#00F5A0]/30 bg-[#00F5A0]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#00F5A0] shadow-[0_0_8px_#00F5A0]"/><span className="font-mono text-[11px] font-bold text-[#00F5A0] tabular-nums">{formatCrPill(creatorCredits)}</span></div> : <Link href="/earn"><span className="inline-flex items-center gap-1 rounded-lg border border-[#00F5A0]/25 bg-[#00F5A0]/7 px-2.5 py-1.5 font-mono text-[9px] font-black text-[#00F5A0]"><Rocket size={10}/>Creator</span></Link>}
             {vip && <div className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/30 bg-[#FFD700]/10 px-2.5 py-1.5" style={{ animation: "vip-pulse 4s ease-in-out infinite" }}><Crown size={11} className="text-[#FFD700]" /><span className="font-mono text-[9px] font-black text-[#FFD700] tracking-[0.12em]">VIP</span></div>}
           </div>
