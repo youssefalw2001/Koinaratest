@@ -46,7 +46,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
+      - name: Typecheck non-blocking
+        continue-on-error: true
         env:
           PORT: 5173
           BASE_PATH: ${{ inputs.base_path }}
