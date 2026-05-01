@@ -31,7 +31,13 @@ const CREATOR_PASS_TON_AMOUNT = "200000000";
 const OPERATOR_TON_WALLET: string | undefined = import.meta.env.VITE_KOINARA_TON_WALLET || import.meta.env.VITE_TON_WALLET || undefined;
 
 function apiBase() { return (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""; }
-function headers() { const initData = window.Telegram?.WebApp?.initData ?? ""; return initData ? { "x-telegram-init-data": initData } : {}; }
+function authHeaders(): HeadersInit {
+  const initData = window.Telegram?.WebApp?.initData;
+  return initData ? { "x-telegram-init-data": initData } : {};
+}
+function jsonAuthHeaders(): HeadersInit {
+  return { "Content-Type": "application/json", ...authHeaders() };
+}
 function crUsd(cr: number) { return `$${(cr / CR_PER_USD).toFixed(2)}`; }
 function name(row: Leader) { return row.username ? `@${row.username}` : row.firstName || `Creator ${row.telegramId.slice(-4)}`; }
 function creatorMemo(telegramId: string) { return `KNR-CREATOR-PASS-${telegramId}`; }
@@ -62,9 +68,9 @@ export default function CreatorCenter() {
   const loadCreatorData = async () => {
     if (!user?.telegramId) return;
     try {
-      const s = await fetch(`${apiBase()}/api/creator/${user.telegramId}/cr-summary`, { headers: headers() });
+      const s = await fetch(`${apiBase()}/api/creator/${user.telegramId}/cr-summary`, { headers: authHeaders() });
       if (s.ok) setSummary(await s.json());
-      const l = await fetch(`${apiBase()}/api/creator/leaderboard`, { headers: headers() });
+      const l = await fetch(`${apiBase()}/api/creator/leaderboard`, { headers: authHeaders() });
       if (l.ok) { const data = await l.json(); setLeaders(Array.isArray(data?.rows) ? data.rows : []); }
     } catch {}
   };
@@ -103,7 +109,7 @@ export default function CreatorCenter() {
       await new Promise((r) => setTimeout(r, 5000));
       const res = await fetch(`${apiBase()}/api/creator/purchase-pass`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...headers() },
+        headers: jsonAuthHeaders(),
         body: JSON.stringify({ telegramId: user.telegramId, paymentMethod: "ton", senderAddress: walletAddress, grossUsd: 0.99 }),
       });
       const data = await res.json().catch(() => ({}));
