@@ -28,6 +28,20 @@ const TelegramContext = createContext<TelegramContextType>({
   dismissDay7Celebration: () => {},
 });
 
+function allowLocalDemoUser(): boolean {
+  const host = window.location.hostname;
+  return import.meta.env.DEV || host === "localhost" || host === "127.0.0.1";
+}
+
+function getStableDemoId(): string {
+  const key = "koinara_local_demo_telegram_id";
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const next = `demo_${Math.random().toString(36).slice(2, 10)}`;
+  localStorage.setItem(key, next);
+  return next;
+}
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,9 +64,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (freshUser) {
-      setUser(freshUser);
-    }
+    if (freshUser) setUser(freshUser);
   }, [freshUser]);
 
   useEffect(() => {
@@ -64,7 +76,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     let reason: "tc_zero" | "gc_milestone" | "referral" | null = null;
     if (tc === 0) reason = "tc_zero";
     else if (gc >= 5000) reason = "gc_milestone";
-    // Fire only when a user this person referred actually purchased VIP (server sets this flag)
     else if (user.referralVipRewardPending) reason = "referral";
 
     if (!reason || trialTriggeredRef.current) return;
@@ -72,10 +83,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(async () => {
       trialTriggeredRef.current = true;
       try {
-        const updated = await activateVipTrialMutation.mutateAsync({
-          telegramId: user.telegramId,
-          data: { reason },
-        });
+        const updated = await activateVipTrialMutation.mutateAsync({ telegramId: user.telegramId, data: { reason } });
         setUser(updated);
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
       } catch {
@@ -99,9 +107,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const dismissDay7Celebration = useCallback(() => setShowDay7Celebration(false), []);
 
   const refreshUser = useCallback(() => {
-    if (telegramId) {
-      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(telegramId) });
-    }
+    if (telegramId) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(telegramId) });
   }, [telegramId, queryClient]);
 
   useEffect(() => {
@@ -116,6 +122,13 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         const tgUser = tg?.initDataUnsafe?.user;
         const referredBy = tg?.initDataUnsafe?.start_param || null;
 
+        if (!tgUser && !allowLocalDemoUser()) {
+          console.warn("Telegram user identity missing. Open Koinara from the Telegram bot mini app button.");
+          setUser(null);
+          return;
+        }
+
+        const demoId = tgUser ? null : getStableDemoId();
         const payload = tgUser
           ? {
               telegramId: String(tgUser.id),
@@ -126,9 +139,9 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
               referredBy,
             }
           : {
-              telegramId: "demo_user_123",
-              username: "koin_trader",
-              firstName: "Koin",
+              telegramId: demoId!,
+              username: "local_tester",
+              firstName: "Local Tester",
               referredBy: null,
             };
 
@@ -136,8 +149,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         setUser(registeredUser);
         setTelegramId(registeredUser.telegramId);
 
-        // Detect first-time Day-7 bonus celebration using localStorage as a one-time flag.
-        // The server sets day7BonusClaimed=true when the bonus fires; we show a modal once.
         if (registeredUser.day7BonusClaimed) {
           const celebKey = `day7_celebrated_${registeredUser.telegramId}`;
           if (!localStorage.getItem(celebKey)) {
