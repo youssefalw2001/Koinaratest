@@ -13,6 +13,7 @@ export const withdrawalQueueTable = pgTable("withdrawal_queue", {
   netUsd: real("net_usd").notNull().default(0),
   status: text("status").notNull().default("pending"),
   walletAddress: text("wallet_address").notNull(),
+  payoutNetwork: text("payout_network").notNull().default("usdt_trc20"),
   txHash: text("tx_hash"),
   isVip: integer("is_vip").notNull().default(0),
   tier: text("tier").notNull().default("free"),
