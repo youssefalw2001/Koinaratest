@@ -1,0 +1,76 @@
+name: Deploy Koinara Frontend to GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Production API URL, example: https://koinara-api.up.railway.app"
+        required: true
+        type: string
+      base_path:
+        description: "Frontend base path. Use /Koinaratest/ for GitHub Pages repo URL, or / for custom domain."
+        required: true
+        default: "/Koinaratest/"
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        env:
+          PORT: 5173
+          BASE_PATH: ${{ inputs.base_path }}
+          VITE_API_URL: ${{ inputs.api_url }}
+          VITE_KOINARA_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
+          VITE_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
+        run: pnpm run typecheck
+
+      - name: Build frontend
+        env:
+          NODE_ENV: production
+          PORT: 5173
+          BASE_PATH: ${{ inputs.base_path }}
+          VITE_API_URL: ${{ inputs.api_url }}
+          VITE_KOINARA_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
+          VITE_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
+        run: pnpm --filter @workspace/koinara run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/alpha-predict-pro/dist/public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
