@@ -5,6 +5,7 @@ import predictionsRouter from "./predictions";
 import questsRouter from "./quests";
 import rewardsRouter from "./rewards";
 import withdrawalsRouter from "./withdrawals";
+import withdrawalsTonRouter from "./withdrawalsTon";
 import creatorWithdrawalsRouter from "./creatorWithdrawals";
 import creatorPassRouter from "./creatorPass";
 import gemsRouter from "./gems";
@@ -24,17 +25,16 @@ import minesSafeRevealGuardRouter from "./minesSafeRevealGuard";
 import minesRouter from "./mines";
 
 const router: IRouter = Router();
-
 router.use(healthRouter);
 router.use(usersRouter);
 router.use(predictionsRouter);
 router.use(questsRouter);
 router.use(rewardsRouter);
 router.use(withdrawalsRouter);
+router.use(withdrawalsTonRouter);
 router.use(creatorWithdrawalsRouter);
 router.use(creatorPassRouter);
 router.use(gemsRouter);
-// Must be mounted before contentRouter to replace/protect old content handlers.
 router.use(contentSubmitGuardRouter);
 router.use(contentStatusGuardRouter);
 router.use(contentRouter);
@@ -44,12 +44,9 @@ router.use(featuresRouter);
 router.use(exchangeRouter);
 router.use(tradeCapRouter);
 router.use(commissionsRouter);
-// Must be mounted before Mines routers so pass purchase memo binding, atomic start,
-// pass-aware cashout, and safe-reveal activation rules run first.
 router.use(minesPassPurchaseGuardRouter);
 router.use(minesAtomicStartGuardRouter);
 router.use(minesPassCapRouter);
 router.use(minesSafeRevealGuardRouter);
 router.use(minesRouter);
-
 export default router;
