@@ -2,13 +2,6 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
 
-/**
- * Small, idempotent startup migrations for production safety.
- *
- * Railway mobile makes manual SQL difficult, so this keeps the API deploy from
- * failing when a new nullable/defaulted column is required by freshly deployed
- * code. Every statement here must be safe to run repeatedly.
- */
 export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`
     ALTER TABLE users
@@ -35,6 +28,17 @@ export async function runStartupMigrations(): Promise<void> {
       approved_at timestamptz,
       paid_at timestamptz
     )
+  `);
+
+  await db.execute(sql`
+    ALTER TABLE cr_transactions
+    ADD COLUMN IF NOT EXISTS payout_network text,
+    ADD COLUMN IF NOT EXISTS wallet_address text
+  `);
+
+  await db.execute(sql`
+    ALTER TABLE withdrawal_queue
+    ADD COLUMN IF NOT EXISTS payout_network text NOT NULL DEFAULT 'usdt_trc20'
   `);
 
   await db.execute(sql`
