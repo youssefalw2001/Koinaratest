@@ -8,6 +8,8 @@ export const crTransactionsTable = pgTable("cr_transactions", {
   sourceType: text("source_type").notNull(),
   sourceTelegramId: text("source_telegram_id"),
   usdEquivalent: real("usd_equivalent"),
+  payoutNetwork: text("payout_network"),
+  walletAddress: text("wallet_address"),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
