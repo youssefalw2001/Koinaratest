@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "wouter";
-import { Clock, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import TerminalLaunch from "./TerminalTradeHotfix";
 import { useTelegram } from "@/lib/TelegramProvider";
 
@@ -21,18 +20,6 @@ function resetDiffMs(resetAt?: string): number {
   if (!resetAt) return Number.POSITIVE_INFINITY;
   const diff = new Date(resetAt).getTime() - Date.now();
   return Number.isFinite(diff) ? diff : Number.POSITIVE_INFINITY;
-}
-
-function formatCountdown(resetAt?: string): string {
-  const diff = resetDiffMs(resetAt);
-  if (!Number.isFinite(diff)) return "--:--";
-  if (diff <= 0) return "00:00";
-  const totalSeconds = Math.ceil(diff / 1000);
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export default function TradeCapGuard() {
@@ -84,34 +71,11 @@ export default function TradeCapGuard() {
     }
   }, [cap?.resetAt, tick, loadCap, refreshUser]);
 
-  const countdown = useMemo(() => formatCountdown(cap?.resetAt), [cap?.resetAt, tick]);
   const resetHasPassed = cap ? resetDiffMs(cap.resetAt) <= 0 : false;
-  const showOvertimeCta = !!cap?.capReached && cap.boostGc <= 0 && !resetHasPassed;
   const showResetRefresh = !!cap?.capReached && resetHasPassed;
 
   return (
     <div className="relative">
-      {showOvertimeCta && (
-        <div className="mx-3 mb-2 rounded-3xl border border-[#FFD700]/35 bg-[#FFD700]/10 p-3 shadow-[0_0_26px_rgba(255,215,0,.14)]">
-          <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/12 flex items-center justify-center shrink-0">
-              <Zap size={18} className="text-[#FFD700]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-black text-[#FFD700]">Daily Trade cap reached</div>
-                <div className="font-mono text-[10px] text-white/45 flex items-center gap-1 shrink-0"><Clock size={11} />{countdown}</div>
-              </div>
-              <p className="font-mono text-[10px] leading-relaxed text-white/45 mt-1">
-                You earned {cap.earnedToday.toLocaleString()} / {cap.effectiveCap.toLocaleString()} GC today. Unlock +3,000 more Trade earning room until reset.
-              </p>
-              <Link href="/exchange" className="mt-2 h-10 rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/12 text-[#FFD700] font-black flex items-center justify-center gap-2">
-                <Sparkles size={14} /> Unlock Overtime Pass
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
       {showResetRefresh && (
         <div className="mx-3 mb-2 rounded-3xl border border-[#4DA3FF]/30 bg-[#4DA3FF]/10 p-3 shadow-[0_0_22px_rgba(77,163,255,.12)]">
           <div className="flex items-center gap-3">
