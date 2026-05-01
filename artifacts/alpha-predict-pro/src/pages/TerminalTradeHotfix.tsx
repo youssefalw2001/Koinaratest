@@ -28,10 +28,22 @@ type Point = { t: number; p: number };
 type TradeCapStatus = { effectiveCap?: number; earnedToday?: number; remaining?: number; capReached?: boolean; resetAt?: string };
 type Props = { tradeCap?: TradeCapStatus | null; onTradeResolved?: () => void };
 
+type ActiveRound = {
+  id: number;
+  direction: "long" | "short";
+  amount: number;
+  entryPrice: number;
+  duration?: number;
+  createdAt?: string;
+  openedAt?: number;
+};
+
 function truncatePrice(raw: number): number { return Math.trunc(raw * 100) / 100; }
 function formatPrice(value: number): string { return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function timeAgo(value?: string | null): string { const ms = value ? new Date(value).getTime() : Date.now(); const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000)); if (sec < 60) return `${sec}s`; if (sec < 3600) return `${Math.floor(sec / 60)}m`; return `${Math.floor(sec / 3600)}h`; }
 function resetPassed(resetAt?: string): boolean { if (!resetAt) return false; const ms = new Date(resetAt).getTime(); return Number.isFinite(ms) && ms <= Date.now(); }
+function roundStartMs(round: ActiveRound): number { const created = round.createdAt ? new Date(round.createdAt).getTime() : Number.NaN; return Number.isFinite(created) ? created : (round.openedAt ?? Date.now()); }
+function remainingMs(round: ActiveRound): number { return Math.max(0, roundStartMs(round) + (round.duration ?? 60) * 1000 - Date.now()); }
 function pathFor(points: Point[], width = 340, height = 178): string {
   if (points.length < 2) return "";
   const prices = points.map((p) => p.p);
@@ -77,7 +89,7 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
   const [points, setPoints] = useState<Point[]>([]);
   const [sentiment, setSentiment] = useState(58);
   const [feedState, setFeedState] = useState<"connecting" | "live" | "retrying">("connecting");
-  const [activePrediction, setActivePrediction] = useState<any>(null);
+  const [activePrediction, setActivePrediction] = useState<ActiveRound | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [placingDirection, setPlacingDirection] = useState<"long" | "short" | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -85,6 +97,7 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
   const latestPriceRef = useRef(0);
   const versionRef = useRef(0);
   const realFetchRef = useRef(0);
+  const resolveInFlightRef = useRef<number | null>(null);
 
   const { data: recentPredictions } = useGetUserPredictions(user?.telegramId ?? "", { limit: 5 }, { query: { enabled: !!user, queryKey: ["predictions", user?.telegramId] } });
   const { data: userStats } = useGetUserStats(user?.telegramId ?? "", { query: { enabled: !!user, queryKey: ["user-stats", user?.telegramId] } });
@@ -115,6 +128,27 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
     setPoints((old) => [...old.slice(-59), { t: Math.floor(Date.now() / 1000), p: display }]);
     setFeedState(state);
   }, []);
+
+  const resolveActiveRound = useCallback(async (round: ActiveRound) => {
+    if (!user || resolveInFlightRef.current === round.id) return;
+    resolveInFlightRef.current = round.id;
+    try {
+      const entryPrice = round.entryPrice;
+      const exitPrice = latestPriceRef.current || entryPrice;
+      const resolved = await resolvePrediction.mutateAsync({ id: round.id, data: { exitPrice } });
+      await refreshUser();
+      onTradeResolved?.();
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      queryClient.invalidateQueries({ queryKey: ["predictions", user.telegramId] });
+      setResult({ ...resolved, exitPrice, entryPrice });
+      setActivePrediction(null);
+    } catch (err) {
+      setTradeError(errorMessage(err));
+    } finally {
+      resolveInFlightRef.current = null;
+      setPlacingDirection(null);
+    }
+  }, [onTradeResolved, queryClient, refreshUser, resolvePrediction, user]);
 
   useEffect(() => {
     const version = versionRef.current + 1;
@@ -147,6 +181,32 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
     return () => { cancelled = true; clearInterval(timer); clearInterval(sentimentTimer); };
   }, [selectedPair.id, selectedPair.seed, applyPrice]);
 
+  useEffect(() => {
+    if (!activePrediction) return;
+    const updateCountdown = () => setCountdown(Math.ceil(remainingMs(activePrediction) / 1000));
+    updateCountdown();
+    const countdownTimer = window.setInterval(updateCountdown, 250);
+    const resolveTimer = window.setTimeout(() => void resolveActiveRound(activePrediction), remainingMs(activePrediction) + 250);
+    return () => { window.clearInterval(countdownTimer); window.clearTimeout(resolveTimer); };
+  }, [activePrediction, resolveActiveRound]);
+
+  useEffect(() => {
+    if (activePrediction || !recent.length) return;
+    const pending = recent.find((item: any) => item?.status === "pending");
+    if (!pending?.id || !pending?.direction || !pending?.entryPrice) return;
+    const restored: ActiveRound = {
+      id: pending.id,
+      direction: pending.direction,
+      amount: pending.amount ?? bet,
+      entryPrice: pending.entryPrice,
+      duration: pending.duration ?? duration.seconds,
+      createdAt: pending.createdAt,
+      openedAt: pending.createdAt ? new Date(pending.createdAt).getTime() : Date.now(),
+    };
+    setTradeError(null);
+    setActivePrediction(restored);
+  }, [activePrediction, bet, duration.seconds, recent]);
+
   useEffect(() => { if (result?.status === "won") confetti({ particleCount: 100, spread: 68, origin: { y: 0.58 }, colors: ["#FFD700", "#00E676", "#63D3FF"] }); }, [result]);
 
   const handlePredict = useCallback(async (direction: "long" | "short") => {
@@ -157,31 +217,14 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
       window?.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.("medium");
       const entryPrice = latestPriceRef.current || price;
       const prediction = await createPrediction.mutateAsync({ data: { telegramId: user.telegramId, direction, amount: bet, entryPrice, duration: duration.seconds, multiplier, useGems: [] } as any });
-      setActivePrediction({ ...prediction, direction, entryPrice: prediction.entryPrice ?? entryPrice, openedAt: Date.now() });
-      setCountdown(duration.seconds);
-      const countdownTimer = setInterval(() => setCountdown((old) => { if (old <= 1) { clearInterval(countdownTimer); return 0; } return old - 1; }), 1000);
-      setTimeout(async () => {
-        try {
-          const exitPrice = latestPriceRef.current || entryPrice;
-          const resolved = await resolvePrediction.mutateAsync({ id: prediction.id, data: { exitPrice } });
-          await refreshUser();
-          onTradeResolved?.();
-          queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-          queryClient.invalidateQueries({ queryKey: ["predictions", user.telegramId] });
-          setResult({ ...resolved, exitPrice, entryPrice });
-        } catch (err) {
-          setTradeError(errorMessage(err));
-        } finally {
-          setActivePrediction(null);
-          setPlacingDirection(null);
-        }
-      }, duration.seconds * 1000);
+      setActivePrediction({ id: prediction.id, direction, amount: bet, entryPrice: prediction.entryPrice ?? entryPrice, duration: duration.seconds, createdAt: prediction.createdAt, openedAt: Date.now() });
     } catch (err) {
       setTradeError(errorMessage(err));
       setActivePrediction(null);
+    } finally {
       setPlacingDirection(null);
     }
-  }, [activePrediction, bet, createPrediction, duration.seconds, multiplier, onTradeResolved, placingDirection, price, queryClient, refreshUser, resolvePrediction, user]);
+  }, [activePrediction, bet, createPrediction, duration.seconds, multiplier, placingDirection, price, user]);
 
   if (isLoading) return <PageLoader rows={5} />;
 
@@ -200,7 +243,7 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
         {activePrediction && (
           <motion.div initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="absolute left-5 top-3 rounded-2xl border bg-[#05070d]/88 px-3 py-2 shadow-[0_0_28px_rgba(255,215,0,.18)] backdrop-blur-xl" style={{ borderColor: `${activeTone}66` }}>
             <div className="flex items-center gap-2"><ShieldCheck size={13} style={{ color: activeTone }} /><span className="font-mono text-[9px] font-black tracking-[0.18em] text-white/55">ENTRY LOCKED</span><span className="ml-auto rounded-full px-2 py-0.5 font-mono text-[9px] font-black" style={{ color: activeTone, backgroundColor: `${activeTone}18`, border: `1px solid ${activeTone}55` }}>{String(countdown).padStart(2, "0")}s</span></div>
-            <div className="mt-1 flex items-end gap-2"><span className="text-lg font-black" style={{ color: activeTone }}>{activeDirection}</span><span className="pb-0.5 font-mono text-[10px] font-black text-white/55">{bet} TC</span></div>
+            <div className="mt-1 flex items-end gap-2"><span className="text-lg font-black" style={{ color: activeTone }}>{activeDirection}</span><span className="pb-0.5 font-mono text-[10px] font-black text-white/55">{activePrediction.amount} TC</span></div>
             <div className="font-mono text-[13px] font-black text-[#FFD700]">${formatPrice(activePrediction.entryPrice ?? 0)}</div>
             <div className="mt-0.5 font-mono text-[8px] text-white/35">Trusted market feed</div>
           </motion.div>
@@ -211,7 +254,7 @@ export default function TerminalTradeHotfix({ tradeCap, onTradeResolved }: Props
     <section className="grid grid-cols-[1fr_1fr] gap-2 mb-2"><button disabled={!!activePrediction || !!placingDirection || price <= 0} onClick={() => handlePredict("long")} className="h-16 rounded-2xl border border-[#00E676]/35 bg-[#00E676]/10 flex items-center justify-center gap-3 disabled:opacity-35"><span className="h-10 w-10 rounded-full border border-[#00E676]/45 bg-[#00E676]/12 flex items-center justify-center">{placingDirection === "long" ? <Loader2 size={20} className="animate-spin text-[#00E676]" /> : <ArrowUp size={22} className="text-[#00E676]" />}</span><span className="text-xl font-black text-[#00E676]">{placingDirection === "long" ? "PLACING" : "UP"}</span></button><button disabled={!!activePrediction || !!placingDirection || price <= 0} onClick={() => handlePredict("short")} className="h-16 rounded-2xl border border-[#FF4D6D]/35 bg-[#FF4D6D]/10 flex items-center justify-center gap-3 disabled:opacity-35"><span className="text-xl font-black text-[#FF4D6D]">{placingDirection === "short" ? "PLACING" : "DOWN"}</span><span className="h-10 w-10 rounded-full border border-[#FF4D6D]/45 bg-[#FF4D6D]/12 flex items-center justify-center">{placingDirection === "short" ? <Loader2 size={20} className="animate-spin text-[#FF4D6D]" /> : <ArrowDown size={22} className="text-[#FF4D6D]" />}</span></button></section>
     <section className="trade-glass rounded-2xl p-2.5 mb-2"><div className="grid grid-cols-4 gap-1.5 mb-2">{DURATIONS.map((tier, index) => <button key={tier.seconds} onClick={() => setDurationIndex(index)} disabled={!!activePrediction || !!placingDirection} className={`h-9 rounded-xl border font-mono text-xs font-black disabled:opacity-35 ${index === durationIndex ? "border-[#4DA3FF] bg-[#4DA3FF]/15 text-[#8BC3FF] soft-blue-glow" : "border-white/10 bg-white/[0.025] text-white/35"}`}>{tier.label}</button>)}</div><div className="grid grid-cols-6 gap-1.5">{BET_OPTIONS.map((amount) => <button key={amount} disabled={!!activePrediction || !!placingDirection} onClick={() => setBet(amount)} className={`h-10 rounded-xl border font-mono text-xs font-black disabled:opacity-35 ${bet === amount ? "border-[#4DA3FF] bg-[#4DA3FF]/15 text-[#8BC3FF] soft-blue-glow" : "border-white/10 bg-white/[0.025] text-white/45"}`}>{amount >= 1000 ? "1K" : amount}</button>)}<button disabled={is5kLocked || !!activePrediction || !!placingDirection} onClick={() => setBet(5000)} className={`h-10 rounded-xl border font-mono text-xs font-black flex items-center justify-center gap-1 disabled:opacity-35 ${bet === 5000 ? "border-[#FFD700] bg-[#FFD700]/15 text-[#FFD700]" : "border-[#FFD700]/35 bg-[#FFD700]/7 text-[#FFD700]/80"}`}>{is5kLocked && <Lock size={10} />}5K</button></div><div className="mt-2 grid grid-cols-[1fr_auto] gap-2 items-center"><div className="rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/7 px-3 py-2"><div className="font-mono text-[10px] text-white/40">Projected reward</div><div className="font-black text-[#FFD700] leading-tight">+{projectedReward} GC <span className="font-mono text-[10px] text-white/40">{multiplier.toFixed(2)}x</span></div></div><div className="rounded-xl border border-[#00E676]/20 bg-[#00E676]/7 px-3 py-2 min-w-[96px]"><div className="font-mono text-[10px] text-white/40">Chance</div><div className="font-black text-[#00E676] leading-tight">{Math.min(82, Math.max(48, 58 + (sentiment - 50) * 0.5 + (vip ? 4 : 0))).toFixed(0)}%</div></div></div>{is5kLocked && <div className="mt-2 flex items-center gap-2 rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/7 px-3 py-2"><Lock size={13} className="text-[#FFD700]" /><span className="font-mono text-[10px] text-white/55"><span className="text-[#FFD700] font-black">5K locked:</span> VIP or 5 verified referrals.</span></div>}</section>
     {result && <section className={`rounded-2xl p-3 mb-2 border ${result.status === "won" ? "border-[#FFD700]/35 bg-[#FFD700]/10" : "border-[#FF4D6D]/35 bg-[#FF4D6D]/10"}`}><div className="flex items-center justify-between"><div className="font-black">{result.status === "won" ? "ROUND WON!" : "ROUND LOST"}</div><div className="font-mono text-sm text-white/60">{selectedPair.label}</div></div><div className="font-mono text-xs text-white/50 mt-1">Entry {formatPrice(result.entryPrice ?? 0)} · Exit {formatPrice(result.exitPrice ?? latestPriceRef.current)}</div></section>}
-    <section className="trade-glass rounded-2xl p-3"><div className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/48 mb-2">Past 5 trades</div><div className="flex gap-2 overflow-x-auto no-scrollbar">{recent.length === 0 ? <div className="font-mono text-xs text-white/35 py-4">Your trade history will appear here.</div> : recent.slice(0, 5).map((item: any) => <div key={item.id} className="min-w-[112px] rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className={`text-xs font-black ${item.status === "won" ? "text-[#FFD700]" : "text-[#FF4D6D]"}`}>{item.status === "won" ? "WIN" : "LOSS"}</div><div className="font-mono text-sm font-black text-white mt-2">{item.status === "won" ? "+" : "-"}{Math.abs(item.reward ?? item.amount ?? 0).toLocaleString()} GC</div><div className="font-mono text-[9px] text-white/28 mt-1">{timeAgo(item.createdAt)}</div></div>)}</div></section>
-    <AnimatePresence>{activePrediction && <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed left-3 right-3 bottom-24 z-[80] mx-auto max-w-[396px] rounded-2xl border border-[#FFD700]/28 bg-[#070A12]/95 p-3 shadow-2xl"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] text-white/38 uppercase tracking-widest">Round active</div><div className="font-black text-[#FFD700]">{activeDirection} · {bet} TC</div></div><div className="font-mono text-2xl font-black text-white">00:{String(countdown).padStart(2, "0")}</div></div></motion.div>}</AnimatePresence>
+    <section className="trade-glass rounded-2xl p-3"><div className="font-mono text-[10px] tracking-[0.14em] uppercase text-white/48 mb-2">Past 5 trades</div><div className="flex gap-2 overflow-x-auto no-scrollbar">{recent.length === 0 ? <div className="font-mono text-xs text-white/35 py-4">Your trade history will appear here.</div> : recent.slice(0, 5).map((item: any) => <div key={item.id} className="min-w-[112px] rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className={`text-xs font-black ${item.status === "won" ? "text-[#FFD700]" : item.status === "pending" ? "text-[#8BC3FF]" : "text-[#FF4D6D]"}`}>{item.status === "won" ? "WIN" : item.status === "pending" ? "LIVE" : "LOSS"}</div><div className="font-mono text-sm font-black text-white mt-2">{item.status === "pending" ? `${item.amount?.toLocaleString?.() ?? item.amount} TC` : `${item.status === "won" ? "+" : "-"}${Math.abs(item.reward ?? item.amount ?? 0).toLocaleString()} GC`}</div><div className="font-mono text-[9px] text-white/28 mt-1">{timeAgo(item.createdAt)}</div></div>)}</div></section>
+    <AnimatePresence>{activePrediction && <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed left-3 right-3 bottom-24 z-[80] mx-auto max-w-[396px] rounded-2xl border border-[#FFD700]/28 bg-[#070A12]/95 p-3 shadow-2xl"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] text-white/38 uppercase tracking-widest">Round active</div><div className="font-black text-[#FFD700]">{activeDirection} · {activePrediction.amount} TC</div></div><div className="font-mono text-2xl font-black text-white">00:{String(countdown).padStart(2, "0")}</div></div></motion.div>}</AnimatePresence>
   </div>;
 }
