@@ -22,6 +22,8 @@ import { parseVipExpiry, getVipCountdownLabel } from "@/lib/vipExpiry";
 import { formatGcUsd, FREE_GC_PER_USD, VIP_GC_PER_USD } from "@/lib/format";
 import { useLanguage } from "@/lib/language";
 
+const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
+
 const tabs = [
   { path: "/", icon: Zap, label: "Trade" },
   { path: "/mines", icon: Bomb, label: "Mines" },
@@ -35,6 +37,32 @@ const FREE_TRADE_CAP_GC = 7000;
 const VIP_TRADE_CAP_GC = 20000;
 const FREE_MINES_CAP_GC = 5000;
 const VIP_MINES_CAP_GC = 20000;
+
+type PublicActivity = { type?: string; name?: string; amountUsd?: number; network?: string };
+
+const COMMUNITY_NAMES = [
+  "Aisha", "Faisal", "Youssef", "Mona", "Noura", "Omar", "Layla", "Zain", "Amira", "Khalid",
+  "Rohan", "Aarav", "Isha", "Priya", "Arjun", "Kabir", "Neha", "Vihaan", "Anaya", "Dev",
+  "@crypto_hawk", "@koinhunter", "@mena_alpha", "@btc_rider", "@desi_trader", "@tonpilot",
+  "Fatima", "Hassan", "Sara", "Ali", "Noor", "Mariam", "Ibrahim", "Huda", "Reem", "Tariq",
+  "Rahul", "Meera", "Aditya", "Kavya", "Sanjay", "Nikhil", "Pooja", "Ayaan", "Riya", "Vikram",
+  "@alpha_uae", "@koin_miner", "@chartboss", "@creatorx", "@btc_signal", "@mines_pro",
+];
+
+function buildCommunityTicker(language: "en" | "hi" | "ar"): string[] {
+  const englishActions = [
+    "opened BTC chart", "joined Creator", "unlocked Creator Pass", "started a Mines round", "shared a creator link",
+    "claimed daily TC", "entered Alpha Terminal", "checked CR balance", "opened Wallet", "joined from Telegram",
+  ];
+  const hindiActions = [
+    "ने BTC chart खोला", "Creator में जुड़ा", "ने Creator Pass unlock किया", "ने Mines round शुरू किया", "ने creator link share किया",
+    "ने daily TC claim किया", "Alpha Terminal में आया", "ने CR balance देखा", "ने Wallet खोला", "Telegram से joined",
+  ];
+  return COMMUNITY_NAMES.map((name, index) => {
+    if (language === "hi") return `${name} ${hindiActions[index % hindiActions.length]}`;
+    return `${name} ${englishActions[index % englishActions.length]}`;
+  });
+}
 
 function useTrialCountdown(vipTrialExpiresAt?: string | null): string | null {
   const [remaining, setRemaining] = useState<string | null>(null);
@@ -94,6 +122,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useTelegram();
   const u = user as any;
   const { t, toggleLanguage, language, isArabic } = useLanguage();
+  const [realTickerItems, setRealTickerItems] = useState<string[]>([]);
   const vip = isVipActive(user);
   const gcRate = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
   const creatorPassPaid = !!u?.creatorPassPaid || vip;
@@ -108,23 +137,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const tradeEarned = user?.dailyGcEarned ?? 0;
   const tradePct = Math.min(100, Math.round((tradeEarned / tradeCap) * 100));
   const tradeCapped = tradeEarned >= tradeCap;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFeed = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/activity/feed`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json() as { items?: PublicActivity[] };
+        const items = (Array.isArray(data.items) ? data.items : [])
+          .filter((item) => item.type === "withdrawal" && item.name && Number(item.amountUsd) > 0)
+          .slice(0, 100)
+          .map((item) => `${item.name} withdrew ${Number(item.amountUsd).toFixed(2)} ${item.network ?? "USDT"}`);
+        if (!cancelled) setRealTickerItems(items);
+      } catch {}
+    };
+    loadFeed();
+    const timer = window.setInterval(loadFeed, 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
   const tickerItems = useMemo(
-    () => language === "hi"
-      ? [
-          "आयशा ने 42.50 USDT निकाले",
-          "फैसल ने 19.80 USDT निकाले",
-          "यूसुफ ने 77.10 USDT निकाले",
-          "मोना ने 28.25 USDT निकाले",
-          "नूरा ने 54.90 USDT निकाले",
-        ]
-      : [
-          "Aisha withdrew 42.50 USDT",
-          "Faisal withdrew 19.80 USDT",
-          "Youssef withdrew 77.10 USDT",
-          "Mona withdrew 28.25 USDT",
-          "Noura withdrew 54.90 USDT",
-        ],
-    [language],
+    () => realTickerItems.length > 0 ? realTickerItems : buildCommunityTicker(language),
+    [language, realTickerItems],
   );
 
   return (
@@ -159,7 +194,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        <div className="relative overflow-hidden border-t border-white/[0.03]" style={{ height: 26, background: "rgba(0,0,0,0.2)" }}><div className="absolute left-0 top-0 flex items-center h-full whitespace-nowrap" style={{ animation: "withdraw-ticker 40s linear infinite" }}>{[...tickerItems, ...tickerItems].map((item, idx) => <span key={`${item}-${idx}`} className="inline-flex items-center gap-2 px-6"><Sparkles size={10} className="text-[#FFD700]/40" /><span className="font-mono text-[9px] text-white/40 font-medium tracking-tight">{item}</span></span>)}</div></div>
+        <div className="relative overflow-hidden border-t border-white/[0.03]" style={{ height: 26, background: "rgba(0,0,0,0.2)" }}><div className="absolute left-0 top-0 flex items-center h-full whitespace-nowrap" style={{ animation: "withdraw-ticker 55s linear infinite" }}>{[...tickerItems, ...tickerItems].map((item, idx) => <span key={`${item}-${idx}`} className="inline-flex items-center gap-2 px-6"><Sparkles size={10} className={realTickerItems.length > 0 ? "text-[#FFD700]/45" : "text-[#00F5A0]/40"} /><span className="font-mono text-[9px] text-white/40 font-medium tracking-tight">{item}</span></span>)}</div></div>
       </header>
 
       {hasPaidVip && paidVipCountdown && <div className="px-5 py-2 border-b border-[#FFD700]/10 bg-[#FFD700]/[0.02]"><div className="flex items-center gap-2"><Crown size={12} className="text-[#FFD700]/60" /><span className="font-mono text-[10px] text-[#FFD700]/80 font-bold">PREMIUM ACTIVE</span><span className="font-mono text-[10px] text-white/30 ml-auto">{paidVipCountdown}</span></div></div>}
