@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from "react";
-import { useRegisterUser, useGetUser, useActivateVipTrial, getGetUserQueryKey, setBaseUrl, setExtraHeaders } from "@workspace/api-client-react";
+import { useRegisterUser, useGetUser, getGetUserQueryKey, setBaseUrl, setExtraHeaders } from "@workspace/api-client-react";
 import type { User } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { isVipActive } from "@/lib/vipActive";
 
 const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
 const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
@@ -70,11 +69,9 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [showVipPromo, setShowVipPromo] = useState(false);
   const [showDailyLoginPrompt, setShowDailyLoginPrompt] = useState(false);
   const [showDay7Celebration, setShowDay7Celebration] = useState(false);
-  const trialTriggeredRef = useRef(false);
   const dailyPromptShownRef = useRef(false);
   const queryClient = useQueryClient();
   const registerUser = useRegisterUser();
-  const activateVipTrialMutation = useActivateVipTrial();
 
   const { data: freshUser } = useGetUser(telegramId ?? "", {
     query: {
@@ -87,32 +84,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (freshUser) setUser(freshUser);
   }, [freshUser]);
-
-  useEffect(() => {
-    if (!user || isVipActive(user)) return;
-
-    const gc = user.goldCoins ?? 0;
-    const tc = user.tradeCredits ?? 0;
-
-    let reason: "tc_zero" | "gc_milestone" | "referral" | null = null;
-    if (tc === 0) reason = "tc_zero";
-    else if (gc >= 5000) reason = "gc_milestone";
-    else if (user.referralVipRewardPending) reason = "referral";
-
-    if (!reason || trialTriggeredRef.current) return;
-
-    const timer = setTimeout(async () => {
-      trialTriggeredRef.current = true;
-      try {
-        const updated = await activateVipTrialMutation.mutateAsync({ telegramId: user.telegramId, data: { reason } });
-        setUser(updated);
-        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
-      } catch {
-        setShowVipPromo(true);
-      }
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [user]);
 
   useEffect(() => {
     if (!user || dailyPromptShownRef.current) return;
