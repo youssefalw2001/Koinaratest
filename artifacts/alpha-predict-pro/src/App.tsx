@@ -19,7 +19,7 @@ import { LanguageProvider } from "@/lib/language";
 import { withRequiredMemo } from "@/lib/tonPayment";
 
 // Pages
-import Terminal from "./pages/TradeCapGuard";
+import Battle from "./pages/Battle";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/EarnCreatorLaunch";
 import Shop from "./pages/ShopPremiumLaunch";
@@ -36,7 +36,7 @@ const queryClient = new QueryClient({
 });
 
 const FREE_WITHDRAWAL_MIN_GC = 14000;
-const FREE_TRADE_CAP_GC = 7000;
+const FREE_BATTLE_CAP_GC = 5000;
 const FREE_MINES_CAP_GC = 5000;
 const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
 
@@ -213,7 +213,7 @@ function VipPromoModal() {
               <div className="font-mono text-xs text-white/55 mb-4">Higher caps, better withdrawal rules, creator/referral upside, and premium earning room.</div>
               <div className="w-full space-y-2 mb-5">
                 {[
-                  "20,000 GC daily Trade cap instead of 7,000",
+                  "15,000 GC daily Battle cap instead of 5,000",
                   "20,000 GC daily Mines cap instead of 5,000",
                   "Lower withdrawal requirement + faster cashout path",
                   "Creator Pass included — referral commissions activated automatically",
@@ -238,8 +238,8 @@ function HomeWalletTrustPanel() {
   const goldCoins = user.goldCoins ?? 0;
   const dailyGcEarned = user.dailyGcEarned ?? 0;
   const withdrawalProgress = Math.min(100, (goldCoins / FREE_WITHDRAWAL_MIN_GC) * 100);
-  const tradeProgress = Math.min(100, (dailyGcEarned / FREE_TRADE_CAP_GC) * 100);
-  return <section className="hidden"><button onClick={() => setLocation("/wallet")}>Wallet</button><span>{withdrawalProgress}{tradeProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span></section>;
+  const battleProgress = Math.min(100, (dailyGcEarned / FREE_BATTLE_CAP_GC) * 100);
+  return <section className="hidden"><button onClick={() => setLocation("/wallet")}>Wallet</button><span>{withdrawalProgress}{battleProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span></section>;
 }
 
 function DailyLoginPrompt() {
@@ -283,7 +283,7 @@ function Day7CelebrationModal() {
       {showDay7Celebration && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90" onClick={dismissDay7Celebration}>
           <motion.div initial={{ y: 400, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 22, stiffness: 280 }} className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]" style={{ background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)", boxShadow: "0 -30px 100px rgba(0,240,255,0.3)" }} onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP TRADING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
+            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP BATTLING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
           </motion.div>
         </motion.div>
       )}
@@ -300,7 +300,8 @@ function Router() {
       <MinesPassDirectPaymentBridge />
       <HomeWalletTrustPanel />
       <Switch>
-        <Route path="/" component={() => <Bounded><Terminal /></Bounded>} />
+        <Route path="/" component={() => <Bounded><Battle /></Bounded>} />
+        <Route path="/battle" component={() => <Bounded><Battle /></Bounded>} />
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/academy" component={() => <Bounded><Academy /></Bounded>} />
