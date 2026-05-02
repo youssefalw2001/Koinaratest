@@ -15,8 +15,6 @@ import {
   UpgradeToVipBody,
   UpgradeToVipResponse,
   RegisterUserResponse,
-  ActivateVipTrialParams,
-  ActivateVipTrialBody,
 } from "@workspace/api-zod";
 import { serializeRow } from "../lib/serialize";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
@@ -107,10 +105,6 @@ router.post("/users/register", async (req, res): Promise<void> => {
       if (daysSinceReg >= 7) {
         updateData.day7BonusClaimed = true;
         updateData.tradeCredits = sql`${usersTable.tradeCredits} + 3000`;
-        if (!existingUser.hadVipTrial) {
-          updateData.vipTrialExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-          updateData.hadVipTrial = true;
-        }
       }
     }
     const [updated] = await db.update(usersTable).set(updateData).where(eq(usersTable.telegramId, telegramId)).returning();
@@ -235,28 +229,8 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
   res.status(400).json({ error: "Invalid plan type" });
 });
 
-router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void> => {
-  const params = ActivateVipTrialParams.safeParse(req.params);
-  const body = ActivateVipTrialBody.safeParse(req.body);
-  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
-  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
-  if (!authId) return;
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authId)).limit(1);
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  const now = new Date();
-  const hasActivePaidVip = user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > now;
-  if (hasActivePaidVip) { res.status(400).json({ error: "Already on a paid VIP plan" }); return; }
-  if (user.hadVipTrial) { res.status(400).json({ error: "VIP trial already used" }); return; }
-  const { reason } = body.data;
-  if (reason === "tc_zero") { if (user.tradeCredits !== 0) { res.status(403).json({ error: "Eligibility condition not met: tradeCredits must be 0" }); return; } }
-  else if (reason === "gc_milestone") { if (user.goldCoins < 5000) { res.status(403).json({ error: "Eligibility condition not met: goldCoins must be >= 5000" }); return; } if (user.gcMilestoneTrialClaimed) { res.status(409).json({ error: "GC milestone trial already claimed" }); return; } }
-  else if (reason === "referral") { if (!user.referralVipRewardPending) { res.status(403).json({ error: "Eligibility condition not met: no pending referral reward" }); return; } }
-
-  const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const flagUpdates = { referralVipRewardPending: false, ...(reason === "gc_milestone" ? { gcMilestoneTrialClaimed: true } : {}) };
-  const [updated] = await db.update(usersTable).set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...flagUpdates }).where(eq(usersTable.telegramId, authId)).returning();
-  res.json(USER_SCHEMA(updated as Record<string, unknown>));
+router.post("/users/:telegramId/activate-trial", (_req, res): void => {
+  res.status(410).json({ error: "Free VIP trials have been removed. Please purchase VIP to activate premium benefits." });
 });
 
 router.get("/users/:telegramId/referrals", async (req, res): Promise<void> => {
