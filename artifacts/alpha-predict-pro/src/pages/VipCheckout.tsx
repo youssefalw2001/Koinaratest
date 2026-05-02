@@ -31,27 +31,31 @@ export default function VipCheckout() {
   const vip = isVipActive(user);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [autoPayAfterConnect, setAutoPayAfterConnect] = useState(false);
 
   useEffect(() => {
     try { localStorage.removeItem("koinara_auto_vip_checkout"); } catch {}
   }, []);
 
-  const activateVip = async () => {
-    if (!user?.telegramId || busy) return;
-    if (!OPERATOR_TON_WALLET) { setMessage("VIP payments are not configured yet."); return; }
+  async function activateVip() {
+    if (!user?.telegramId || busy || vip) return;
+    if (!OPERATOR_TON_WALLET) { setMessage("VIP payments are not configured yet. Add KOINARA_TON_WALLET to GitHub Pages/Railway secrets."); return; }
 
     setBusy(true);
     setMessage(null);
     try {
       if (!tonConnectUI.connected) {
+        setAutoPayAfterConnect(true);
+        setMessage("Connect Tonkeeper. VIP payment will open automatically after connection.");
         await tonConnectUI.openModal();
-        setMessage("Connect Tonkeeper, then tap Activate VIP again.");
         return;
       }
 
       const senderAddress = tonConnectUI.account?.address || tonAddress || user.walletAddress;
       if (!senderAddress) {
-        setMessage("Connect your TON wallet first, then tap Activate VIP again.");
+        setAutoPayAfterConnect(true);
+        setMessage("Connect your TON wallet. VIP payment will open automatically after connection.");
+        await tonConnectUI.openModal();
         return;
       }
 
@@ -67,6 +71,7 @@ export default function VipCheckout() {
       const memoData = await memoRes.json().catch(() => ({}));
       if (!memoRes.ok || !memoData?.memo) throw new Error(memoData?.error ?? "Could not load VIP payment memo.");
 
+      setMessage("Opening Tonkeeper payment...");
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 600,
         messages: [{ address: OPERATOR_TON_WALLET, amount: VIP_MONTHLY_NANO, payload: commentPayload(String(memoData.memo)) }],
@@ -94,7 +99,14 @@ export default function VipCheckout() {
     } finally {
       setBusy(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    const connectedAddress = tonConnectUI.account?.address || tonAddress;
+    if (!autoPayAfterConnect || !tonConnectUI.connected || !connectedAddress || busy || vip) return;
+    setAutoPayAfterConnect(false);
+    void activateVip();
+  }, [autoPayAfterConnect, tonConnectUI.connected, tonConnectUI.account?.address, tonAddress, busy, vip]);
 
   return <div className="min-h-screen bg-[#05070d] px-3 pb-28 pt-3 text-white">
     <style>{`.vip-card{background:linear-gradient(160deg,rgba(36,18,58,.86),rgba(6,8,16,.96));border:1px solid rgba(255,215,0,.22);box-shadow:0 18px 60px rgba(0,0,0,.44),0 0 42px rgba(255,215,0,.1),inset 0 1px 0 rgba(255,255,255,.07);backdrop-filter:blur(18px)}`}</style>
@@ -118,15 +130,15 @@ export default function VipCheckout() {
       <div className="mb-2 flex items-center gap-2"><Wallet size={17} className="text-[#8BC3FF]"/><h2 className="font-black">Payment</h2></div>
       <div className="rounded-2xl border border-[#8BC3FF]/20 bg-[#8BC3FF]/8 p-3">
         <div className="font-mono text-[9px] text-white/38">Connected wallet</div>
-        <div className="mt-1 break-all font-mono text-sm font-black text-[#8BC3FF]">{shortAddress(tonAddress || user?.walletAddress)}</div>
+        <div className="mt-1 break-all font-mono text-sm font-black text-[#8BC3FF]">{shortAddress(tonConnectUI.account?.address || tonAddress || user?.walletAddress)}</div>
       </div>
       <div className="mt-3 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]/90">
-        Price: 1.7 TON / $5.99 monthly. Tonkeeper will open with the exact Koinara VIP memo.
+        Price: 1.7 TON / $5.99 monthly. Tonkeeper opens with the exact Koinara VIP memo.
       </div>
       <button onClick={activateVip} disabled={!user || busy || vip} className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#FF9900] font-black text-black disabled:opacity-45">
-        {busy ? <><Loader2 size={17} className="animate-spin"/>Processing VIP</> : vip ? "VIP ACTIVE" : "Activate VIP with TON"}
+        {busy ? <><Loader2 size={17} className="animate-spin"/>Processing VIP</> : vip ? "VIP ACTIVE" : tonConnectUI.connected ? "Activate VIP with TON" : "Connect & Pay with TON"}
       </button>
-      <button onClick={() => tonConnectUI.openModal()} className="mt-2 w-full rounded-2xl border border-[#8BC3FF]/25 bg-[#8BC3FF]/8 py-3 font-mono text-xs font-black text-[#8BC3FF]">{tonAddress ? "Switch TON Wallet" : "Connect TON Wallet"}</button>
+      <button onClick={() => tonConnectUI.openModal()} className="mt-2 w-full rounded-2xl border border-[#8BC3FF]/25 bg-[#8BC3FF]/8 py-3 font-mono text-xs font-black text-[#8BC3FF]">{tonConnectUI.connected || tonAddress ? "Switch TON Wallet" : "Connect TON Wallet"}</button>
       {message && <div className="mt-3 rounded-2xl border border-[#FFD700]/25 bg-black/35 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">{message}</div>}
     </section>
 
