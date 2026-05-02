@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, count, eq, gte, lte, or, sql } from "drizzle-orm";
 import { battlesTable, db, usersTable } from "@workspace/db";
 import { getSymbolPrice, type SupportedSymbol } from "./btcPriceCache";
 import { isVipActive } from "./vip";
@@ -142,7 +142,7 @@ export async function createOrJoinBattle(input: {
     if (candidate) {
       await ensureCoordinationAllowed(candidate.player1TelegramId, input.telegramId);
       const startPrice = await livePrice(symbol);
-      const [joined] = await db.transaction(async (tx) => {
+      const joined = await db.transaction(async (tx) => {
         const [deducted] = await tx
           .update(usersTable)
           .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${stakeTc}` })
@@ -150,7 +150,7 @@ export async function createOrJoinBattle(input: {
           .returning({ telegramId: usersTable.telegramId });
         if (!deducted) throw new Error("INSUFFICIENT_TC");
 
-        return tx
+        const [updated] = await tx
           .update(battlesTable)
           .set({
             player2TelegramId: input.telegramId,
@@ -161,8 +161,9 @@ export async function createOrJoinBattle(input: {
           })
           .where(and(eq(battlesTable.id, candidate.id), eq(battlesTable.status, "waiting")))
           .returning();
+        if (!updated) throw new Error("BATTLE_MATCH_RACE");
+        return updated;
       });
-      if (!joined) throw new Error("BATTLE_MATCH_RACE");
       return { battle: publicBattle(joined, input.telegramId), matched: true };
     }
   }
@@ -170,7 +171,7 @@ export async function createOrJoinBattle(input: {
   const startPrice = await livePrice(symbol);
   const battleCode = randomCode();
   const expiresAt = new Date(Date.now() + WAITING_EXPIRY_MS);
-  const [created] = await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [deducted] = await tx
       .update(usersTable)
       .set({ tradeCredits: sql`${usersTable.tradeCredits} - ${stakeTc}` })
@@ -178,7 +179,7 @@ export async function createOrJoinBattle(input: {
       .returning({ telegramId: usersTable.telegramId });
     if (!deducted) throw new Error("INSUFFICIENT_TC");
 
-    return tx
+    const [inserted] = await tx
       .insert(battlesTable)
       .values({
         battleCode,
@@ -192,9 +193,11 @@ export async function createOrJoinBattle(input: {
         expiresAt,
       })
       .returning();
+    if (!inserted) throw new Error("BATTLE_CREATE_FAILED");
+    return inserted;
   });
 
-  return { battle: created ? publicBattle(created, input.telegramId) : null, matched: false };
+  return { battle: publicBattle(created, input.telegramId), matched: false };
 }
 
 export async function resolveBattleByCode(battleCode: string) {
