@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, count, sql, desc } from "drizzle-orm";
-import { db, usersTable, predictionsTable, vipTxHashesTable, platformDailyStatsTable } from "@workspace/db";
+import { db, usersTable, predictionsTable, vipTxHashesTable, platformDailyStatsTable, betaWaitlistTable } from "@workspace/db";
 import { isPaymentTxHashUsed } from "../lib/paymentTxGuard";
 import {
   RegisterUserBody,
@@ -25,12 +25,185 @@ const router: IRouter = Router();
 const getKoinaraWallet = () => process.env.KOINARA_TON_WALLET;
 const TON_MONTHLY_NANO = BigInt("1700000000");
 const TONAPI_BASE = "https://tonapi.io/v2";
+const BETA_LOCK_ID = 500_500_500;
 
 type TonApiAccount = { address: string };
 type TonApiTx = { hash: string; utime: number; out_msgs: Array<{ destination?: { address?: string }; value?: number; decoded_body?: { text?: string } }> };
 type TonApiTxList = { transactions: TonApiTx[] };
 
+type BetaWaitlistResponse = {
+  betaLocked: true;
+  betaGateEnabled: true;
+  betaLimit: number;
+  waitlistPosition: number;
+  message: string;
+};
+
 function vipMemo(telegramId: string, plan: "monthly"): string { return `KNR-VIP-${plan}-${telegramId}`; }
+
+function betaGateEnabled(): boolean {
+  const raw = (process.env.BETA_GATE_ENABLED ?? "true").toLowerCase().trim();
+  return raw !== "false" && raw !== "0" && raw !== "off";
+}
+
+function betaLimit(): number {
+  const parsed = Number(process.env.BETA_USER_LIMIT ?? "500");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 500;
+}
+
+function ownerTelegramId(): string | null {
+  return process.env.OWNER_TELEGRAM_ID?.trim() || null;
+}
+
+function withBetaFields(row: Record<string, unknown>): Record<string, unknown> {
+  const parsed = RegisterUserResponse.parse(serializeRow(row));
+  return {
+    ...parsed,
+    betaAccessGranted: row.betaAccessGranted ?? row.beta_access_granted ?? true,
+    betaNumber: row.betaNumber ?? row.beta_number ?? row.id ?? null,
+    betaAccessGrantedAt: row.betaAccessGrantedAt ?? row.beta_access_granted_at ?? row.createdAt ?? row.created_at ?? null,
+    betaGateEnabled: betaGateEnabled(),
+    betaLimit: betaLimit(),
+  };
+}
+
+async function ensureBetaGateSchema(): Promise<void> {
+  await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS beta_access_granted BOOLEAN NOT NULL DEFAULT TRUE`);
+  await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS beta_number INTEGER`);
+  await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS beta_access_granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS beta_waitlist (
+      id SERIAL PRIMARY KEY,
+      telegram_id TEXT NOT NULL UNIQUE,
+      username TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      photo_url TEXT,
+      source TEXT,
+      position INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS beta_waitlist_telegram_id_idx ON beta_waitlist (telegram_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS beta_waitlist_created_at_idx ON beta_waitlist (created_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS beta_waitlist_source_idx ON beta_waitlist (source)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS users_beta_access_granted_idx ON users (beta_access_granted)`);
+}
+
+async function waitlistUser(input: {
+  telegramId: string;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  photoUrl?: string | null;
+  source?: string | null;
+}): Promise<BetaWaitlistResponse> {
+  const limit = betaLimit();
+  const waitlist = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${BETA_LOCK_ID})`);
+    const existing = await tx.select().from(betaWaitlistTable).where(eq(betaWaitlistTable.telegramId, input.telegramId)).limit(1);
+    if (existing[0]) return existing[0];
+
+    const rows = await tx.select({ cnt: count() }).from(betaWaitlistTable);
+    const position = Number(rows[0]?.cnt ?? 0) + 1;
+    const [inserted] = await tx.insert(betaWaitlistTable).values({
+      telegramId: input.telegramId,
+      username: input.username ?? null,
+      firstName: input.firstName ?? null,
+      lastName: input.lastName ?? null,
+      photoUrl: input.photoUrl ?? null,
+      source: input.source ?? null,
+      position,
+    }).returning();
+    return inserted;
+  });
+
+  return {
+    betaLocked: true,
+    betaGateEnabled: true,
+    betaLimit: limit,
+    waitlistPosition: waitlist.position,
+    message: `Koinara Founder Beta is full. You are waitlist #${waitlist.position}.`,
+  };
+}
+
+async function createUserOrWaitlist(input: {
+  telegramId: string;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  photoUrl?: string | null;
+  referredBy?: string | null;
+  registrationDate: string;
+}): Promise<{ user?: Record<string, unknown>; waitlist?: BetaWaitlistResponse }> {
+  await ensureBetaGateSchema();
+
+  if (!betaGateEnabled()) {
+    const [newUser] = await db.insert(usersTable).values({
+      telegramId: input.telegramId,
+      username: input.username,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      photoUrl: input.photoUrl,
+      referredBy: input.referredBy ?? null,
+      tradeCredits: 500,
+      goldCoins: 0,
+      totalGcEarned: 0,
+      registrationDate: input.registrationDate,
+      betaAccessGranted: true,
+      betaNumber: null,
+      betaAccessGrantedAt: new Date(),
+    }).returning();
+    return { user: newUser as Record<string, unknown> };
+  }
+
+  const ownerBypass = ownerTelegramId() === input.telegramId;
+  const limit = betaLimit();
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${BETA_LOCK_ID})`);
+    const acceptedRows = await tx.select({ cnt: count() }).from(usersTable).where(eq(usersTable.betaAccessGranted, true));
+    const acceptedCount = Number(acceptedRows[0]?.cnt ?? 0);
+
+    if (!ownerBypass && acceptedCount >= limit) {
+      const existingWaitlist = await tx.select().from(betaWaitlistTable).where(eq(betaWaitlistTable.telegramId, input.telegramId)).limit(1);
+      const waitlistRow = existingWaitlist[0] ?? (await (async () => {
+        const rows = await tx.select({ cnt: count() }).from(betaWaitlistTable);
+        const position = Number(rows[0]?.cnt ?? 0) + 1;
+        const [inserted] = await tx.insert(betaWaitlistTable).values({
+          telegramId: input.telegramId,
+          username: input.username ?? null,
+          firstName: input.firstName ?? null,
+          lastName: input.lastName ?? null,
+          photoUrl: input.photoUrl ?? null,
+          source: input.referredBy ?? null,
+          position,
+        }).returning();
+        return inserted;
+      })());
+      return { waitlist: { betaLocked: true, betaGateEnabled: true, betaLimit: limit, waitlistPosition: waitlistRow.position, message: `Koinara Founder Beta is full. You are waitlist #${waitlistRow.position}.` } };
+    }
+
+    const betaNumber = ownerBypass && acceptedCount >= limit ? acceptedCount + 1 : acceptedCount + 1;
+    const [newUser] = await tx.insert(usersTable).values({
+      telegramId: input.telegramId,
+      username: input.username,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      photoUrl: input.photoUrl,
+      referredBy: input.referredBy ?? null,
+      tradeCredits: 500,
+      goldCoins: 0,
+      totalGcEarned: 0,
+      registrationDate: input.registrationDate,
+      betaAccessGranted: true,
+      betaNumber,
+      betaAccessGrantedAt: new Date(),
+    }).returning();
+
+    return { user: newUser as Record<string, unknown> };
+  });
+}
 
 async function tonapiGet<T>(path: string): Promise<{ data: T | null; err?: string }> {
   try {
@@ -76,25 +249,18 @@ async function verifyTonTransaction(senderAddress: string, plan: "monthly", expe
   return { ok: false, err: `No matching TON payment found within the last 15 minutes. Please include the exact memo/comment "${expectedMemo}" and retry after confirmation.` };
 }
 
-const USER_SCHEMA = (row: Record<string, unknown>) => RegisterUserResponse.parse(serializeRow(row));
+const USER_SCHEMA = (row: Record<string, unknown>) => withBetaFields(row);
 
 router.post("/users/register", async (req, res): Promise<void> => {
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const { username, firstName, lastName, photoUrl, referredBy } = parsed.data;
 
-  let telegramId = parsed.data.telegramId;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (botToken) {
-    const initData = req.headers["x-telegram-init-data"];
-    if (typeof initData !== "string" || initData.trim() === "") { res.status(401).json({ error: "Authentication required. Please reopen the app." }); return; }
-    const { verifyTelegramInitData } = await import("../lib/telegramVerify");
-    const verifiedId = verifyTelegramInitData(initData, botToken);
-    if (!verifiedId) { res.status(401).json({ error: "Invalid authentication. Please reopen the app." }); return; }
-    telegramId = verifiedId;
-  }
+  const telegramId = resolveAuthenticatedTelegramId(req, res, parsed.data.telegramId);
+  if (!telegramId) return;
 
   const today = new Date().toISOString().split("T")[0];
+  await ensureBetaGateSchema();
   const existing = await db.select().from(usersTable).where(eq(usersTable.telegramId, telegramId)).limit(1);
   if (existing.length > 0) {
     const existingUser = existing[0];
@@ -112,9 +278,14 @@ router.post("/users/register", async (req, res): Promise<void> => {
     return;
   }
 
-  const [newUser] = await db.insert(usersTable).values({ telegramId, username, firstName, lastName, photoUrl, referredBy: referredBy ?? null, tradeCredits: 500, goldCoins: 0, totalGcEarned: 0, registrationDate: today }).returning();
+  const result = await createUserOrWaitlist({ telegramId, username, firstName, lastName, photoUrl, referredBy, registrationDate: today });
+  if (result.waitlist) {
+    res.status(423).json(result.waitlist);
+    return;
+  }
+
   if (referredBy) await db.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + 200` }).where(eq(usersTable.telegramId, referredBy));
-  res.status(200).json(USER_SCHEMA(newUser as Record<string, unknown>));
+  res.status(200).json(USER_SCHEMA(result.user ?? {}));
 });
 
 router.get("/users/:telegramId", async (req, res): Promise<void> => {
@@ -122,9 +293,10 @@ router.get("/users/:telegramId", async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
   if (!authId) return;
+  await ensureBetaGateSchema();
   const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  res.json(GetUserResponse.parse(serializeRow(user as Record<string, unknown>)));
+  res.json(USER_SCHEMA(user as Record<string, unknown>));
 });
 
 router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
