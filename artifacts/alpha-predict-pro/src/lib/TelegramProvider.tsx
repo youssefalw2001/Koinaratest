@@ -81,6 +81,34 @@ function getBetaLock(error: unknown): BetaLockStatus | null {
   };
 }
 
+function BetaLockedView({ betaLock, retryBootstrap }: { betaLock: BetaLockStatus; retryBootstrap: () => void }) {
+  const shareText = encodeURIComponent("Koinara Founder Beta is filling fast. Join the waitlist for the next wave.");
+  const shareUrl = encodeURIComponent("https://t.me/KoinaraBot");
+  const openShare = () => {
+    const url = `https://t.me/share/url?url=${shareUrl}&text=${shareText}`;
+    window.Telegram?.WebApp?.openTelegramLink?.(url) ?? window.open(url, "_blank");
+  };
+
+  return (
+    <div className="min-h-screen max-w-[420px] mx-auto bg-[#05070d] px-4 py-6 text-white flex flex-col justify-center">
+      <style>{`.beta-glow{box-shadow:0 0 45px rgba(255,215,0,.22), inset 0 1px 0 rgba(255,255,255,.08)}.beta-title{background:linear-gradient(135deg,#fff7c7,#ffd700 48%,#b8860b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}`}</style>
+      <section className="rounded-[32px] border border-[#FFD700]/30 bg-gradient-to-b from-[#161207] to-[#07070c] p-6 text-center beta-glow">
+        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-[#FFD700]/45 bg-[#FFD700]/12 text-4xl">🏆</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#FFD700]">Founder Beta</div>
+        <h1 className="beta-title mt-2 text-4xl font-black leading-none">Beta is Full</h1>
+        <p className="mt-3 font-mono text-xs leading-relaxed text-white/55">The first {betaLock.betaLimit.toLocaleString()} Founder spots are claimed. You are safely on the waitlist for the next wave.</p>
+        <div className="mt-5 rounded-3xl border border-[#00F5A0]/25 bg-[#00F5A0]/8 p-4">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#00F5A0]">Your waitlist position</div>
+          <div className="mt-1 text-5xl font-black text-[#00F5A0]">#{betaLock.waitlistPosition || "—"}</div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3 font-mono text-[10px] leading-relaxed text-white/45">{betaLock.message}</div>
+        <button onClick={retryBootstrap} className="mt-5 w-full rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-mono text-xs font-black text-[#FFD700]">Check Again</button>
+        <button onClick={openShare} className="mt-2 w-full rounded-2xl bg-[#FFD700] py-3 font-black text-black">Share Koinara</button>
+      </section>
+    </div>
+  );
+}
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -229,7 +257,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       showDay7Celebration,
       dismissDay7Celebration,
     }}>
-      {children}
+      {betaLock ? <BetaLockedView betaLock={betaLock} retryBootstrap={retryBootstrap} /> : children}
     </TelegramContext.Provider>
   );
 }
