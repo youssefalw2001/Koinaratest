@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Clock, Crown, Loader2, RefreshCw, Shield, Swords, Trophy, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, Crown, Loader2, RefreshCw, Shield, Swords, Trophy } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 
@@ -111,6 +111,8 @@ export default function Battle() {
   const drawFee = stake - Math.floor(stake * 0.95);
   const balanceTc = user?.tradeCredits ?? 0;
   const capPct = cap ? Math.min(100, Math.round((cap.earned / Math.max(1, cap.cap)) * 100)) : 0;
+  const viewerWon = !!battle && battle.status === "resolved" && !!user?.telegramId && battle.winnerTelegramId === user.telegramId;
+  const viewerLost = !!battle && battle.status === "resolved" && !!battle.winnerTelegramId && !!user?.telegramId && battle.winnerTelegramId !== user.telegramId;
 
   const remainingMs = useMemo(() => {
     if (!battle) return 0;
@@ -173,6 +175,31 @@ export default function Battle() {
     } catch {}
   }, []);
 
+  const syncBattle = useCallback(async (battleCode?: string | null) => {
+    if (!user?.telegramId) return;
+    if (!battleCode) {
+      await loadActive();
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/battles/status/${encodeURIComponent(battleCode)}?telegramId=${encodeURIComponent(user.telegramId)}&ts=${Date.now()}`, { headers: authHeaders(), cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+
+      const nextBattle = data.battle ?? null;
+      setBattle(nextBattle);
+      setCap(data.cap ?? null);
+
+      if (nextBattle?.status === "active") void loadPrice();
+      if (["resolved", "draw", "cancelled"].includes(String(nextBattle?.status))) {
+        void refreshUser();
+        void loadRecent();
+        void loadLeaderboard();
+      }
+    } catch {}
+  }, [loadActive, loadLeaderboard, loadPrice, loadRecent, refreshUser, user?.telegramId]);
+
   useEffect(() => {
     void loadActive();
     void loadRecent();
@@ -187,30 +214,19 @@ export default function Battle() {
   }, []);
 
   useEffect(() => {
+    const intervalMs = battle?.status === "waiting" || battle?.status === "active" ? 1000 : 3000;
     const timer = window.setInterval(() => {
       void loadWaiting();
-      if (battle?.battleCode) {
-        fetch(`${API_BASE}/battles/status/${encodeURIComponent(battle.battleCode)}?telegramId=${encodeURIComponent(user?.telegramId ?? "")}&ts=${Date.now()}`, { headers: authHeaders(), cache: "no-store" })
-          .then((res) => res.json().then((data) => ({ res, data })).catch(() => ({ res, data: {} })))
-          .then(({ res, data }) => {
-            if (res.ok) {
-              setBattle(data.battle ?? null);
-              setCap(data.cap ?? null);
-              if (["resolved", "draw", "cancelled"].includes(String(data.battle?.status))) {
-                void refreshUser();
-                void loadRecent();
-                void loadLeaderboard();
-              }
-            }
-          })
-          .catch(() => {});
-      } else {
-        void loadActive();
-      }
-      if (battle?.status === "active") void loadPrice();
-    }, 3000);
+      void syncBattle(battle?.battleCode ?? null);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [battle?.battleCode, battle?.status, loadActive, loadLeaderboard, loadPrice, loadRecent, loadWaiting, refreshUser, user?.telegramId]);
+  }, [battle?.battleCode, battle?.status, loadWaiting, syncBattle]);
+
+  useEffect(() => {
+    if (battle?.battleCode && (battle.status === "waiting" || battle.status === "active")) {
+      void syncBattle(battle.battleCode);
+    }
+  }, [battle?.battleCode, battle?.status, syncBattle]);
 
   const startBattle = async (nextPrediction: Prediction) => {
     if (!user?.telegramId || busy) return;
@@ -231,6 +247,7 @@ export default function Battle() {
       setNotice(data.matched ? "Opponent found. Battle started." : "Finding your opponent. TC is locked safely.");
       await refreshUser();
       await loadWaiting();
+      if (data.battle?.battleCode) await syncBattle(data.battle.battleCode);
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred?.("success");
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Battle failed. Try again.");
@@ -314,10 +331,11 @@ export default function Battle() {
     </section>}
 
     {battle && ["resolved", "draw", "cancelled"].includes(String(battle.status)) && <section className="battle-card mb-3 rounded-3xl p-5 text-center">
-      <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border border-[#FFD700]/25 bg-[#FFD700]/10"><Trophy size={34} className="text-[#FFD700]" /></div>
-      <h2 className="text-3xl font-black">{battle.status === "draw" ? "DRAW" : battle.status === "cancelled" ? "CANCELLED" : battle.gcPayout && battle.gcPayout > 0 ? "YOU WON" : "RESOLVED"}</h2>
-      <p className="mt-2 font-mono text-sm text-[#FFD700]">{battle.status === "draw" ? `Refund: ${battle.refundedTc ?? 0} TC each` : battle.status === "cancelled" ? `Refunded: ${battle.refundedTc ?? 0} TC` : `Payout: ${(battle.gcPayout ?? 0).toLocaleString()} GC`}</p>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">Start<br/><span className="text-white">{formatPrice(battle.startPrice)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">End<br/><span className="text-white">{formatPrice(battle.endPrice)}</span></div></div>
+      <div className={`mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border ${viewerLost ? "border-[#FF4D6D]/30 bg-[#FF4D6D]/10" : "border-[#FFD700]/25 bg-[#FFD700]/10"}`}><Trophy size={34} className={viewerLost ? "text-[#FF4D6D]" : "text-[#FFD700]"} /></div>
+      <h2 className="text-3xl font-black">{battle.status === "draw" ? "DRAW" : battle.status === "cancelled" ? "CANCELLED" : viewerWon ? "YOU WON" : viewerLost ? "YOU LOST" : "RESOLVED"}</h2>
+      <p className={`mt-2 font-mono text-sm ${viewerLost ? "text-[#FF8FA3]" : "text-[#FFD700]"}`}>{battle.status === "draw" ? `Refund: ${battle.refundedTc ?? 0} TC each` : battle.status === "cancelled" ? `Refunded: ${battle.refundedTc ?? 0} TC` : viewerWon ? `Payout: ${(battle.gcPayout ?? 0).toLocaleString()} GC` : viewerLost ? `Lost: ${battle.stakeTc.toLocaleString()} TC` : "Battle resolved"}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">You<br/><span className="text-white">{directionLabel(battle.viewerPrediction)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">Opponent<br/><span className="text-white">{directionLabel(battle.opponentPrediction)}</span></div></div>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">Start<br/><span className="text-white">{formatPrice(battle.startPrice)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">End<br/><span className="text-white">{formatPrice(battle.endPrice)}</span></div></div>
       <button onClick={() => { setBattle(null); setNotice(null); void refreshUser(); void loadRecent(); }} className="mt-4 w-full rounded-2xl bg-[#FFD700] py-3 font-black text-black">New Battle</button>
     </section>}
 
