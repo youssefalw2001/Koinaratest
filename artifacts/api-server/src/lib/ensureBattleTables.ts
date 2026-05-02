@@ -42,6 +42,10 @@ export async function ensureBattleTables(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_battles_player1 ON battles(player1_telegram_id);
       CREATE INDEX IF NOT EXISTS idx_battles_player2 ON battles(player2_telegram_id);
       CREATE INDEX IF NOT EXISTS idx_battles_created_at ON battles(created_at);
+      CREATE INDEX IF NOT EXISTS idx_battles_waiting_match ON battles(status, battle_type, stake_tc, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_battles_active_started ON battles(status, started_at);
+      CREATE INDEX IF NOT EXISTS idx_battles_waiting_expiry ON battles(status, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_battles_resolved_week ON battles(status, resolved_at);
     `);
     logger.info("Battle tables ensured.");
   } catch (err) {
