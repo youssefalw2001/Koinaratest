@@ -1,15 +1,19 @@
 name: Deploy Koinara Frontend to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       api_url:
         description: "Production API URL, example: https://koinara-api.up.railway.app"
-        required: true
+        required: false
+        default: "https://workspaceapi-server-production-4e16.up.railway.app"
         type: string
       base_path:
         description: "Frontend base path. Use /Koinaratest/ for GitHub Pages repo URL, or / for custom domain."
-        required: true
+        required: false
         default: "/Koinaratest/"
         type: string
 
@@ -20,7 +24,11 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+env:
+  PROD_API_URL: https://workspaceapi-server-production-4e16.up.railway.app
+  PROD_BASE_PATH: /Koinaratest/
 
 jobs:
   build-and-deploy:
@@ -31,6 +39,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve production inputs
+        id: deploy-inputs
+        run: |
+          echo "api_url=${{ github.event.inputs.api_url || env.PROD_API_URL }}" >> "$GITHUB_OUTPUT"
+          echo "base_path=${{ github.event.inputs.base_path || env.PROD_BASE_PATH }}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -50,8 +64,8 @@ jobs:
         continue-on-error: true
         env:
           PORT: 5173
-          BASE_PATH: ${{ inputs.base_path }}
-          VITE_API_URL: ${{ inputs.api_url }}
+          BASE_PATH: ${{ steps.deploy-inputs.outputs.base_path }}
+          VITE_API_URL: ${{ steps.deploy-inputs.outputs.api_url }}
           VITE_KOINARA_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
           VITE_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
         run: pnpm run typecheck
@@ -60,8 +74,8 @@ jobs:
         env:
           NODE_ENV: production
           PORT: 5173
-          BASE_PATH: ${{ inputs.base_path }}
-          VITE_API_URL: ${{ inputs.api_url }}
+          BASE_PATH: ${{ steps.deploy-inputs.outputs.base_path }}
+          VITE_API_URL: ${{ steps.deploy-inputs.outputs.api_url }}
           VITE_KOINARA_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
           VITE_TON_WALLET: ${{ secrets.KOINARA_TON_WALLET }}
         run: pnpm --filter @workspace/koinara run build
