@@ -164,6 +164,7 @@ export async function createOrJoinBattle(input: {
         if (!updated) throw new Error("BATTLE_MATCH_RACE");
         return updated;
       });
+      logger.info({ battleCode: joined.battleCode, stakeTc, type: "quick" }, "Battle matched and started");
       return { battle: publicBattle(joined, input.telegramId), matched: true };
     }
   }
@@ -197,24 +198,42 @@ export async function createOrJoinBattle(input: {
     return inserted;
   });
 
+  logger.info({ battleCode: created.battleCode, stakeTc, type: battleType }, "Battle waiting created");
   return { battle: publicBattle(created, input.telegramId), matched: false };
 }
 
 export async function resolveBattleByCode(battleCode: string) {
-  const [snapshot] = await db.select().from(battlesTable).where(eq(battlesTable.battleCode, battleCode)).limit(1);
-  if (!snapshot) return null;
-  if (snapshot.status !== "active") return snapshot;
-  if (!snapshot.startedAt || snapshot.startedAt.getTime() + BATTLE_DURATION_MS > Date.now()) return snapshot;
-  if (!snapshot.player2TelegramId || !snapshot.startPrice || !snapshot.player1Prediction || !snapshot.player2Prediction) return snapshot;
+  const reserved = await db.transaction(async (tx) => {
+    const [battle] = await tx.select().from(battlesTable).where(eq(battlesTable.battleCode, battleCode)).for("update").limit(1);
+    if (!battle) return null;
+    if (battle.status !== "active") return battle;
+    if (!battle.startedAt || battle.startedAt.getTime() + BATTLE_DURATION_MS > Date.now()) return battle;
+    if (!battle.player2TelegramId || !battle.startPrice || !battle.player1Prediction || !battle.player2Prediction) return battle;
 
-  const endPrice = await livePrice(normalizeSymbol(snapshot.symbol));
-  const side: BattlePrediction | "draw" = endPrice > snapshot.startPrice ? "up" : endPrice < snapshot.startPrice ? "down" : "draw";
-  const isDraw = side === "draw" || snapshot.player1Prediction === snapshot.player2Prediction;
-  const rake = snapshot.battleType === "private" ? 0.15 : 0.10;
+    const [locked] = await tx.update(battlesTable).set({ status: "resolving" }).where(and(eq(battlesTable.id, battle.id), eq(battlesTable.status, "active"))).returning();
+    return locked ?? battle;
+  });
+
+  if (!reserved) return null;
+  if (reserved.status !== "resolving") return reserved;
+  if (!reserved.player2TelegramId || !reserved.startPrice || !reserved.player1Prediction || !reserved.player2Prediction) return reserved;
+
+  let endPrice: number;
+  try {
+    endPrice = await livePrice(normalizeSymbol(reserved.symbol));
+  } catch (err) {
+    logger.warn({ err, battleCode }, "Battle price unavailable during resolution; retrying later");
+    const [restored] = await db.update(battlesTable).set({ status: "active" }).where(and(eq(battlesTable.battleCode, battleCode), eq(battlesTable.status, "resolving"))).returning();
+    return restored ?? reserved;
+  }
+
+  const side: BattlePrediction | "draw" = endPrice > reserved.startPrice ? "up" : endPrice < reserved.startPrice ? "down" : "draw";
+  const isDraw = side === "draw" || reserved.player1Prediction === reserved.player2Prediction;
+  const rake = reserved.battleType === "private" ? 0.15 : 0.10;
 
   return db.transaction(async (tx) => {
     const [battle] = await tx.select().from(battlesTable).where(eq(battlesTable.battleCode, battleCode)).for("update").limit(1);
-    if (!battle || battle.status !== "active") return battle ?? null;
+    if (!battle || battle.status !== "resolving") return battle ?? null;
 
     if (isDraw) {
       const refundEach = Math.floor(battle.stakeTc * 0.95);
@@ -228,6 +247,7 @@ export async function resolveBattleByCode(battleCode: string) {
         houseTcKept,
         resolvedAt: new Date(),
       }).where(eq(battlesTable.id, battle.id)).returning();
+      logger.info({ battleCode, houseTcKept, refundEach }, "Battle resolved as draw");
       return updated ?? battle;
     }
 
@@ -258,12 +278,13 @@ export async function resolveBattleByCode(battleCode: string) {
       houseTcKept: Math.floor(battle.stakeTc * 2 * rake),
       resolvedAt: new Date(),
     }).where(eq(battlesTable.id, battle.id)).returning();
+    logger.info({ battleCode, winnerTelegramId, rawPayout, gcPayout, capRemaining: remaining }, "Battle resolved with winner");
     return updated ?? battle;
   });
 }
 
 export async function cancelExpiredWaitingBattles(): Promise<number> {
-  const expired = await db.select().from(battlesTable).where(and(eq(battlesTable.status, "waiting"), lte(battlesTable.expiresAt, new Date()))).limit(25);
+  const expired = await db.select().from(battlesTable).where(and(eq(battlesTable.status, "waiting"), lte(battlesTable.expiresAt, new Date()))).limit(50);
   let cancelled = 0;
   for (const battle of expired) {
     await db.transaction(async (tx) => {
@@ -272,14 +293,22 @@ export async function cancelExpiredWaitingBattles(): Promise<number> {
       await tx.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + ${locked.stakeTc}` }).where(eq(usersTable.telegramId, locked.player1TelegramId));
       await tx.update(battlesTable).set({ status: "cancelled", refundedTc: locked.stakeTc, resolvedAt: new Date() }).where(eq(battlesTable.id, locked.id));
       cancelled += 1;
+      logger.info({ battleCode: locked.battleCode, stakeTc: locked.stakeTc }, "Expired waiting battle cancelled and refunded");
     });
   }
   return cancelled;
 }
 
+export async function restoreStuckResolvingBattles(): Promise<number> {
+  const staleBefore = new Date(Date.now() - 2 * 60_000);
+  const restored = await db.update(battlesTable).set({ status: "active" }).where(and(eq(battlesTable.status, "resolving"), lte(battlesTable.startedAt, staleBefore))).returning({ battleCode: battlesTable.battleCode });
+  if (restored.length > 0) logger.warn({ count: restored.length }, "Restored stuck resolving battles for retry");
+  return restored.length;
+}
+
 export async function resolveDueBattles(): Promise<number> {
   const dueBefore = new Date(Date.now() - BATTLE_DURATION_MS);
-  const due = await db.select({ battleCode: battlesTable.battleCode }).from(battlesTable).where(and(eq(battlesTable.status, "active"), lte(battlesTable.startedAt, dueBefore))).limit(25);
+  const due = await db.select({ battleCode: battlesTable.battleCode }).from(battlesTable).where(and(eq(battlesTable.status, "active"), lte(battlesTable.startedAt, dueBefore))).limit(50);
   let resolved = 0;
   for (const row of due) {
     try {

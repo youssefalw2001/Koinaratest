@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Clock, Crown, Loader2, RefreshCw, Shield, Swords, Trophy } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, Crown, Loader2, Shield, Swords, Trophy } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 
@@ -104,7 +104,7 @@ export default function Battle() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   const maxStake = vip ? 5000 : 1000;
   const winGc = Math.floor(stake * 2 * 0.9);
@@ -117,9 +117,17 @@ export default function Battle() {
   const remainingMs = useMemo(() => {
     if (!battle) return 0;
     if (battle.status === "waiting" && battle.expiresAt) return new Date(battle.expiresAt).getTime() - Date.now();
-    if (battle.status === "active" && battle.startedAt) return new Date(battle.startedAt).getTime() + BATTLE_DURATION_MS - Date.now();
+    if ((battle.status === "active" || battle.status === "resolving") && battle.startedAt) return new Date(battle.startedAt).getTime() + BATTLE_DURATION_MS - Date.now();
     return 0;
-  }, [battle, busy]);
+  }, [battle, busy, tick]);
+  const resolvingView = !!battle && (battle.status === "resolving" || (battle.status === "active" && remainingMs <= 0));
+  const pollMs = useMemo(() => {
+    if (!battle) return 8000;
+    if (battle.status === "waiting") return 2000;
+    if (battle.status === "resolving") return 1500;
+    if (battle.status === "active") return remainingMs <= 12_000 ? 1000 : 4000;
+    return 10000;
+  }, [battle?.status, remainingMs]);
 
   const movement = useMemo(() => {
     if (!battle?.startPrice || !btcPrice) return null;
@@ -214,16 +222,15 @@ export default function Battle() {
   }, []);
 
   useEffect(() => {
-    const intervalMs = battle?.status === "waiting" || battle?.status === "active" ? 1000 : 3000;
     const timer = window.setInterval(() => {
-      void loadWaiting();
+      if (!battle || battle.status === "waiting") void loadWaiting();
       void syncBattle(battle?.battleCode ?? null);
-    }, intervalMs);
+    }, pollMs);
     return () => window.clearInterval(timer);
-  }, [battle?.battleCode, battle?.status, loadWaiting, syncBattle]);
+  }, [battle?.battleCode, battle?.status, loadWaiting, pollMs, syncBattle]);
 
   useEffect(() => {
-    if (battle?.battleCode && (battle.status === "waiting" || battle.status === "active")) {
+    if (battle?.battleCode && (battle.status === "waiting" || battle.status === "active" || battle.status === "resolving")) {
       void syncBattle(battle.battleCode);
     }
   }, [battle?.battleCode, battle?.status, syncBattle]);
@@ -315,7 +322,14 @@ export default function Battle() {
       <button onClick={cancelBattle} disabled={busy} className="mt-4 rounded-2xl border border-[#FF4D6D]/30 bg-[#FF4D6D]/10 px-5 py-3 font-mono text-xs font-black text-[#FF8FA3] disabled:opacity-50">Cancel & Refund</button>
     </section>}
 
-    {battle?.status === "active" && <section className="battle-card mb-3 rounded-3xl p-5 text-center">
+    {resolvingView && <section className="battle-card mb-3 rounded-3xl p-5 text-center">
+      <div className="mx-auto mb-4 flex h-28 w-28 items-center justify-center rounded-full border-4 border-[#FFD700]/45 bg-[#FFD700]/10 shadow-[0_0_40px_rgba(255,215,0,.18)]"><Loader2 size={36} className="animate-spin text-[#FFD700]" /></div>
+      <h2 className="text-2xl font-black">Resolving...</h2>
+      <p className="mt-2 font-mono text-[10px] leading-relaxed text-white/45">Locking final BTC price and calculating the result server-side.</p>
+      <div className="mt-4 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">You<br/><span className="text-white">{directionLabel(battle.viewerPrediction)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">Start<br/><span className="text-white">{formatPrice(battle.startPrice)}</span></div></div>
+    </section>}
+
+    {battle?.status === "active" && !resolvingView && <section className="battle-card mb-3 rounded-3xl p-5 text-center">
       <div className="mx-auto mb-4 flex h-32 w-32 items-center justify-center rounded-full border-4 border-[#FFD700]/50 bg-[#FFD700]/10 shadow-[0_0_40px_rgba(255,215,0,.18)]"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">Time</div><div className="text-4xl font-black text-[#FFD700]">{Math.max(0, Math.ceil(remainingMs / 1000))}</div></div></div>
       <h2 className="text-2xl font-black">Battle Live</h2>
       <div className="mt-3 grid grid-cols-2 gap-2 text-left">

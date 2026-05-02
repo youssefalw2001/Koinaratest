@@ -28,6 +28,10 @@ export const battlesTable = pgTable("battles", {
   index("idx_battles_player1").on(table.player1TelegramId),
   index("idx_battles_player2").on(table.player2TelegramId),
   index("idx_battles_created_at").on(table.createdAt),
+  index("idx_battles_waiting_match").on(table.status, table.battleType, table.stakeTc, table.expiresAt),
+  index("idx_battles_active_started").on(table.status, table.startedAt),
+  index("idx_battles_waiting_expiry").on(table.status, table.expiresAt),
+  index("idx_battles_resolved_week").on(table.status, table.resolvedAt),
 ]);
 
 export type Battle = typeof battlesTable.$inferSelect;
