@@ -11,8 +11,6 @@ import { commentPayload } from "@/lib/tonPayment";
 const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
 const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
 const API_BASE = `${API_ROOT}/api`;
-const VIP_MONTHLY_NANO = "1700000000";
-const OPERATOR_TON_WALLET = (import.meta.env.VITE_KOINARA_TON_WALLET || import.meta.env.VITE_TON_WALLET) as string | undefined;
 
 function initHeaders(): Record<string, string> {
   const initData = window.Telegram?.WebApp?.initData ?? "";
@@ -22,6 +20,13 @@ function initHeaders(): Record<string, string> {
 function shortAddress(address?: string | null): string {
   return address ? `${address.slice(0, 6)}...${address.slice(-6)}` : "Not connected";
 }
+
+type VipMemoResponse = {
+  memo?: string;
+  operatorWallet?: string;
+  amountNano?: string;
+  error?: string;
+};
 
 export default function VipCheckout() {
   const { user, refreshUser } = useTelegram();
@@ -39,7 +44,6 @@ export default function VipCheckout() {
 
   async function activateVip() {
     if (!user?.telegramId || busy || vip) return;
-    if (!OPERATOR_TON_WALLET) { setMessage("VIP payments are not configured yet. Add KOINARA_TON_WALLET to GitHub Pages/Railway secrets."); return; }
 
     setBusy(true);
     setMessage(null);
@@ -68,13 +72,15 @@ export default function VipCheckout() {
       }
 
       const memoRes = await fetch(`${API_BASE}/users/${encodeURIComponent(user.telegramId)}/vip/memo`, { headers: initHeaders() });
-      const memoData = await memoRes.json().catch(() => ({}));
-      if (!memoRes.ok || !memoData?.memo) throw new Error(memoData?.error ?? "Could not load VIP payment memo.");
+      const memoData = (await memoRes.json().catch(() => ({}))) as VipMemoResponse;
+      if (!memoRes.ok || !memoData?.memo || !memoData?.operatorWallet || !memoData?.amountNano) {
+        throw new Error(memoData?.error ?? "Could not load VIP payment details.");
+      }
 
       setMessage("Opening Tonkeeper payment...");
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 600,
-        messages: [{ address: OPERATOR_TON_WALLET, amount: VIP_MONTHLY_NANO, payload: commentPayload(String(memoData.memo)) }],
+        messages: [{ address: memoData.operatorWallet, amount: memoData.amountNano, payload: commentPayload(String(memoData.memo)) }],
       });
 
       setMessage("Payment sent. Verifying on-chain confirmation...");
