@@ -17,6 +17,7 @@ import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
 import { LanguageProvider } from "@/lib/language";
 import { withRequiredMemo } from "@/lib/tonPayment";
+import { trackEvent } from "@/lib/analytics";
 
 // Pages
 import Battle from "./pages/Battle";
@@ -164,6 +165,7 @@ function MinesPassDirectPaymentBridge() {
       }
 
       try {
+        trackEvent("mines_pass_purchase_started", { telegramId: user.telegramId, route: location, metadata: { tier, packSize } });
         await tonConnect.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: operatorWallet, amount }] });
         await new Promise((r) => setTimeout(r, 5000));
         const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
@@ -174,11 +176,13 @@ function MinesPassDirectPaymentBridge() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error ?? "Payment verification failed. Please try again.");
+        trackEvent("mines_pass_purchase_success", { telegramId: user.telegramId, route: location, metadata: { tier, packSize } });
         refreshUser();
         queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
         window.alert?.(`${packSize}× ${tier} Mines pass added.`);
         window.location.reload();
       } catch (err) {
+        trackEvent("mines_pass_purchase_failed", { telegramId: user.telegramId, route: location });
         const message = err instanceof Error ? err.message : "Payment failed. Please try again.";
         window.alert?.(message.includes("Cancelled") || message.includes("rejected") ? "Transaction cancelled." : message);
       }
@@ -192,7 +196,7 @@ function MinesPassDirectPaymentBridge() {
 }
 
 function VipPromoModal() {
-  const { showVipPromo, dismissVipPromo } = useTelegram();
+  const { showVipPromo, dismissVipPromo, user } = useTelegram() as ReturnType<typeof useTelegram> & { user: any };
   const [, setLocation] = useLocation();
   const [manualVipPromo, setManualVipPromo] = useState(false);
   const visible = showVipPromo || manualVipPromo;
@@ -212,14 +216,16 @@ function VipPromoModal() {
         event.stopPropagation();
         event.stopImmediatePropagation();
         setManualVipPromo(true);
+        trackEvent("vip_clicked", { telegramId: user?.telegramId ?? null, metadata: { source: "intercepted_cta" } });
       }
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, []);
+  }, [user?.telegramId]);
 
   const dismiss = () => { setManualVipPromo(false); dismissVipPromo(); };
   const handleGoVip = () => {
+    trackEvent("vip_checkout_opened", { telegramId: user?.telegramId ?? null, route: "/vip" });
     dismiss();
     setLocation("/vip");
   };
@@ -263,6 +269,15 @@ function HomeWalletTrustPanel() {
   return <section className="hidden"><button onClick={() => setLocation("/wallet")}>Wallet</button><span>{withdrawalProgress}{battleProgress}{FREE_MINES_CAP_GC}{vip ? "vip" : "free"}</span></section>;
 }
 
+function RouteAnalytics() {
+  const [location] = useLocation();
+  const { user } = useTelegram();
+  useEffect(() => {
+    trackEvent("page_view", { telegramId: user?.telegramId ?? null, route: location, metadata: { path: location } });
+  }, [location, user?.telegramId]);
+  return null;
+}
+
 function DailyLoginPrompt() {
   const { user, showDailyLoginPrompt, dismissDailyLoginPrompt, refreshUser } = useTelegram();
   const qc = useQueryClient();
@@ -275,6 +290,7 @@ function DailyLoginPrompt() {
     (async () => {
       try {
         const result = await claimDaily.mutateAsync({ data: { telegramId: user.telegramId } });
+        trackEvent("daily_reward_claimed", { telegramId: user.telegramId, metadata: { tcAwarded: result.tcAwarded, streak: result.streak } });
         setClaimedReward({ tc: result.tcAwarded, streak: result.streak, isVip: isVipActive(user) });
         qc.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
         refreshUser();
@@ -297,14 +313,14 @@ function DailyLoginPrompt() {
 }
 
 function Day7CelebrationModal() {
-  const { showDay7Celebration, dismissDay7Celebration } = useTelegram();
+  const { showDay7Celebration, dismissDay7Celebration, user } = useTelegram() as ReturnType<typeof useTelegram> & { user: any };
   const [, setLocation] = useLocation();
   return (
     <AnimatePresence>
       {showDay7Celebration && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90" onClick={dismissDay7Celebration}>
           <motion.div initial={{ y: 400, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 22, stiffness: 280 }} className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]" style={{ background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)", boxShadow: "0 -30px 100px rgba(0,240,255,0.3)" }} onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">VIP is paid-only and can be activated from the VIP checkout.</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP BATTLING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
+            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">VIP is paid-only and can be activated from the VIP checkout.</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { trackEvent("day7_bonus_cta_clicked", { telegramId: user?.telegramId ?? null }); dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP BATTLING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
           </motion.div>
         </motion.div>
       )}
@@ -317,6 +333,7 @@ function Bounded({ children }: { children: React.ReactNode }) { return <ErrorBou
 function Router() {
   return (
     <Layout>
+      <RouteAnalytics />
       <TonPaymentBridge />
       <MinesPassDirectPaymentBridge />
       <HomeWalletTrustPanel />

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, ReactNode, useC
 import { useRegisterUser, useGetUser, getGetUserQueryKey, setBaseUrl, setExtraHeaders } from "@workspace/api-client-react";
 import type { User } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { trackEvent } from "@/lib/analytics";
 
 const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
 const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
@@ -123,10 +124,12 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
 
         const tgUser = tg?.initDataUnsafe?.user;
         const referredBy = tg?.initDataUnsafe?.start_param || null;
+        trackEvent("app_open", { metadata: { hasTelegramUser: !!tgUser, hasInitData: !!initData, startParam: referredBy } });
 
         if (!tgUser && !allowLocalDemoUser()) {
           const message = "Telegram user identity missing. Open Koinara from the Telegram bot mini app button.";
           console.warn(message);
+          trackEvent("account_bootstrap_failed", { metadata: { reason: "missing_telegram_user" } });
           setUser(null);
           setAccountError(message);
           return;
@@ -153,6 +156,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         setUser(registeredUser);
         setTelegramId(registeredUser.telegramId);
         setAccountError(null);
+        trackEvent("account_ready", { telegramId: registeredUser.telegramId, metadata: { referredBy } });
 
         if (registeredUser.day7BonusClaimed) {
           const celebKey = `day7_celebrated_${registeredUser.telegramId}`;
@@ -164,6 +168,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         const message = getErrorMessage(error);
         console.error("Failed to init telegram user", error);
+        trackEvent("account_bootstrap_failed", { metadata: { reason: message.slice(0, 120) } });
         setUser(null);
         setTelegramId(null);
         setAccountError(message);
