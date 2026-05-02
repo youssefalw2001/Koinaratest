@@ -57,6 +57,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const gcRate = vip ? VIP_GC_PER_USD : FREE_GC_PER_USD;
   const creatorPassPaid = !!u?.creatorPassPaid || vip;
   const creatorCredits = u?.creatorCredits ?? 0;
+  const betaNumber = u?.betaNumber ?? user?.id ?? null;
+  const betaLimit = u?.betaLimit ?? 500;
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +108,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {user && (
           <div className="px-5 pb-3 flex items-center gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/25 bg-[#FFD700]/8 px-2.5 py-1.5"><Trophy size={10} className="text-[#FFD700]"/><span className="font-mono text-[9px] font-black text-[#FFD700] tracking-[0.08em]">BETA #{betaNumber ?? "—"}/{betaLimit}</span></div>
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#4DA3FF] shadow-[0_0_8px_#4DA3FF]" /><span className="font-mono text-[11px] font-bold text-[#8BC3FF] tabular-nums">{(user.tradeCredits ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-white/30">TC</span></div>
             <div id="gc-balance-pill" className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/20 bg-[#FFD700]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-[11px] font-bold text-[#FFD700] tabular-nums">{(user.goldCoins ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-[#FFD700]/40">GC</span><span className="font-mono text-[8px] text-white/20 ml-1">≈ {formatGcUsd(user.goldCoins ?? 0, gcRate)}</span></div>
             {creatorPassPaid ? <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#00F5A0]/30 bg-[#00F5A0]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#00F5A0] shadow-[0_0_8px_#00F5A0]"/><span className="font-mono text-[11px] font-bold text-[#00F5A0] tabular-nums">{formatCrPill(creatorCredits)}</span></div> : <Link href="/earn"><span className="inline-flex items-center gap-1 rounded-lg border border-[#00F5A0]/25 bg-[#00F5A0]/7 px-2.5 py-1.5 font-mono text-[9px] font-black text-[#00F5A0]"><Rocket size={10}/>Creator</span></Link>}
