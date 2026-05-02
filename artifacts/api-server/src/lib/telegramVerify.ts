@@ -34,6 +34,10 @@ export function verifyTelegramInitData(
 
   if (expectedHash !== hash) return null;
 
+  // Reject tokens older than 24 hours (Telegram recommendation)
+  const authDateSec = parseInt(params["auth_date"] ?? "0", 10);
+  if (!authDateSec || Date.now() / 1000 - authDateSec > 86_400) return null;
+
   const userStr = params["user"];
   if (!userStr) return null;
 

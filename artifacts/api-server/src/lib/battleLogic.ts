@@ -98,10 +98,16 @@ export function publicBattle(row: typeof battlesTable.$inferSelect, viewerTelegr
   const isPlayer1 = viewerTelegramId && row.player1TelegramId === viewerTelegramId;
   const isPlayer2 = viewerTelegramId && row.player2TelegramId === viewerTelegramId;
   const opponentTelegramId = isPlayer1 ? row.player2TelegramId : isPlayer2 ? row.player1TelegramId : null;
+  // Reveal opponent's prediction once the battle is over (resolved, draw, or cancelled).
+  // During active/waiting/resolving it stays hidden to prevent peeking.
+  const settled = row.status === "resolved" || row.status === "draw" || row.status === "cancelled";
+  const opponentPrediction = settled
+    ? (isPlayer1 ? row.player2Prediction : isPlayer2 ? row.player1Prediction : null)
+    : null;
   return {
     ...battle,
     viewerPrediction: isPlayer1 ? row.player1Prediction : isPlayer2 ? row.player2Prediction : null,
-    opponentPrediction: null,
+    opponentPrediction,
     opponentMasked: opponentTelegramId ? `@user***${opponentTelegramId.slice(-3)}` : null,
     player1TelegramId: undefined,
     player2TelegramId: undefined,

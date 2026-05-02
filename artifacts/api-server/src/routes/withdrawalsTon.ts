@@ -16,6 +16,7 @@ const FREE_WEEKLY_MAX_USD = 25;
 const VIP_WEEKLY_MAX_USD = 100;
 const FEE_PCT = 0.06;
 const DAILY_PAYOUT_RATIO = 0.5;
+const DAILY_PAYOUT_FLOOR_GC = 50_000;
 const WITHDRAWAL_COOLDOWN_MS = 3 * 60_000;
 const WITHDRAWAL_MAX_24H_COUNT = 6;
 const TON_ADDRESS_REGEX = /^[A-Za-z0-9:_-]{20,120}$/;
@@ -118,7 +119,7 @@ router.post("/withdrawals/request-ton", async (req, res): Promise<void> => {
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const yesterdayStr = yesterday.toISOString().split("T")[0];
   const [prevDayStats] = await db.select().from(platformDailyStatsTable).where(eq(platformDailyStatsTable.date, yesterdayStr)).limit(1);
-  const maxDailyPayoutGc = Math.floor((prevDayStats?.totalRevenueGc ?? 0) * DAILY_PAYOUT_RATIO);
+  const maxDailyPayoutGc = Math.max(DAILY_PAYOUT_FLOOR_GC, Math.floor((prevDayStats?.totalRevenueGc ?? 0) * DAILY_PAYOUT_RATIO));
 
   const feeGc = Math.floor(gcAmount * FEE_PCT);
   const netGc = gcAmount - feeGc;

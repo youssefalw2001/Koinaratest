@@ -364,15 +364,21 @@ export default function Battle() {
       {vip && !battle.opponentPrediction && <p className="mt-3 font-mono text-[10px] text-[#FFD700]">VIP reveal unlocks in the final 10 seconds.</p>}
     </section>}
 
-    {battle && ["resolved", "draw", "cancelled"].includes(String(battle.status)) && <section className="battle-card mb-3 rounded-3xl p-5 text-center">
-      <div className={`mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border ${viewerLost ? "border-[#FF4D6D]/30 bg-[#FF4D6D]/10" : "border-[#FFD700]/25 bg-[#FFD700]/10"}`}><Trophy size={34} className={viewerLost ? "text-[#FF4D6D]" : "text-[#FFD700]"} /></div>
-      <h2 className="text-3xl font-black">{battle.status === "draw" ? "DRAW" : battle.status === "cancelled" ? "CANCELLED" : viewerWon ? "YOU WON" : viewerLost ? "YOU LOST" : "RESOLVED"}</h2>
-      <p className={`mt-2 font-mono text-sm ${viewerLost ? "text-[#FF8FA3]" : "text-[#FFD700]"}`}>{battle.status === "draw" ? `Refund: ${battle.refundedTc ?? 0} TC each` : battle.status === "cancelled" ? `Refunded: ${battle.refundedTc ?? 0} TC` : viewerWon ? `Payout: ${(battle.gcPayout ?? 0).toLocaleString()} GC` : viewerLost ? `Lost: ${battle.stakeTc.toLocaleString()} TC` : "Battle resolved"}</p>
-      <p className="mt-1 font-mono text-[10px] text-white/35">{viewerWon ? "GC was credited after server settlement." : viewerLost ? "Use a lower stake or refill TC before the next battle." : "This battle did not pay GC."}</p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">You<br/><span className="text-white">{directionLabel(battle.viewerPrediction)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">Opponent<br/><span className="text-white">{directionLabel(battle.opponentPrediction)}</span></div></div>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">Start<br/><span className="text-white">{formatPrice(battle.startPrice)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">End<br/><span className="text-white">{formatPrice(battle.endPrice)}</span></div></div>
-      <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => { setBattle(null); setNotice(null); void refreshUser(); void loadRecent(); }} className="rounded-2xl bg-[#FFD700] py-3 font-black text-black">New Battle</button><Link href="/exchange"><button className="w-full rounded-2xl border border-[#4DA3FF]/25 bg-[#4DA3FF]/10 py-3 font-black text-[#8BC3FF]">Get TC</button></Link></div>
-    </section>}
+    {battle && ["resolved", "draw", "cancelled"].includes(String(battle.status)) && (() => {
+      const capHit = viewerWon && (battle.gcPayout ?? 0) === 0;
+      const headingText = battle.status === "draw" ? "DRAW" : battle.status === "cancelled" ? "CANCELLED" : capHit ? "YOU WON — CAP HIT" : viewerWon ? "YOU WON" : viewerLost ? "YOU LOST" : "RESOLVED";
+      const payoutText = battle.status === "draw" ? `Refund: ${battle.refundedTc ?? 0} TC each` : battle.status === "cancelled" ? `Refunded: ${battle.refundedTc ?? 0} TC` : viewerWon ? `Payout: ${(battle.gcPayout ?? 0).toLocaleString()} GC` : viewerLost ? `Lost: ${battle.stakeTc.toLocaleString()} TC` : "Battle resolved";
+      const subText = capHit ? "Correct prediction — but your daily GC cap was reached. No GC this time. Cap resets at midnight UTC." : viewerWon ? "GC was credited after server settlement." : viewerLost ? "Use a lower stake or refill TC before the next battle." : "This battle did not pay GC.";
+      return <section className="battle-card mb-3 rounded-3xl p-5 text-center">
+        <div className={`mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border ${viewerLost ? "border-[#FF4D6D]/30 bg-[#FF4D6D]/10" : capHit ? "border-[#8BC3FF]/30 bg-[#8BC3FF]/10" : "border-[#FFD700]/25 bg-[#FFD700]/10"}`}><Trophy size={34} className={viewerLost ? "text-[#FF4D6D]" : capHit ? "text-[#8BC3FF]" : "text-[#FFD700]"} /></div>
+        <h2 className="text-3xl font-black">{headingText}</h2>
+        <p className={`mt-2 font-mono text-sm ${viewerLost ? "text-[#FF8FA3]" : capHit ? "text-[#8BC3FF]" : "text-[#FFD700]"}`}>{payoutText}</p>
+        <p className="mt-1 font-mono text-[10px] text-white/35">{subText}</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">You<br/><span className="text-white">{directionLabel(battle.viewerPrediction)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">Opponent<br/><span className="text-white">{directionLabel(battle.opponentPrediction)}</span></div></div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-left font-mono text-[10px] text-white/45"><div className="rounded-xl bg-white/[0.025] p-3">Start<br/><span className="text-white">{formatPrice(battle.startPrice)}</span></div><div className="rounded-xl bg-white/[0.025] p-3">End<br/><span className="text-white">{formatPrice(battle.endPrice)}</span></div></div>
+        <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => { setBattle(null); setNotice(null); void refreshUser(); void loadRecent(); }} className="rounded-2xl bg-[#FFD700] py-3 font-black text-black">New Battle</button><Link href="/exchange"><button className="w-full rounded-2xl border border-[#4DA3FF]/25 bg-[#4DA3FF]/10 py-3 font-black text-[#8BC3FF]">Get TC</button></Link></div>
+      </section>;
+    })()}
 
     {!battle && <>
       <section className="battle-card mb-3 rounded-3xl p-4">

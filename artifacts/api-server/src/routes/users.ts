@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, count, sql, desc } from "drizzle-orm";
 import { db, usersTable, predictionsTable, vipTxHashesTable, platformDailyStatsTable } from "@workspace/db";
+import { isPaymentTxHashUsed } from "../lib/paymentTxGuard";
 import {
   RegisterUserBody,
   GetUserParams,
@@ -203,8 +204,10 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
 
     const verifiedTxHash = verification.txHash;
     if (verifiedTxHash) {
-      const [existingTx] = await db.select().from(vipTxHashesTable).where(eq(vipTxHashesTable.txHash, verifiedTxHash)).limit(1);
-      if (existingTx) { res.status(409).json({ error: "This transaction has already been used. Please contact support if this is an error." }); return; }
+      if (await isPaymentTxHashUsed(verifiedTxHash)) {
+        res.status(409).json({ error: "This transaction has already been used for a purchase. Please contact support if this is an error." });
+        return;
+      }
       await db.insert(vipTxHashesTable).values({ txHash: verifiedTxHash, telegramId: authId, plan: vipPlan });
     }
 
@@ -275,8 +278,11 @@ router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void
   if (!ownerEnvId) { res.status(503).json({ error: "Owner tools are not configured on this server." }); return; }
   const { telegramId } = req.params;
   if (telegramId !== ownerEnvId) { res.status(403).json({ error: "Forbidden." }); return; }
+  // Require valid Telegram auth so anyone who knows the owner ID can't call this
+  const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
+  if (!authedId) return;
   const TC_REFILL = 999_999;
-  const [updated] = await db.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + ${TC_REFILL}` }).where(eq(usersTable.telegramId, telegramId)).returning({ newTcBalance: usersTable.tradeCredits });
+  const [updated] = await db.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + ${TC_REFILL}` }).where(eq(usersTable.telegramId, authedId)).returning({ newTcBalance: usersTable.tradeCredits });
   if (!updated) { res.status(404).json({ error: "User not found." }); return; }
   res.json({ success: true, tcAdded: TC_REFILL, newTcBalance: updated.newTcBalance });
 });

@@ -12,6 +12,7 @@ import {
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { createRouteRateLimiter } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
+import { isPaymentTxHashUsed } from "../lib/paymentTxGuard";
 
 const router: IRouter = Router();
 
@@ -387,15 +388,10 @@ router.post("/mines/passes/purchase", minesRateLimiter, async (req, res): Promis
     res.status(400).json({ error: verification.err ?? "Payment verification failed." });
     return;
   }
-  // ── Idempotency guard: reject replayed tx hashes ──
+  // ── Idempotency guard: reject replayed tx hashes across ALL payment tables ──
   if (verification.txHash) {
-    const existing = await db
-      .select({ id: minesRoundPassesTable.id })
-      .from(minesRoundPassesTable)
-      .where(eq(minesRoundPassesTable.txHash, verification.txHash))
-      .limit(1);
-    if (existing.length > 0) {
-      res.status(409).json({ error: "This transaction has already been used to purchase passes." });
+    if (await isPaymentTxHashUsed(verification.txHash)) {
+      res.status(409).json({ error: "This transaction has already been used for a purchase." });
       return;
     }
   }
