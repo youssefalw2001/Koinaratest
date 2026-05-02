@@ -14,10 +14,18 @@ function configureApiClient(initData?: string | null): void {
 
 configureApiClient(null);
 
+export type BetaLockStatus = {
+  betaLocked: true;
+  betaLimit: number;
+  waitlistPosition: number;
+  message: string;
+};
+
 interface TelegramContextType {
   user: User | null;
   isLoading: boolean;
   accountError: string | null;
+  betaLock: BetaLockStatus | null;
   retryBootstrap: () => void;
   refreshUser: () => void;
   showVipPromo: boolean;
@@ -32,6 +40,7 @@ const TelegramContext = createContext<TelegramContextType>({
   user: null,
   isLoading: true,
   accountError: null,
+  betaLock: null,
   retryBootstrap: () => {},
   refreshUser: () => {},
   showVipPromo: false,
@@ -61,10 +70,22 @@ function getErrorMessage(error: unknown): string {
   return anyError?.data?.error || anyError?.message || "Could not create your Koinara account. Please reopen the app from Telegram.";
 }
 
+function getBetaLock(error: unknown): BetaLockStatus | null {
+  const data = (error as { data?: Record<string, unknown> })?.data;
+  if (!data || data.betaLocked !== true) return null;
+  return {
+    betaLocked: true,
+    betaLimit: Number(data.betaLimit ?? 500),
+    waitlistPosition: Number(data.waitlistPosition ?? 0),
+    message: typeof data.message === "string" ? data.message : "Koinara Founder Beta is full.",
+  };
+}
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [betaLock, setBetaLock] = useState<BetaLockStatus | null>(null);
   const [bootstrapNonce, setBootstrapNonce] = useState(0);
   const [telegramId, setTelegramId] = useState<string | null>(null);
   const [showVipPromo, setShowVipPromo] = useState(false);
@@ -106,6 +127,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const retryBootstrap = useCallback(() => {
     setIsLoading(true);
     setAccountError(null);
+    setBetaLock(null);
     setBootstrapNonce((value) => value + 1);
   }, []);
 
@@ -113,6 +135,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     const initTelegram = async () => {
       try {
         setAccountError(null);
+        setBetaLock(null);
         const tg = window.Telegram?.WebApp;
         if (tg) {
           tg.ready();
@@ -156,7 +179,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         setUser(registeredUser);
         setTelegramId(registeredUser.telegramId);
         setAccountError(null);
-        trackEvent("account_ready", { telegramId: registeredUser.telegramId, metadata: { referredBy } });
+        setBetaLock(null);
+        trackEvent("account_ready", { telegramId: registeredUser.telegramId, metadata: { referredBy, betaNumber: (registeredUser as any).betaNumber ?? null } });
 
         if (registeredUser.day7BonusClaimed) {
           const celebKey = `day7_celebrated_${registeredUser.telegramId}`;
@@ -166,11 +190,21 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
+        const locked = getBetaLock(error);
+        if (locked) {
+          setUser(null);
+          setTelegramId(null);
+          setAccountError(null);
+          setBetaLock(locked);
+          trackEvent("beta_waitlist_joined", { metadata: { waitlistPosition: locked.waitlistPosition, betaLimit: locked.betaLimit } });
+          return;
+        }
         const message = getErrorMessage(error);
         console.error("Failed to init telegram user", error);
         trackEvent("account_bootstrap_failed", { metadata: { reason: message.slice(0, 120) } });
         setUser(null);
         setTelegramId(null);
+        setBetaLock(null);
         setAccountError(message);
       } finally {
         setIsLoading(false);
@@ -185,6 +219,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       accountError,
+      betaLock,
       retryBootstrap,
       refreshUser,
       showVipPromo,
