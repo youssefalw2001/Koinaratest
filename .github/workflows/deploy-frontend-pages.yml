@@ -23,7 +23,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -45,6 +45,7 @@ jobs:
         run: |
           echo "api_url=${{ github.event.inputs.api_url || env.PROD_API_URL }}" >> "$GITHUB_OUTPUT"
           echo "base_path=${{ github.event.inputs.base_path || env.PROD_BASE_PATH }}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=github-pages-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -86,8 +87,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: ${{ steps.deploy-inputs.outputs.artifact_name }}
           path: artifacts/alpha-predict-pro/dist/public
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ steps.deploy-inputs.outputs.artifact_name }}
