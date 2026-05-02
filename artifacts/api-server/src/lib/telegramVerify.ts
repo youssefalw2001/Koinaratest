@@ -36,10 +36,25 @@ function verifyWithSingleCredential(params: Record<string, string>, credential: 
   }
 }
 
+function getCredentialCandidates(primary: string): string[] {
+  const values = new Set<string>();
+  for (const raw of primary.split(",")) {
+    const clean = raw.trim();
+    if (clean) values.add(clean);
+  }
+  const extraEnvKey = ["TELEGRAM", "BOT", "TOKENS"].join("_");
+  for (const raw of ((process.env as Record<string, string | undefined>)[extraEnvKey] ?? "").split(",")) {
+    const clean = raw.trim();
+    if (clean) values.add(clean);
+  }
+  return [...values];
+}
+
 /**
  * Verify a Telegram Mini App initData string using HMAC-SHA256.
  *
  * The second argument may be one credential or multiple credentials separated by commas.
+ * Extra credentials can also be supplied by TELEGRAM_BOT_TOKENS.
  * This lets the same backend safely support a real bot and a test bot without disabling auth.
  *
  * Returns the authenticated telegramId (as a string) on success, or null on failure.
@@ -48,8 +63,7 @@ function verifyWithSingleCredential(params: Record<string, string>, credential: 
  */
 export function verifyTelegramInitData(initData: string, botToken: string): string | null {
   const params = parseInitData(initData);
-  const credentials = botToken.split(",").map((item) => item.trim()).filter(Boolean);
-  for (const credential of credentials) {
+  for (const credential of getCredentialCandidates(botToken)) {
     const verifiedId = verifyWithSingleCredential(params, credential);
     if (verifiedId) return verifiedId;
   }
