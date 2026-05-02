@@ -22,18 +22,17 @@ const GEM_CATALOG = {
   precision_lock:   { gcCost: 3500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
   comeback_king:    { gcCost: 4500, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "legacy" },
 
-  // ── Safe Battle in-game power-ups (paid with GC) ─────────────────────────
+  // ── Safe Battle in-game power-ups (paid with GC or Stars) ────────────────
   battle_shield:        { gcCost: 800,  tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: null },
   battle_pass:          { gcCost: 3000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: 24 * 7 },
   battle_streak_saver:  { gcCost: 1200, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: null },
   battle_priority_queue:{ gcCost: 1000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: 24 },
 
-  // ── Mines Power-ups (paid with TON) ──────────────────────────────────────
-  // tonCost is in nanotons (1 TON = 1_000_000_000 nanotons)
-  revenge_shield:   { gcCost: 0, tonCost: 200000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.2 TON
-  safe_reveal:      { gcCost: 0, tonCost: 100000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.1 TON
-  gem_magnet:       { gcCost: 0, tonCost: 150000000, usesRemaining: 3, vipOnly: false, category: "mines" }, // 0.15 TON
-  second_chance:    { gcCost: 0, tonCost: 250000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.25 TON
+  // ── Mines Power-ups (paid with Stars in this launch; TON direct grant blocked) ──
+  revenge_shield:   { gcCost: 0, tonCost: 200000000, usesRemaining: 1, vipOnly: false, category: "mines" },
+  safe_reveal:      { gcCost: 0, tonCost: 100000000, usesRemaining: 1, vipOnly: false, category: "mines" },
+  gem_magnet:       { gcCost: 0, tonCost: 150000000, usesRemaining: 3, vipOnly: false, category: "mines" },
+  second_chance:    { gcCost: 0, tonCost: 250000000, usesRemaining: 1, vipOnly: false, category: "mines" },
 } as const;
 
 type GemType = keyof typeof GEM_CATALOG;
@@ -99,32 +98,11 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
     return;
   }
 
-  // Mines power-ups require TON payment — frontend handles TON payment flow
-  // and calls this endpoint after confirming the on-chain transaction.
-  // For now we trust the frontend (TON verification can be added later like VIP flow).
   if (catalog.category === "mines" && catalog.tonCost > 0) {
-    await db.insert(gemInventoryTable).values({
-      telegramId: authedId,
-      gemType,
-      usesRemaining: catalog.usesRemaining,
-      expiresAt: expiryFromCatalog(catalog),
-    });
-
-    const [updatedUser] = await db
-      .select({ goldCoins: usersTable.goldCoins, tradeCredits: usersTable.tradeCredits })
-      .from(usersTable)
-      .where(eq(usersTable.telegramId, authedId))
-      .limit(1);
-
-    res.status(201).json({
-      success: true,
-      gemType,
-      gcSpent: 0,
-      tonSpent: catalog.tonCost,
-      newGcBalance: updatedUser?.goldCoins ?? user.goldCoins,
-      newTcBalance: updatedUser?.tradeCredits ?? user.tradeCredits,
-      mysteryReward: null,
-    });
+    // Critical safety fix: Mines power-ups used to be granted immediately after
+    // the frontend clicked the price. They now require a verified Stars webhook
+    // credit path. Never trust a client-side click for TON/Stars paid items.
+    res.status(402).json({ error: "Mines power-ups require a completed Stars payment." });
     return;
   }
 
