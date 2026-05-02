@@ -51,6 +51,7 @@ router.post("/battles/create", async (req, res): Promise<void> => {
     if (message === "LIVE_PRICE_UNAVAILABLE") { res.status(503).json({ error: "Live BTC price is unavailable. Try again in a moment." }); return; }
     if (message === "SELF_BATTLE_BLOCKED") { res.status(400).json({ error: "You cannot battle yourself." }); return; }
     if (message === "COORDINATION_LIMIT") { res.status(429).json({ error: "Too many battles with the same opponent. Try a different match." }); return; }
+    if (message === "BATTLE_MATCH_RACE") { res.status(409).json({ error: "That opponent was just matched. Try again." }); return; }
     res.status(500).json({ error: "Failed to create battle." });
   }
 });
@@ -63,14 +64,15 @@ router.post("/battles/cancel", async (req, res): Promise<void> => {
   if (!battleCode) { res.status(400).json({ error: "Missing battle code." }); return; }
 
   try {
-    const [cancelled] = await db.transaction(async (tx) => {
+    const cancelled = await db.transaction(async (tx) => {
       const [battle] = await tx.select().from(battlesTable).where(eq(battlesTable.battleCode, battleCode)).for("update").limit(1);
       if (!battle) throw new Error("NOT_FOUND");
       if (battle.player1TelegramId !== authedId || battle.status !== "waiting") throw new Error("NOT_CANCELABLE");
       const elapsed = Date.now() - battle.createdAt.getTime();
       if (elapsed > 60_000) throw new Error("CANCEL_WINDOW_CLOSED");
       await tx.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + ${battle.stakeTc}` }).where(eq(usersTable.telegramId, authedId));
-      return tx.update(battlesTable).set({ status: "cancelled", refundedTc: battle.stakeTc, resolvedAt: new Date() }).where(eq(battlesTable.id, battle.id)).returning();
+      const [updated] = await tx.update(battlesTable).set({ status: "cancelled", refundedTc: battle.stakeTc, resolvedAt: new Date() }).where(eq(battlesTable.id, battle.id)).returning();
+      return updated;
     });
     res.json({ battle: cancelled ? battleForViewer(cancelled, authedId) : null });
   } catch (err) {
@@ -166,9 +168,15 @@ router.get("/battles/leaderboard", async (_req, res): Promise<void> => {
     .orderBy(sql`coalesce(sum(${battlesTable.gcPayout}), 0) desc`)
     .limit(10);
 
-  const users = await db.select({ telegramId: usersTable.telegramId, username: usersTable.username, firstName: usersTable.firstName }).from(usersTable).where(sql`${usersTable.telegramId} in ${rows.map((r) => r.winnerTelegramId).filter(Boolean)}`);
-  const userMap = new Map(users.map((u) => [u.telegramId, u]));
-  res.json({ leaderboard: rows.filter((r) => r.winnerTelegramId).map((row, index) => ({ rank: index + 1, name: maskName(userMap.get(row.winnerTelegramId!) ?? { telegramId: row.winnerTelegramId }), totalGc: Number(row.totalGc ?? 0) })) });
+  res.json({
+    leaderboard: rows
+      .filter((row) => row.winnerTelegramId)
+      .map((row, index) => ({
+        rank: index + 1,
+        name: maskName({ telegramId: row.winnerTelegramId }),
+        totalGc: Number(row.totalGc ?? 0),
+      })),
+  });
 });
 
 export default router;
