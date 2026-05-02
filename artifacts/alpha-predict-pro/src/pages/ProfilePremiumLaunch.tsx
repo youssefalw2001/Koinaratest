@@ -1,10 +1,25 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Copy, Crown, Gift, ShieldCheck, Swords, User, Wallet, Zap } from "lucide-react";
+import { Copy, Crown, Gift, ShieldCheck, Swords, Trophy, User, Wallet, Zap } from "lucide-react";
 import { useGetActiveGems, useGetReferralStats, getGetReferralStatsQueryKey, useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { PageLoader, PageError } from "@/components/PageStatus";
+
+const LEVELS = [
+  { level: 1, name: "Rookie", xp: 0, cap: "5K", perk: "Base Arena limits", color: "#8BC3FF" },
+  { level: 2, name: "Battler", xp: 1500, cap: "6K", perk: "Better daily rhythm", color: "#00F5FF" },
+  { level: 3, name: "Pro", xp: 5000, cap: "7K", perk: "Creator proof badge", color: "#FFD700" },
+  { level: 4, name: "Elite", xp: 15000, cap: "8.5K", perk: "Premium profile glow", color: "#FF4D8D" },
+  { level: 5, name: "Legend", xp: 40000, cap: "10K", perk: "Max free rank", color: "#B65CFF" },
+];
+
+function rankInfo(rankXp: number) {
+  const current = [...LEVELS].reverse().find((level) => rankXp >= level.xp) ?? LEVELS[0];
+  const next = LEVELS.find((level) => level.xp > rankXp) ?? null;
+  const progress = next ? Math.min(100, Math.round(((rankXp - current.xp) / (next.xp - current.xp)) * 100)) : 100;
+  return { current, next, progress };
+}
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -33,6 +48,8 @@ export default function ProfilePremiumLaunch() {
   const u = user as any;
   const displayName = user?.firstName || user?.username || "Koinara Player";
   const inviteText = user ? `Join me on Koinara Battle Arena. My invite code is KNR-${String(user.telegramId).slice(-6)}.` : "Join me on Koinara Battle Arena.";
+  const rankXp = Number(u?.rankXp ?? u?.valueXp ?? u?.totalGcEarned ?? 0);
+  const { current, next, progress } = rankInfo(rankXp);
 
   const { data: stats, isLoading, isError, refetch } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") },
@@ -84,6 +101,21 @@ export default function ProfilePremiumLaunch() {
           </div>
         </div>
         {!vip && <Link href="/vip"><button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFD700] py-3 font-black text-black"><Crown size={16}/>Upgrade to VIP</button></Link>}
+      </section>
+
+      <section className="profile-card mb-3 rounded-[28px] p-4">
+        <div className="mb-3 flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border" style={{ borderColor: `${current.color}66`, background: `${current.color}18`, boxShadow: `0 0 26px ${current.color}22` }}><Trophy size={24} style={{ color: current.color }} /></div>
+          <div className="min-w-0 flex-1"><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/38">Level Progress</div><div className="text-xl font-black" style={{ color: current.color }}>Level {current.level} · {current.name}</div></div>
+          <div className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 px-3 py-2 text-right"><div className="font-mono text-[9px] text-white/35">XP</div><div className="font-mono text-sm font-black text-[#FFD700]">{rankXp.toLocaleString()}</div></div>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#FFD700] via-[#FF4D8D] to-[#00F5FF]" style={{ width: `${progress}%` }} /></div>
+        <div className="mt-2 flex justify-between font-mono text-[9px] text-white/35"><span>{current.perk}</span><span>{next ? `${Math.max(0, next.xp - rankXp).toLocaleString()} XP to ${next.name}` : "Legend complete"}</span></div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-[#FFD700]/15 bg-[#FFD700]/6 p-2"><div className="font-mono text-[8px] text-white/35">RANK</div><div className="font-black text-[#FFD700]">{current.name}</div></div>
+          <div className="rounded-2xl border border-[#00F5FF]/15 bg-[#00F5FF]/6 p-2"><div className="font-mono text-[8px] text-white/35">CAP TIER</div><div className="font-black text-[#00F5FF]">{current.cap}</div></div>
+          <div className="rounded-2xl border border-[#FF4D8D]/15 bg-[#FF4D8D]/6 p-2"><div className="font-mono text-[8px] text-white/35">NEXT</div><div className="truncate font-mono text-[10px] font-black text-[#FF4D8D]">{next ? next.name : "MAX"}</div></div>
+        </div>
       </section>
 
       <section className="mb-3 grid grid-cols-3 gap-2">
