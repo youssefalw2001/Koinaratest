@@ -12,3 +12,4 @@ export * from "./crTransactions";
 export * from "./crash";
 export * from "./mines";
 export * from "./battles";
+export * from "./userEvents";
