@@ -37,6 +37,8 @@ export const usersTable = pgTable("users", {
   registrationDate: text("registration_date"),
   dailyGcEarned: integer("daily_gc_earned").notNull().default(0),
   dailyGcDate: text("daily_gc_date"),
+  dailyBattleGcEarned: integer("daily_battle_gc_earned").notNull().default(0),
+  dailyBattleGcDate: text("daily_battle_gc_date"),
   dailyTradeCapBoostGc: integer("daily_trade_cap_boost_gc").notNull().default(0),
   dailyTradeCapBoostDate: text("daily_trade_cap_boost_date"),
   weeklyWithdrawnGc: integer("weekly_withdrawn_gc").notNull().default(0),
