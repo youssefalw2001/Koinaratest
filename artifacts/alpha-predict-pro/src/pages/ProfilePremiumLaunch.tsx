@@ -1,34 +1,10 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Award, BookOpen, CheckCircle, Copy, Crown, Flame, Rocket, Share2, ShieldCheck, Sparkles, Star, Target, Trophy, User, Wallet, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { useGetReferralStats, getGetReferralStatsQueryKey, useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
+import { Copy, Crown, Gift, ShieldCheck, Swords, User, Wallet, Zap } from "lucide-react";
+import { useGetActiveGems, useGetReferralStats, getGetReferralStatsQueryKey, useGetUserStats, getGetUserStatsQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
 import { PageLoader, PageError } from "@/components/PageStatus";
-
-const LEVELS = [
-  { level: 1, name: "Rookie", xp: 0, trade: "7K", mines: "5K", perk: "Base earning limits", emblem: "R", color: "#8BC3FF" },
-  { level: 2, name: "Trader", xp: 1500, trade: "8K", mines: "6K", perk: "+1 daily reward chest", emblem: "T", color: "#00F5FF" },
-  { level: 3, name: "Pro", xp: 5000, trade: "9K", mines: "7K", perk: "Creator proof badge", emblem: "P", color: "#FFD700" },
-  { level: 4, name: "Elite", xp: 15000, trade: "10.5K", mines: "8.5K", perk: "Better chest odds", emblem: "E", color: "#FF4D8D" },
-  { level: 5, name: "Legend", xp: 40000, trade: "12K", mines: "10K", perk: "Max free rank", emblem: "L", color: "#B65CFF" },
-];
-
-const JOURNEY = [
-  { label: "Login", value: "+50 XP", icon: Flame },
-  { label: "Trade", value: "+2 XP", icon: Zap },
-  { label: "Mines", value: "+3 XP", icon: Target },
-  { label: "Creator", value: "+50+ XP", icon: Sparkles },
-  { label: "VIP Ref", value: "+10K XP", icon: Crown },
-];
-
-function rankInfo(rankXp: number) {
-  const current = [...LEVELS].reverse().find((l) => rankXp >= l.xp) ?? LEVELS[0];
-  const next = LEVELS.find((l) => l.xp > rankXp) ?? null;
-  const progress = next ? Math.min(100, Math.round(((rankXp - current.xp) / (next.xp - current.xp)) * 100)) : 100;
-  return { current, next, progress };
-}
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -37,20 +13,17 @@ async function copyText(text: string): Promise<boolean> {
       return true;
     }
   } catch {}
-  try {
-    const input = document.createElement("textarea");
-    input.value = text;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.focus();
-    input.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(input);
-    return ok;
-  } catch {
-    return false;
-  }
+  return false;
+}
+
+function powerupLabel(type: string): string {
+  const labels: Record<string, string> = {
+    battle_shield: "Shield",
+    battle_pass: "Battle Pass",
+    battle_streak_saver: "Streak Saver",
+    battle_priority_queue: "Priority Queue",
+  };
+  return labels[type] ?? type.replace(/_/g, " ");
 }
 
 export default function ProfilePremiumLaunch() {
@@ -58,15 +31,8 @@ export default function ProfilePremiumLaunch() {
   const [copied, setCopied] = useState(false);
   const vip = isVipActive(user);
   const u = user as any;
-  const rankXp = u?.rankXp ?? 0;
-  const creatorXp = u?.creatorXp ?? 0;
-  const valueXp = u?.valueXp ?? 0;
-  const { current, next, progress } = rankInfo(rankXp);
-  const referralLink = user ? `https://t.me/KoinaraBot?start=${user.telegramId}` : "";
-  const creatorCode = user?.telegramId ? `KNR-${String(user.telegramId).slice(-6)}` : "KNR-YOURCODE";
-  const referralLevel1 = u?.referralCount ?? u?.directReferralCount ?? 0;
-  const referralLevel2 = u?.level2ReferralCount ?? u?.secondLevelReferralCount ?? 0;
-  const referralGc = u?.referralEarnings ?? u?.referralEarningsGc ?? 0;
+  const displayName = user?.firstName || user?.username || "Koinara Player";
+  const inviteText = user ? `Join me on Koinara Battle Arena. My invite code is KNR-${String(user.telegramId).slice(-6)}.` : "Join me on Koinara Battle Arena.";
 
   const { data: stats, isLoading, isError, refetch } = useGetUserStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetUserStatsQueryKey(user?.telegramId ?? "") },
@@ -74,87 +40,100 @@ export default function ProfilePremiumLaunch() {
   const { data: referralData } = useGetReferralStats(user?.telegramId ?? "", {
     query: { enabled: !!user, queryKey: getGetReferralStatsQueryKey(user?.telegramId ?? "") },
   });
+  const { data: activeGems } = useGetActiveGems(user?.telegramId ?? "", { query: { enabled: !!user } });
 
-  const copyReferral = async () => {
-    const ok = await copyText(referralLink);
-    if (!ok) {
-      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Join me on Koinara — trade, play Mines, and unlock VIP creator rewards.")}`;
-      window.Telegram?.WebApp?.openTelegramLink?.(shareUrl) ?? window.open(shareUrl, "_blank");
-    }
+  const battlePowerups = useMemo(() => {
+    if (!Array.isArray(activeGems)) return [];
+    return activeGems.filter((item) => String(item.gemType).startsWith("battle_") && (item.usesRemaining ?? 0) > 0);
+  }, [activeGems]);
+
+  const winRate = stats ? Math.round((stats.winRate ?? 0) * 100) : 0;
+  const referralCount = referralData?.referralCount ?? stats?.referralCount ?? 0;
+  const creatorPassPaid = Boolean(u?.creatorPassPaid);
+  const crBalance = u?.creatorCredits ?? u?.creatorRewards ?? u?.creatorBalance ?? u?.referralEarnings ?? 0;
+  const battleGcToday = Number(u?.dailyBattleGcEarned ?? 0);
+  const battleCap = vip ? 15000 : 5000;
+
+  const copyInvite = async () => {
+    await copyText(inviteText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
-  };
-
-  const shareTelegram = () => {
-    const text = encodeURIComponent("Join me on Koinara — trade, play Mines, earn GC, and unlock VIP creator rewards.");
-    const url = encodeURIComponent(referralLink);
-    const shareUrl = `https://t.me/share/url?url=${url}&text=${text}`;
-    window.Telegram?.WebApp?.openTelegramLink?.(shareUrl) ?? window.open(shareUrl, "_blank");
   };
 
   if (isLoading) return <PageLoader rows={5} />;
   if (isError) return <PageError message="Could not load profile" onRetry={refetch} />;
 
-  const winRate = stats ? Math.round(stats.winRate * 100) : 0;
-  const loginStreak = user?.loginStreak ?? 0;
-
   return (
-    <div className="min-h-screen bg-black px-4 pb-28 pt-4 text-white">
-      <style>{`
-        .profile-card{background:linear-gradient(160deg,rgba(13,24,44,.72),rgba(5,6,12,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 18px 55px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05)}
-        .brand-gold{background:linear-gradient(135deg,#fff7c7,#ffd700 45%,#ff4d8d);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-      `}</style>
+    <div className="min-h-screen bg-[#05070d] px-3 pb-28 pt-3 text-white">
+      <style>{`.profile-card{background:linear-gradient(160deg,rgba(13,24,44,.82),rgba(5,7,13,.96));border:1px solid rgba(255,215,0,.18);box-shadow:0 16px 48px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05);backdrop-filter:blur(18px)}.gold-title{background:linear-gradient(135deg,#fff7c7,#ffd700 48%,#b8860b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}`}</style>
 
-      <div className="mb-4 flex items-center gap-2">
-        <User size={16} className="text-[#FFD700] drop-shadow-[0_0_8px_#FFD700]" />
-        <span className="font-mono text-xs tracking-[0.18em] text-white/60 uppercase">Profile</span>
-        <Link href="/academy"><span className="ml-auto rounded-full border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-1 font-mono text-[10px] font-black text-[#FFD700]"><BookOpen size={11} className="inline mr-1" />Academy</span></Link>
-      </div>
-
-      <section className="profile-card relative mb-4 overflow-hidden rounded-3xl p-4">
-        <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-[#FFD700]/14 blur-3xl" />
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="relative h-24 w-24 shrink-0 rounded-[2rem] border-2 flex items-center justify-center overflow-hidden" style={{ borderColor: `${current.color}88`, background: `radial-gradient(circle at 35% 25%, ${current.color}55, rgba(255,255,255,.04) 36%, rgba(0,0,0,.95) 72%)`, boxShadow: `0 0 36px ${current.color}44` }}>
-            <div className="absolute inset-3 rounded-[1.4rem] border border-white/10" />
-            <Trophy size={42} style={{ color: current.color, filter: `drop-shadow(0 0 18px ${current.color})` }} />
-            <div className="absolute bottom-1 left-1 right-1 rounded-2xl border border-white/10 bg-black/55 py-1 text-center font-mono text-[10px] font-black" style={{ color: current.color }}>LVL {current.level}</div>
-            {vip && <Crown size={18} className="absolute right-2 top-2 text-[#FFD700]" />}
+      <section className="profile-card mb-3 rounded-[30px] p-4">
+        <div className="flex items-center gap-4">
+          <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] border border-[#FFD700]/35 bg-[#FFD700]/10 shadow-[0_0_30px_rgba(255,215,0,.16)]">
+            {user?.photoUrl ? <img src={user.photoUrl} alt="Profile" className="h-full w-full object-cover" /> : <User size={34} className="text-[#FFD700]" />}
+            {vip && <Crown size={17} className="absolute right-2 top-2 text-[#FFD700]" />}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-2xl font-black text-white">{user?.firstName ?? user?.username ?? "Koin Trader"}</h1>
-              <span className={`rounded-full px-2 py-1 font-mono text-[9px] font-black ${vip ? "bg-[#FFD700]/14 text-[#FFD700] border border-[#FFD700]/25" : "bg-[#00F5FF]/10 text-[#00F5FF] border border-[#00F5FF]/25"}`}>{vip ? "VIP" : "FREE"}</span>
-            </div>
-            {user?.username && <p className="font-mono text-xs text-white/38">@{user.username}</p>}
-            <div className="mt-2 rounded-2xl border border-white/8 bg-white/[0.025] px-3 py-2"><div className="font-mono text-[9px] text-white/35">Rank Emblem</div><div className="font-black" style={{ color: current.color }}>{current.name} · {current.perk}</div></div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-xl border border-[#4DA3FF]/20 bg-[#4DA3FF]/8 px-2 py-1 font-mono text-[10px] font-black text-[#8BC3FF]">🔵 {(user?.tradeCredits ?? 0).toLocaleString()} TC</span>
-              <span className="rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/8 px-2 py-1 font-mono text-[10px] font-black text-[#FFD700]">🪙 {(user?.goldCoins ?? 0).toLocaleString()} GC</span>
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#8BC3FF]">Battle Arena Profile</div>
+            <h1 className="gold-title mt-1 truncate text-3xl font-black leading-none">{displayName}</h1>
+            {user?.username && <div className="mt-1 font-mono text-xs text-white/42">@{user.username}</div>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={`rounded-full border px-3 py-1 font-mono text-[10px] font-black ${vip ? "border-[#FFD700]/30 bg-[#FFD700]/10 text-[#FFD700]" : "border-white/12 bg-white/[0.035] text-white/48"}`}>{vip ? "PAID VIP ACTIVE" : "FREE USER"}</span>
+              <span className="rounded-full border border-[#00F5A0]/25 bg-[#00F5A0]/8 px-3 py-1 font-mono text-[10px] font-black text-[#00F5A0]">{creatorPassPaid ? "CREATOR PASS" : "CREATOR LOCKED"}</span>
             </div>
           </div>
         </div>
+        {!vip && <Link href="/vip"><button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFD700] py-3 font-black text-black"><Crown size={16}/>Upgrade to VIP</button></Link>}
       </section>
 
-      <section className="profile-card mb-4 rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FFD700]">Koinara Rank</div><div className="mt-1 flex items-center gap-2"><Trophy size={22} className="text-[#FFD700]" /><span className="text-2xl font-black">Level {current.level} · {current.name}</span></div></div><div className="rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/10 px-3 py-2 text-right"><div className="font-mono text-[9px] text-white/45">Next</div><div className="font-mono text-xs font-black text-[#FFD700]">{next ? next.name : "Max"}</div></div></div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/8"><motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} className="h-full rounded-full bg-gradient-to-r from-[#FFD700] via-[#FF4D8D] to-[#00F5FF]" /></div>
-        <div className="mt-2 flex justify-between font-mono text-[9px] text-white/35"><span>{rankXp.toLocaleString()} XP</span><span>{next ? `${(next.xp - rankXp).toLocaleString()} XP to level ${next.level}` : "Legend complete"}</span></div>
-        <div className="mt-3 grid grid-cols-3 gap-2"><div className="rounded-2xl border border-[#FFD700]/15 bg-[#FFD700]/6 p-2"><div className="font-mono text-[8px] text-white/35">TRADE CAP</div><div className="font-black text-[#FFD700]">{current.trade}</div></div><div className="rounded-2xl border border-[#00F5FF]/15 bg-[#00F5FF]/6 p-2"><div className="font-mono text-[8px] text-white/35">MINES CAP</div><div className="font-black text-[#00F5FF]">{current.mines}</div></div><div className="rounded-2xl border border-[#FF4D8D]/15 bg-[#FF4D8D]/6 p-2"><div className="font-mono text-[8px] text-white/35">PERK</div><div className="truncate font-mono text-[10px] font-black text-[#FF4D8D]">{current.perk}</div></div></div>
+      <section className="mb-3 grid grid-cols-3 gap-2">
+        <div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] text-white/35">TC</div><div className="font-mono text-xl font-black text-[#8BC3FF]">{(user?.tradeCredits ?? 0).toLocaleString()}</div><div className="font-mono text-[8px] text-white/25">play credits</div></div>
+        <div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] text-white/35">GC</div><div className="font-mono text-xl font-black text-[#FFD700]">{(user?.goldCoins ?? 0).toLocaleString()}</div><div className="font-mono text-[8px] text-white/25">reward coins</div></div>
+        <div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] text-white/35">CR</div><div className="font-mono text-xl font-black text-[#00F5A0]">{Number(crBalance ?? 0).toLocaleString()}</div><div className="font-mono text-[8px] text-white/25">creator credits</div></div>
       </section>
 
-      <section className="mb-4 grid grid-cols-3 gap-2"><div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] uppercase text-white/35">Creator XP</div><div className="text-xl font-black text-[#FFD700]">{creatorXp.toLocaleString()}</div></div><div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] uppercase text-white/35">Value XP</div><div className="text-xl font-black text-[#00F5FF]">{valueXp.toLocaleString()}</div></div><div className="profile-card rounded-2xl p-3"><div className="font-mono text-[9px] uppercase text-white/35">Streak</div><div className="text-xl font-black text-[#FF4D8D]">{loginStreak}d</div></div></section>
-
-      <section className="profile-card mb-4 rounded-3xl border-[#FF4D8D]/35 bg-[#FF4D8D]/5 p-4">
-        <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><Crown size={17} className="text-[#FF4D8D]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FF4D8D]">Referral Earnings</span></div><span className="rounded-full border border-[#FF4D8D]/25 bg-[#FF4D8D]/10 px-2 py-1 font-mono text-[9px] font-black text-[#FF4D8D]">Creator Wallet</span></div>
-        <div className="mb-3 grid grid-cols-3 gap-2"><div className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 p-3 text-center"><div className="font-mono text-[9px] text-white/38">Level 1</div><div className="text-xl font-black text-[#FFD700]">{referralLevel1}</div><div className="font-mono text-[8px] text-white/30">20%</div></div><div className="rounded-2xl border border-[#00F5FF]/20 bg-[#00F5FF]/8 p-3 text-center"><div className="font-mono text-[9px] text-white/38">Level 2</div><div className="text-xl font-black text-[#00F5FF]">{referralLevel2}</div><div className="font-mono text-[8px] text-white/30">5%</div></div><div className="rounded-2xl border border-[#FF4D8D]/20 bg-[#FF4D8D]/8 p-3 text-center"><div className="font-mono text-[9px] text-white/38">Earned</div><div className="text-xl font-black text-[#FF4D8D]">{referralGc.toLocaleString()}</div><div className="font-mono text-[8px] text-white/30">GC</div></div></div>
-        <div className="flex gap-2"><button onClick={copyReferral} className="flex-1 rounded-2xl border border-[#FF4D8D]/35 bg-[#FF4D8D]/10 py-3 font-mono text-xs font-black text-[#FF4D8D]"><Copy size={13} className="inline mr-1" />{copied ? "Copied" : "Copy Link"}</button><Link href="/wallet"><button className="w-full rounded-2xl border border-[#00F5FF]/35 bg-[#00F5FF]/10 px-3 py-3 font-mono text-xs font-black text-[#00F5FF]"><Wallet size={13} className="inline mr-1" />Withdraw</button></Link><button onClick={shareTelegram} className="flex-1 rounded-2xl border border-[#FFD700]/35 bg-[#FFD700]/10 py-3 font-mono text-xs font-black text-[#FFD700]"><Share2 size={13} className="inline mr-1" />Share</button></div>
+      <section className="profile-card mb-3 rounded-[28px] p-4">
+        <div className="mb-3 flex items-center gap-2"><Swords size={17} className="text-[#FFD700]"/><h2 className="font-black">Battle Stats</h2><span className="ml-auto rounded-full border border-[#FFD700]/20 bg-[#FFD700]/8 px-2 py-1 font-mono text-[9px] text-[#FFD700]">BTC 60s</span></div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-3"><div className="font-mono text-[9px] text-white/35">Battles</div><div className="text-2xl font-black">{stats?.totalPredictions ?? 0}</div></div>
+          <div className="rounded-2xl border border-[#00F5A0]/18 bg-[#00F5A0]/7 p-3"><div className="font-mono text-[9px] text-white/35">Win Rate</div><div className="text-2xl font-black text-[#00F5A0]">{winRate}%</div></div>
+          <div className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3"><div className="font-mono text-[9px] text-white/35">Wins</div><div className="text-2xl font-black text-[#FFD700]">{stats?.wins ?? 0}</div></div>
+          <div className="rounded-2xl border border-[#FF4D6D]/18 bg-[#FF4D6D]/7 p-3"><div className="font-mono text-[9px] text-white/35">Losses</div><div className="text-2xl font-black text-[#FF8FA3]">{stats?.losses ?? 0}</div></div>
+        </div>
+        <div className="mt-3 rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3">
+          <div className="flex items-center justify-between font-mono text-[10px]"><span className="text-white/45">Battle GC today</span><span className="text-[#FFD700]">{battleGcToday.toLocaleString()} / {battleCap.toLocaleString()}</span></div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-[#FFD700] to-[#FF4D6D]" style={{ width: `${Math.min(100, (battleGcToday / battleCap) * 100)}%` }} /></div>
+        </div>
       </section>
 
-      <section className="profile-card mb-4 rounded-3xl p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><Rocket size={16} className="text-[#FFD700]" /><span className="font-mono text-xs font-black uppercase tracking-[0.14em] text-[#FFD700]">Progress Engine</span></div><Link href="/earn"><span className="font-mono text-[10px] font-black text-[#00F5FF]">Earn XP →</span></Link></div><div className="grid grid-cols-5 gap-2">{JOURNEY.map(({ label, value, icon: Icon }) => <div key={label} className="rounded-2xl border border-white/8 bg-white/[0.025] p-2 text-center"><Icon size={15} className="mx-auto mb-1 text-[#FFD700]" /><div className="font-mono text-[8px] text-white/35">{label}</div><div className="font-mono text-[8px] font-black text-white/70">{value}</div></div>)}</div></section>
+      <section className="profile-card mb-3 rounded-[28px] p-4">
+        <div className="mb-3 flex items-center gap-2"><ShieldCheck size={17} className="text-[#8BC3FF]"/><h2 className="font-black">Battle Power-ups</h2><Link href="/shop" className="ml-auto font-mono text-[10px] font-black text-[#FFD700]">Shop →</Link></div>
+        {battlePowerups.length === 0 ? <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-center font-mono text-[10px] text-white/38">No active Battle power-ups. Buy Shield, Battle Pass, Streak Saver, or Priority Queue in Shop.</div> : <div className="grid grid-cols-2 gap-2">{battlePowerups.map((item) => <div key={`${item.id}-${item.gemType}`} className="rounded-2xl border border-[#FFD700]/18 bg-[#FFD700]/7 p-3"><div className="font-black text-[#FFD700]">{powerupLabel(String(item.gemType))}</div><div className="font-mono text-[9px] text-white/38">{item.usesRemaining ?? 0} active</div></div>)}</div>}
+      </section>
 
-      <section className="mb-4 grid grid-cols-2 gap-3">{[{ label: "Win Rate", value: `${winRate}%`, icon: Target, color: "#00E676" },{ label: "Trades", value: stats?.totalPredictions ?? 0, icon: Zap, color: "#4DA3FF" },{ label: "GC Earned", value: stats?.totalGcEarned ?? 0, icon: Award, color: "#FFD700" },{ label: "Referrals", value: referralData?.referralCount ?? stats?.referralCount ?? 0, icon: Share2, color: "#FF4D8D" }].map(({ label, value, icon: Icon, color }) => <div key={label} className="profile-card rounded-2xl p-3"><div className="mb-2 flex items-center gap-2"><Icon size={13} style={{ color }} /><span className="font-mono text-[10px] uppercase tracking-wider text-white/38">{label}</span></div><div className="text-2xl font-black text-white">{String(value).toLocaleString()}</div></div>)}</section>
+      <section className="profile-card mb-3 rounded-[28px] p-4">
+        <div className="mb-3 flex items-center gap-2"><Gift size={17} className="text-[#00F5A0]"/><h2 className="font-black">Creator & Referrals</h2></div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-3"><div className="font-mono text-[9px] text-white/35">Code</div><div className="font-mono text-xs font-black text-[#FFD700]">{user?.telegramId ? `KNR-${String(user.telegramId).slice(-6)}` : "KNR"}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-3"><div className="font-mono text-[9px] text-white/35">Referrals</div><div className="text-xl font-black text-[#00F5A0]">{referralCount}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-3"><div className="font-mono text-[9px] text-white/35">Status</div><div className="font-mono text-[10px] font-black text-[#8BC3FF]">{creatorPassPaid ? "Active" : "Locked"}</div></div>
+        </div>
+        <button onClick={copyInvite} className="mt-3 w-full rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/10 py-3 font-mono text-xs font-black text-[#FFD700]"><Copy size={13} className="mr-1 inline"/>{copied ? "Copied" : "Copy Invite Text"}</button>
+      </section>
 
-      {!vip && <section className="profile-card rounded-3xl border-[#FFD700]/45 p-4 text-center"><ShieldCheck size={28} className="mx-auto mb-2 text-[#FFD700]" /><div className="font-mono text-sm font-black text-[#FFD700]">Upgrade to VIP</div><p className="my-2 font-mono text-[10px] text-white/40">Bigger caps, better conversion, creator commissions, and no first-withdrawal verification fee.</p><Link href="/wallet"><button className="rounded-2xl bg-[#FFD700] px-6 py-3 font-black text-black">Activate VIP</button></Link></section>}
+      <section className="profile-card mb-3 rounded-[28px] p-4">
+        <div className="mb-3 flex items-center gap-2"><Wallet size={17} className="text-[#FFD700]"/><h2 className="font-black">Wallet Safety</h2></div>
+        <div className="space-y-2 font-mono text-[10px] leading-relaxed text-white/50">
+          <div className="rounded-2xl border border-[#8BC3FF]/20 bg-[#8BC3FF]/7 p-3">TC is play credit for Battles and Mines. TC is not withdrawable.</div>
+          <div className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/7 p-3">GC and CR withdrawals follow eligibility, caps, fees, and anti-abuse checks.</div>
+          <div className="rounded-2xl border border-[#00F5A0]/20 bg-[#00F5A0]/7 p-3">Paid VIP can improve limits where wallet rules allow it. VIP does not guarantee winnings.</div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-2">
+        <Link href="/battle"><button className="w-full rounded-2xl bg-[#FFD700] py-3 font-black text-black"><Zap size={15} className="mr-1 inline"/>Battle</button></Link>
+        <Link href="/wallet"><button className="w-full rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/8 py-3 font-black text-[#FFD700]"><Wallet size={15} className="mr-1 inline"/>Wallet</button></Link>
+      </section>
     </div>
   );
 }
