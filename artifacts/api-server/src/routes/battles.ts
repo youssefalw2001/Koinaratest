@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, or, sql } from "drizzle-orm";
 import { battlesTable, db, usersTable } from "@workspace/db";
 import { battleCapStatus, battleConstants, battleInput, createOrJoinBattle, publicBattle, resolveBattleByCode } from "../lib/battleLogic";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { isVipActive } from "../lib/vip";
+import { getBattleJobStatus } from "../jobs";
 
 const router: IRouter = Router();
 
@@ -87,8 +88,11 @@ router.post("/battles/cancel", async (req, res): Promise<void> => {
 router.get("/battles/waiting/:stakeTc", async (req, res): Promise<void> => {
   const stakeTc = battleInput.normalizeStake(req.params.stakeTc);
   if (!stakeTc) { res.status(400).json({ error: "Invalid stake." }); return; }
-  const rows = await db.select({ id: battlesTable.id }).from(battlesTable).where(and(eq(battlesTable.status, "waiting"), eq(battlesTable.stakeTc, stakeTc), eq(battlesTable.battleType, "quick")));
-  res.json({ stakeTc, waiting: rows.length });
+  const [row] = await db
+    .select({ cnt: count() })
+    .from(battlesTable)
+    .where(and(eq(battlesTable.status, "waiting"), eq(battlesTable.stakeTc, stakeTc), eq(battlesTable.battleType, "quick"), sql`${battlesTable.expiresAt} > now()`));
+  res.json({ stakeTc, waiting: Number(row?.cnt ?? 0) });
 });
 
 router.get("/battles/active", async (req, res): Promise<void> => {
@@ -126,6 +130,12 @@ router.post("/battles/resolve", async (req, res): Promise<void> => {
   if (!battleCode) { res.status(400).json({ error: "Missing battleCode." }); return; }
   const battle = await resolveBattleByCode(battleCode);
   res.json({ battle: battle ? publicBattle(battle) : null });
+});
+
+router.get("/battles/jobs/status", async (req, res): Promise<void> => {
+  const secret = process.env.INTERNAL_JOB_SECRET;
+  if (secret && req.header("x-internal-secret") !== secret) { res.status(401).json({ error: "Unauthorized" }); return; }
+  res.json(getBattleJobStatus());
 });
 
 router.get("/battles/recent", async (req, res): Promise<void> => {
