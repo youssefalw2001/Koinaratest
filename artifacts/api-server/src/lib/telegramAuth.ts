@@ -1,6 +1,17 @@
 import type { Request, Response } from "express";
 import { verifyTelegramInitData } from "./telegramVerify";
 
+const AUTH_FAILED_MESSAGE = "Could not verify Telegram login. Close and reopen Koinara from the bot button.";
+
+function logAuthIssue(req: Request, reason: string): void {
+  console.warn("[TelegramAuth]", {
+    reason,
+    path: req.path,
+    method: req.method,
+    configured: !!process.env.TELEGRAM_BOT_TOKEN,
+  });
+}
+
 /**
  * Resolves the authenticated Telegram user ID from the X-Telegram-Init-Data header.
  *
@@ -21,6 +32,7 @@ export function resolveAuthenticatedTelegramId(
 
   if (!botToken) {
     if (process.env.NODE_ENV === "production") {
+      logAuthIssue(req, "not_configured");
       res.status(503).json({ error: "Authentication service unavailable." });
       return null;
     }
@@ -30,17 +42,20 @@ export function resolveAuthenticatedTelegramId(
 
   const initData = req.headers["x-telegram-init-data"];
   if (typeof initData !== "string" || initData.trim() === "") {
-    res.status(401).json({ error: "Authentication required. Please reopen the app." });
+    logAuthIssue(req, "missing_init_data");
+    res.status(401).json({ error: AUTH_FAILED_MESSAGE });
     return null;
   }
 
   const verifiedId = verifyTelegramInitData(initData, botToken);
   if (!verifiedId) {
-    res.status(401).json({ error: "Invalid authentication. Please reopen the app." });
+    logAuthIssue(req, "verification_failed");
+    res.status(401).json({ error: AUTH_FAILED_MESSAGE });
     return null;
   }
 
   if (verifiedId !== requestedId) {
+    logAuthIssue(req, "id_mismatch");
     res.status(403).json({ error: "Forbidden." });
     return null;
   }
