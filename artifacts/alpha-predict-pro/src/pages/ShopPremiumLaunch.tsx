@@ -32,6 +32,10 @@ import { isVipActive } from "@/lib/vipActive";
 import { PageError, PageLoader } from "@/components/PageStatus";
 import { fetchTcPackMemo, paymentTx, verifyTcPackPurchase } from "@/lib/tonPayment";
 
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
+const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
+const API_BASE = `${API_ROOT}/api`;
+
 type GemType =
   | "starter_boost"
   | "big_swing"
@@ -177,7 +181,7 @@ export default function ShopPremiumLaunch() {
     setBuyingPowerup(card.id);
     try {
       const senderAddress = await ensureWallet();
-      const memoUrl = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api/gems/powerups/memo?telegramId=${encodeURIComponent(user.telegramId)}&gemType=${encodeURIComponent(card.id)}`;
+      const memoUrl = `${API_BASE}/gems/powerups/memo?telegramId=${encodeURIComponent(user.telegramId)}&gemType=${encodeURIComponent(card.id)}`;
       const memoRes = await fetch(memoUrl, { headers: initData ? { "x-telegram-init-data": initData } : {} });
       const memoData = await memoRes.json().catch(() => ({}));
       if (!memoRes.ok || !memoData?.memo || !memoData?.operatorWallet || !memoData?.amountNano) throw new Error(memoData?.error ?? "Could not load power-up payment details.");
@@ -186,7 +190,7 @@ export default function ShopPremiumLaunch() {
       showToast("Payment sent. Verifying power-up...");
       await new Promise((r) => setTimeout(r, 5000));
 
-      const purchaseRes = await fetch(`${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api/gems/powerups/purchase`, {
+      const purchaseRes = await fetch(`${API_BASE}/gems/powerups/purchase`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
         body: JSON.stringify({ telegramId: user.telegramId, gemType: card.id, senderAddress }),
