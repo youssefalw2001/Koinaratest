@@ -8,7 +8,9 @@ import { isVipActive } from "@/lib/vipActive";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 
-const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
+const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
+const API_BASE = `${API_ROOT}/api`;
 const TRADE_CAP_GC = 7000;
 const BET_OPTIONS = [50, 100, 250, 500, 1000] as const;
 const DURATIONS = [
