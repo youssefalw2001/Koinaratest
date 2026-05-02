@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ElementType } from "react";
 import { ArrowDown, ArrowUp, Clock, Crown, Flame, Loader2, Lock, RefreshCw, ShieldCheck, Sparkles, Trophy, Zap } from "lucide-react";
 import { useTelegram } from "@/lib/TelegramProvider";
 import { isVipActive } from "@/lib/vipActive";
@@ -51,7 +51,7 @@ type Side = "yes" | "no";
 type PowerUp = "none" | "streak_shield" | "double_xp" | "reward_boost";
 
 const FALLBACK_AMOUNTS = [50, 100, 250, 500, 1000, 5000];
-const POWER_UPS: Array<{ id: PowerUp; label: string; sub: string; safe: boolean; icon: React.ElementType }> = [
+const POWER_UPS: Array<{ id: PowerUp; label: string; sub: string; safe: boolean; icon: ElementType }> = [
   { id: "none", label: "None", sub: "Pure prediction", safe: true, icon: Zap },
   { id: "streak_shield", label: "Shield", sub: "Strategy tag · no price change", safe: true, icon: ShieldCheck },
   { id: "double_xp", label: "2x XP", sub: "More Alpha Points", safe: true, icon: Sparkles },
