@@ -82,8 +82,9 @@ const USER_SCHEMA = (row: Record<string, unknown>) => RegisterUserResponse.parse
 router.post("/users/register", async (req, res): Promise<void> => {
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const { telegramId, username, firstName, lastName, photoUrl, referredBy } = parsed.data;
+  const { username, firstName, lastName, photoUrl, referredBy } = parsed.data;
 
+  let telegramId = parsed.data.telegramId;
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (botToken) {
     const initData = req.headers["x-telegram-init-data"];
@@ -91,7 +92,7 @@ router.post("/users/register", async (req, res): Promise<void> => {
     const { verifyTelegramInitData } = await import("../lib/telegramVerify");
     const verifiedId = verifyTelegramInitData(initData, botToken);
     if (!verifiedId) { res.status(401).json({ error: "Invalid authentication. Please reopen the app." }); return; }
-    (parsed.data as { telegramId: string }).telegramId = verifiedId;
+    telegramId = verifiedId;
   }
 
   const today = new Date().toISOString().split("T")[0];
@@ -126,7 +127,7 @@ router.get("/users/:telegramId", async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
   if (!authId) return;
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, params.data.telegramId)).limit(1);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   res.json(GetUserResponse.parse(serializeRow(user as Record<string, unknown>)));
 });
@@ -138,17 +139,17 @@ router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
   const authId = await resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authId) return;
 
-  const preds = await db.select().from(predictionsTable).where(eq(predictionsTable.telegramId, telegramId));
+  const preds = await db.select().from(predictionsTable).where(eq(predictionsTable.telegramId, authId));
   const resolved = preds.filter((p) => p.status !== "pending");
   const wins = resolved.filter((p) => p.status === "won").length;
   const losses = resolved.filter((p) => p.status === "lost").length;
   const totalTcWagered = preds.reduce((acc, p) => acc + p.amount, 0);
   const totalGcEarned = resolved.filter((p) => p.status === "won").reduce((acc, p) => acc + (p.payout ?? 0), 0);
   const winRate = resolved.length > 0 ? wins / resolved.length : 0;
-  const referralCountResult = await db.select({ cnt: count() }).from(usersTable).where(eq(usersTable.referredBy, telegramId));
+  const referralCountResult = await db.select({ cnt: count() }).from(usersTable).where(eq(usersTable.referredBy, authId));
   const referralCount = referralCountResult[0]?.cnt ?? 0;
   const allUsers = await db.select({ telegramId: usersTable.telegramId, totalGcEarned: usersTable.totalGcEarned }).from(usersTable).orderBy(desc(usersTable.totalGcEarned));
-  const rankIndex = allUsers.findIndex((u) => u.telegramId === telegramId);
+  const rankIndex = allUsers.findIndex((u) => u.telegramId === authId);
   const rank = rankIndex >= 0 ? rankIndex + 1 : allUsers.length + 1;
 
   res.json(GetUserStatsResponse.parse({ totalPredictions: preds.length, wins, losses, winRate, totalTcWagered, totalGcEarned, referralCount: Number(referralCount), rank }));
@@ -161,7 +162,7 @@ router.patch("/users/:telegramId/wallet", async (req, res): Promise<void> => {
   if (!authId) return;
   const body = UpdateWalletBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
-  const [updated] = await db.update(usersTable).set({ walletAddress: body.data.walletAddress }).where(eq(usersTable.telegramId, params.data.telegramId)).returning();
+  const [updated] = await db.update(usersTable).set({ walletAddress: body.data.walletAddress }).where(eq(usersTable.telegramId, authId)).returning();
   if (!updated) { res.status(404).json({ error: "User not found" }); return; }
   res.json(UpdateWalletResponse.parse(serializeRow(updated as Record<string, unknown>)));
 });
@@ -171,7 +172,7 @@ router.get("/users/:telegramId/vip/memo", async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
   if (!authId) return;
-  res.json({ plan: "monthly", memo: vipMemo(params.data.telegramId, "monthly") });
+  res.json({ plan: "monthly", memo: vipMemo(authId, "monthly") });
 });
 
 router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> => {
@@ -182,7 +183,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
   const body = UpgradeToVipBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, params.data.telegramId)).limit(1);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
   const { plan, senderAddress } = body.data;
@@ -196,7 +197,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
 
     const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const vipPlan = "ton_monthly";
-    const expectedMemo = vipMemo(params.data.telegramId, "monthly");
+    const expectedMemo = vipMemo(authId, "monthly");
     const verification = await verifyTonTransaction(senderAddress, plan, expectedMemo);
     if (!verification.ok) { res.status(verification.configErr ? 503 : 422).json({ error: verification.err ?? "TON transaction verification failed", requiredMemo: expectedMemo }); return; }
 
@@ -204,7 +205,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
     if (verifiedTxHash) {
       const [existingTx] = await db.select().from(vipTxHashesTable).where(eq(vipTxHashesTable.txHash, verifiedTxHash)).limit(1);
       if (existingTx) { res.status(409).json({ error: "This transaction has already been used. Please contact support if this is an error." }); return; }
-      await db.insert(vipTxHashesTable).values({ txHash: verifiedTxHash, telegramId: params.data.telegramId, plan: vipPlan });
+      await db.insert(vipTxHashesTable).values({ txHash: verifiedTxHash, telegramId: authId, plan: vipPlan });
     }
 
     const [updated] = await db.update(usersTable).set({
@@ -213,7 +214,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
       vipExpiresAt: expiresAt,
       creatorPassPaid: true,
       creatorPassPaidAt: new Date(),
-    }).where(eq(usersTable.telegramId, params.data.telegramId)).returning();
+    }).where(eq(usersTable.telegramId, authId)).returning();
 
     const vipRevenueGc = 15000;
     const todayDate = new Date().toISOString().split("T")[0];
@@ -221,7 +222,7 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
 
     if (user.referredBy) await db.update(usersTable).set({ referralVipRewardPending: true }).where(eq(usersTable.telegramId, user.referredBy));
 
-    await processCommission({ buyerTelegramId: params.data.telegramId, purchaseType: "vip_purchase", grossUsd: 5.99, isRenewal: false });
+    await processCommission({ buyerTelegramId: authId, purchaseType: "vip_purchase", grossUsd: 5.99, isRenewal: false });
 
     res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;
@@ -236,7 +237,9 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
   const body = ActivateVipTrialBody.safeParse(req.body);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, params.data.telegramId)).limit(1);
+  const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
+  if (!authId) return;
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const now = new Date();
   const hasActivePaidVip = user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > now;
@@ -249,7 +252,7 @@ router.post("/users/:telegramId/activate-trial", async (req, res): Promise<void>
 
   const trialExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const flagUpdates = { referralVipRewardPending: false, ...(reason === "gc_milestone" ? { gcMilestoneTrialClaimed: true } : {}) };
-  const [updated] = await db.update(usersTable).set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...flagUpdates }).where(eq(usersTable.telegramId, params.data.telegramId)).returning();
+  const [updated] = await db.update(usersTable).set({ vipTrialExpiresAt: trialExpiresAt, hadVipTrial: true, ...flagUpdates }).where(eq(usersTable.telegramId, authId)).returning();
   res.json(USER_SCHEMA(updated as Record<string, unknown>));
 });
 
