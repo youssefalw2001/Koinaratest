@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TonConnectUIProvider, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Crown, CheckCircle, Flame, Star, Trophy } from "lucide-react";
+import { AlertTriangle, CheckCircle, Crown, Flame, RefreshCw, Star, Trophy } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import { TelegramProvider } from "./lib/TelegramProvider";
 import { useTelegram } from "./lib/TelegramProvider";
@@ -39,6 +39,27 @@ const FREE_WITHDRAWAL_MIN_GC = 14000;
 const FREE_BATTLE_CAP_GC = 5000;
 const FREE_MINES_CAP_GC = 5000;
 const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
+
+function AccountBootstrapError() {
+  const { accountError, retryBootstrap, isLoading } = useTelegram();
+  if (!accountError) return null;
+  return (
+    <div className="fixed inset-x-0 top-20 z-[120] mx-auto max-w-[420px] px-4">
+      <div className="rounded-3xl border border-[#FF4D6D]/35 bg-[#16070c]/95 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-2xl border border-[#FF4D6D]/30 bg-[#FF4D6D]/10 p-2"><AlertTriangle size={18} className="text-[#FF8FA3]" /></div>
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[11px] font-black uppercase tracking-[0.16em] text-[#FF8FA3]">Account setup failed</div>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white/65">{accountError}</p>
+            <button onClick={retryBootstrap} disabled={isLoading} className="mt-3 rounded-2xl border border-[#FFD700]/30 bg-[#FFD700]/10 px-4 py-2 font-mono text-[10px] font-black text-[#FFD700] disabled:opacity-50">
+              {isLoading ? <RefreshCw size={12} className="mr-1 inline animate-spin" /> : <RefreshCw size={12} className="mr-1 inline" />}Retry account setup
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function TonPaymentBridge() {
   const [tonConnectUI] = useTonConnectUI();
@@ -299,6 +320,7 @@ function Router() {
       <TonPaymentBridge />
       <MinesPassDirectPaymentBridge />
       <HomeWalletTrustPanel />
+      <AccountBootstrapError />
       <Switch>
         <Route path="/" component={() => <Bounded><Battle /></Bounded>} />
         <Route path="/battle" component={() => <Bounded><Battle /></Bounded>} />

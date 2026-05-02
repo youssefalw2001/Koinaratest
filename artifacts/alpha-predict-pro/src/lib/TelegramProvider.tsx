@@ -1,12 +1,24 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from "react";
-import { useRegisterUser, useGetUser, useActivateVipTrial, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useRegisterUser, useGetUser, useActivateVipTrial, getGetUserQueryKey, setBaseUrl, setExtraHeaders } from "@workspace/api-client-react";
 import type { User } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { isVipActive } from "@/lib/vipActive";
 
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
+const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
+
+function configureApiClient(initData?: string | null): void {
+  setBaseUrl(API_ROOT);
+  setExtraHeaders(initData ? { "x-telegram-init-data": initData } : {});
+}
+
+configureApiClient(null);
+
 interface TelegramContextType {
   user: User | null;
   isLoading: boolean;
+  accountError: string | null;
+  retryBootstrap: () => void;
   refreshUser: () => void;
   showVipPromo: boolean;
   dismissVipPromo: () => void;
@@ -19,6 +31,8 @@ interface TelegramContextType {
 const TelegramContext = createContext<TelegramContextType>({
   user: null,
   isLoading: true,
+  accountError: null,
+  retryBootstrap: () => {},
   refreshUser: () => {},
   showVipPromo: false,
   dismissVipPromo: () => {},
@@ -42,9 +56,16 @@ function getStableDemoId(): string {
   return next;
 }
 
+function getErrorMessage(error: unknown): string {
+  const anyError = error as { data?: { error?: string }; message?: string };
+  return anyError?.data?.error || anyError?.message || "Could not create your Koinara account. Please reopen the app from Telegram.";
+}
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [bootstrapNonce, setBootstrapNonce] = useState(0);
   const [telegramId, setTelegramId] = useState<string | null>(null);
   const [showVipPromo, setShowVipPromo] = useState(false);
   const [showDailyLoginPrompt, setShowDailyLoginPrompt] = useState(false);
@@ -110,21 +131,33 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     if (telegramId) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(telegramId) });
   }, [telegramId, queryClient]);
 
+  const retryBootstrap = useCallback(() => {
+    setIsLoading(true);
+    setAccountError(null);
+    setBootstrapNonce((value) => value + 1);
+  }, []);
+
   useEffect(() => {
     const initTelegram = async () => {
       try {
+        setAccountError(null);
         const tg = window.Telegram?.WebApp;
         if (tg) {
           tg.ready();
           tg.expand();
         }
 
+        const initData = tg?.initData ?? "";
+        configureApiClient(initData);
+
         const tgUser = tg?.initDataUnsafe?.user;
         const referredBy = tg?.initDataUnsafe?.start_param || null;
 
         if (!tgUser && !allowLocalDemoUser()) {
-          console.warn("Telegram user identity missing. Open Koinara from the Telegram bot mini app button.");
+          const message = "Telegram user identity missing. Open Koinara from the Telegram bot mini app button.";
+          console.warn(message);
           setUser(null);
+          setAccountError(message);
           return;
         }
 
@@ -148,6 +181,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         const registeredUser = await registerUser.mutateAsync({ data: payload });
         setUser(registeredUser);
         setTelegramId(registeredUser.telegramId);
+        setAccountError(null);
 
         if (registeredUser.day7BonusClaimed) {
           const celebKey = `day7_celebrated_${registeredUser.telegramId}`;
@@ -157,19 +191,25 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
+        const message = getErrorMessage(error);
         console.error("Failed to init telegram user", error);
+        setUser(null);
+        setTelegramId(null);
+        setAccountError(message);
       } finally {
         setIsLoading(false);
       }
     };
 
     initTelegram();
-  }, []);
+  }, [bootstrapNonce]);
 
   return (
     <TelegramContext.Provider value={{
       user,
       isLoading,
+      accountError,
+      retryBootstrap,
       refreshUser,
       showVipPromo,
       dismissVipPromo,
