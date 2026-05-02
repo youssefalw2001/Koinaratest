@@ -33,6 +33,7 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -95,3 +96,5 @@ jobs:
         uses: actions/deploy-pages@v4
         with:
           artifact_name: ${{ steps.deploy-inputs.outputs.artifact_name }}
+          timeout: 1800000
+          reporting_interval: 15000
