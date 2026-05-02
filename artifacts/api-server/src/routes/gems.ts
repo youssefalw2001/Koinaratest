@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, or, isNull } from "drizzle-orm";
 import { db, gemInventoryTable, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { serializeRows } from "../lib/serialize";
@@ -10,17 +10,24 @@ import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 const router: IRouter = Router();
 
 const GEM_CATALOG = {
-  // ── Binary Power-ups (paid with GC) ──────────────────────────────────────
-  starter_boost:    { gcCost: 1500, tonCost: 0, usesRemaining: 3, vipOnly: false, category: "binary" },
-  big_swing:        { gcCost: 4000, tonCost: 0, usesRemaining: 2, vipOnly: false, category: "binary" },
-  streak_saver:     { gcCost: 2500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
-  mystery_box:      { gcCost: 1000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
-  daily_refill:     { gcCost: 3000, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "binary" },
-  double_or_nothing:{ gcCost: 0,    tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
-  hot_streak:       { gcCost: 2000, tonCost: 0, usesRemaining: 5, vipOnly: false, category: "binary" },
-  double_down:      { gcCost: 1200, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
-  precision_lock:   { gcCost: 3500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "binary" },
-  comeback_king:    { gcCost: 4500, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "binary" },
+  // ── Legacy Binary Power-ups (kept for existing inventories only) ─────────
+  starter_boost:    { gcCost: 1500, tonCost: 0, usesRemaining: 3, vipOnly: false, category: "legacy" },
+  big_swing:        { gcCost: 4000, tonCost: 0, usesRemaining: 2, vipOnly: false, category: "legacy" },
+  streak_saver:     { gcCost: 2500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
+  mystery_box:      { gcCost: 1000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
+  daily_refill:     { gcCost: 3000, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "legacy" },
+  double_or_nothing:{ gcCost: 0,    tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
+  hot_streak:       { gcCost: 2000, tonCost: 0, usesRemaining: 5, vipOnly: false, category: "legacy" },
+  double_down:      { gcCost: 1200, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
+  precision_lock:   { gcCost: 3500, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "legacy" },
+  comeback_king:    { gcCost: 4500, tonCost: 0, usesRemaining: 1, vipOnly: true,  category: "legacy" },
+
+  // ── Safe Battle in-game power-ups (paid with GC) ─────────────────────────
+  battle_shield:        { gcCost: 800,  tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: null },
+  battle_pass:          { gcCost: 3000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: 24 * 7 },
+  battle_streak_saver:  { gcCost: 1200, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: null },
+  battle_priority_queue:{ gcCost: 1000, tonCost: 0, usesRemaining: 1, vipOnly: false, category: "battle", expiresHours: 24 },
+
   // ── Mines Power-ups (paid with TON) ──────────────────────────────────────
   // tonCost is in nanotons (1 TON = 1_000_000_000 nanotons)
   revenge_shield:   { gcCost: 0, tonCost: 200000000, usesRemaining: 1, vipOnly: false, category: "mines" }, // 0.2 TON
@@ -31,25 +38,36 @@ const GEM_CATALOG = {
 
 type GemType = keyof typeof GEM_CATALOG;
 
+const ALL_GEM_TYPES = [
+  "starter_boost",
+  "big_swing",
+  "streak_saver",
+  "mystery_box",
+  "daily_refill",
+  "double_or_nothing",
+  "hot_streak",
+  "double_down",
+  "precision_lock",
+  "comeback_king",
+  "battle_shield",
+  "battle_pass",
+  "battle_streak_saver",
+  "battle_priority_queue",
+  "revenge_shield",
+  "safe_reveal",
+  "gem_magnet",
+  "second_chance",
+] as const;
+
 const PurchaseGemBody = z.object({
   telegramId: z.string(),
-  gemType: z.enum([
-    "starter_boost",
-    "big_swing",
-    "streak_saver",
-    "mystery_box",
-    "daily_refill",
-    "double_or_nothing",
-    "hot_streak",
-    "double_down",
-    "precision_lock",
-    "comeback_king",
-    "revenge_shield",
-    "safe_reveal",
-    "gem_magnet",
-    "second_chance",
-  ]),
+  gemType: z.enum(ALL_GEM_TYPES),
 });
+
+function expiryFromCatalog(catalog: (typeof GEM_CATALOG)[GemType]): Date | null {
+  const hours = "expiresHours" in catalog ? catalog.expiresHours : null;
+  return typeof hours === "number" && hours > 0 ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
+}
 
 router.post("/gems/purchase", async (req, res): Promise<void> => {
   const parsed = PurchaseGemBody.safeParse(req.body);
@@ -85,11 +103,11 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
   // and calls this endpoint after confirming the on-chain transaction.
   // For now we trust the frontend (TON verification can be added later like VIP flow).
   if (catalog.category === "mines" && catalog.tonCost > 0) {
-    // Insert the gem directly — TON payment is handled by the frontend wallet flow
     await db.insert(gemInventoryTable).values({
       telegramId: authedId,
       gemType,
       usesRemaining: catalog.usesRemaining,
+      expiresAt: expiryFromCatalog(catalog),
     });
 
     const [updatedUser] = await db
@@ -110,7 +128,6 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
     return;
   }
 
-  // Binary power-ups — paid with GC
   if (catalog.gcCost > 0 && user.goldCoins < catalog.gcCost) {
     res.status(400).json({ error: "Insufficient Gold Coins" });
     return;
@@ -153,6 +170,7 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
         telegramId: authedId,
         gemType: bonusGem,
         usesRemaining: bonusCatalog.usesRemaining,
+        expiresAt: expiryFromCatalog(bonusCatalog),
       });
       mysteryReward = { type: "gem", gem: bonusGem };
     }
@@ -169,6 +187,7 @@ router.post("/gems/purchase", async (req, res): Promise<void> => {
       telegramId: authedId,
       gemType,
       usesRemaining: catalog.usesRemaining,
+      expiresAt: expiryFromCatalog(catalog),
     });
   }
 
@@ -205,6 +224,7 @@ router.get("/gems/:telegramId/active", async (req, res): Promise<void> => {
       and(
         eq(gemInventoryTable.telegramId, authedId),
         gt(gemInventoryTable.usesRemaining, 0),
+        or(isNull(gemInventoryTable.expiresAt), gt(gemInventoryTable.expiresAt, new Date())),
       ),
     )
     .orderBy(gemInventoryTable.createdAt);
