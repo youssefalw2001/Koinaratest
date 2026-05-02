@@ -32,6 +32,10 @@ import { isVipActive } from "@/lib/vipActive";
 import { PageError, PageLoader } from "@/components/PageStatus";
 import { fetchTcPackMemo, paymentTx, verifyTcPackPurchase } from "@/lib/tonPayment";
 
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
+const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
+const API_BASE = `${API_ROOT}/api`;
+
 type GemType =
   | "starter_boost"
   | "big_swing"
@@ -52,6 +56,7 @@ type GemType =
   | "gem_magnet"
   | "second_chance";
 
+type MinesGemType = "revenge_shield" | "safe_reveal" | "gem_magnet" | "second_chance";
 type ShopTab = "tc" | "powerups" | "vip" | "boosts";
 
 type PowerCard = {
@@ -108,6 +113,10 @@ function PremiumIcon({ children, tone }: { children: React.ReactNode; tone: stri
   );
 }
 
+function isMinesGemType(value: GemType): value is MinesGemType {
+  return value === "revenge_shield" || value === "safe_reveal" || value === "gem_magnet" || value === "second_chance";
+}
+
 export default function ShopPremiumLaunch() {
   const { user, refreshUser } = useTelegram();
   const queryClient = useQueryClient();
@@ -117,6 +126,7 @@ export default function ShopPremiumLaunch() {
   const [confirming, setConfirming] = useState<GemType | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
+  const [buyingPowerup, setBuyingPowerup] = useState<GemType | null>(null);
   const purchaseMutation = usePurchaseGem();
   const initData = (window as any)?.Telegram?.WebApp?.initData ?? "";
 
@@ -142,7 +152,6 @@ export default function ShopPremiumLaunch() {
     if (!tonConnectUI.connected) await tonConnectUI.openModal();
     const senderAddress = tonConnectUI.account?.address || user?.walletAddress;
     if (!senderAddress) throw new Error("Connect Tonkeeper first, then retry.");
-    if (!operatorWallet) throw new Error("TON payments are not configured.");
     return senderAddress;
   };
 
@@ -151,8 +160,9 @@ export default function ShopPremiumLaunch() {
     setBuyingPack(pack.id);
     try {
       const senderAddress = await ensureWallet();
+      if (!operatorWallet) throw new Error("TON payments are not configured.");
       const memo = await fetchTcPackMemo({ telegramId: user.telegramId, packId: pack.id, initData });
-      await tonConnectUI.sendTransaction(paymentTx(operatorWallet!, pack.priceTonNano, memo));
+      await tonConnectUI.sendTransaction(paymentTx(operatorWallet, pack.priceTonNano, memo));
       showToast("Payment sent. Verifying on-chain...");
       await new Promise((r) => setTimeout(r, 5000));
       await verifyTcPackPurchase({ telegramId: user.telegramId, packId: pack.id, senderAddress, initData });
@@ -166,10 +176,43 @@ export default function ShopPremiumLaunch() {
     }
   };
 
+  const handleBuyMinesPowerup = async (card: PowerCard) => {
+    if (!user || !isMinesGemType(card.id) || buyingPowerup) return;
+    setBuyingPowerup(card.id);
+    try {
+      const senderAddress = await ensureWallet();
+      const memoUrl = `${API_BASE}/gems/powerups/memo?telegramId=${encodeURIComponent(user.telegramId)}&gemType=${encodeURIComponent(card.id)}`;
+      const memoRes = await fetch(memoUrl, { headers: initData ? { "x-telegram-init-data": initData } : {} });
+      const memoData = await memoRes.json().catch(() => ({}));
+      if (!memoRes.ok || !memoData?.memo || !memoData?.operatorWallet || !memoData?.amountNano) throw new Error(memoData?.error ?? "Could not load power-up payment details.");
+
+      await tonConnectUI.sendTransaction(paymentTx(String(memoData.operatorWallet), String(memoData.amountNano), String(memoData.memo)));
+      showToast("Payment sent. Verifying power-up...");
+      await new Promise((r) => setTimeout(r, 5000));
+
+      const purchaseRes = await fetch(`${API_BASE}/gems/powerups/purchase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(initData ? { "x-telegram-init-data": initData } : {}) },
+        body: JSON.stringify({ telegramId: user.telegramId, gemType: card.id, senderAddress }),
+      });
+      const purchaseData = await purchaseRes.json().catch(() => ({}));
+      if (!purchaseRes.ok) throw new Error(purchaseData?.error ?? "Power-up payment verification failed.");
+
+      queryClient.invalidateQueries({ queryKey: getGetActiveGemsQueryKey(user.telegramId) });
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.telegramId) });
+      await refreshUser();
+      showToast(`${card.name} added`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Power-up purchase failed.");
+    } finally {
+      setBuyingPowerup(null);
+    }
+  };
+
   const handleBuy = async (card: PowerCard) => {
     if (!user) return;
     if (activeTab === "boosts") {
-      showToast("Mines power-ups require verified TON payment. Free claim is disabled until payment verification is wired.");
+      await handleBuyMinesPowerup(card);
       return;
     }
     if (card.vipOnly && !vip) return;
@@ -209,7 +252,7 @@ export default function ShopPremiumLaunch() {
       {activeTab === "tc" && <section className="space-y-2">
         {TC_PACKS.map((pack) => { const Icon = pack.icon; const busy = buyingPack === pack.id; return <motion.div key={pack.id} layout className="shop-glass rounded-3xl p-3 relative overflow-hidden" style={{ borderColor: `${pack.tone}55` }}>{pack.badge && <div className="absolute right-0 top-0 rounded-bl-2xl px-3 py-1 text-[9px] font-black" style={{ background: `${pack.tone}CC`, color: pack.tone === "#FFD700" ? "#090909" : "white" }}>{pack.badge}</div>}<div className="flex items-center gap-3"><PremiumIcon tone={pack.tone}><Icon size={26} style={{ color: pack.tone }} /></PremiumIcon><div className="flex-1 min-w-0"><div className="text-base font-black">{pack.name}</div><div className="font-mono text-2xl font-black" style={{ color: pack.tone }}>{pack.tc.toLocaleString()} TC</div><div className="font-mono text-[10px] text-white/45">{pack.desc}</div></div><div className="text-right"><div className="font-mono text-lg font-black text-white">{pack.price}</div><button onClick={() => handleBuyTcPack(pack)} disabled={!!buyingPack} className="mt-2 rounded-xl border border-[#FFD700]/30 bg-[#FFD700]/10 px-3 py-2 font-mono text-[10px] font-black text-[#FFD700] flex items-center gap-1 disabled:opacity-40"><Wallet size={12} />{busy ? "Verifying" : "Buy"}</button></div></div></motion.div>; })}<div className="rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 p-3 font-mono text-[10px] text-[#FFD700]/85 flex items-start gap-2"><Sparkles size={13} className="shrink-0 mt-0.5" />Tonkeeper opens with the exact Koinara memo/comment required for safe TC crediting.</div></section>}
       {activeTab === "vip" && <section className="shop-glass shop-purple rounded-3xl p-5 text-center"><Crown size={48} className="mx-auto text-[#D9A8FF] mb-3" /><h3 className="text-2xl font-black">VIP is your Battle path</h3><p className="font-mono text-xs text-white/45 mt-2">Higher Battle cap, bigger max stake, and lower withdrawal requirements.</p><Link href="/vip" className="mt-5 h-13 rounded-2xl bg-gradient-to-r from-[#8A35FF] to-[#FFD700] text-black flex items-center justify-center font-black">Activate VIP</Link></section>}
-      {(activeTab === "powerups" || activeTab === "boosts") && <section className="grid grid-cols-2 gap-2">{cards.map((card) => { const Icon = card.icon; const locked = !!card.vipOnly && !vip; const isMinesPowerup = activeTab === "boosts"; const canAfford = card.cost === 0 || (user?.goldCoins ?? 0) >= card.cost; const confirm = confirming === card.id; return <motion.div key={card.id} layout className="shop-glass rounded-2xl p-3 relative overflow-hidden" style={{ borderColor: `${card.tone}44` }}>{card.badge && <div className="absolute right-0 top-0 rounded-bl-2xl px-3 py-1 text-[9px] font-black" style={{ background: `${card.tone}CC`, color: card.tone === "#FFD700" || card.tone === "#ffd700" ? "#090909" : "white" }}>{card.badge}</div>}<PremiumIcon tone={card.tone}><Icon size={26} style={{ color: card.tone }} /></PremiumIcon><h3 className="mt-3 text-base font-black leading-tight">{card.name}</h3><p className="mt-1 min-h-[44px] font-mono text-[10px] leading-relaxed text-white/48">{card.desc}</p><div className="mt-3 flex items-center justify-between gap-2"><div><div className="font-mono text-[10px] text-white/35">{card.uses}</div><div className="font-mono text-sm font-black text-[#FFD700]">{card.cost > 0 ? `${card.cost.toLocaleString()} GC` : "TON"}</div></div><button onClick={() => handleBuy(card)} disabled={locked || isMinesPowerup || (!canAfford && card.cost > 0) || purchaseMutation.isPending} className="rounded-xl border border-[#FFD700]/35 bg-[#FFD700]/10 px-3 py-2 font-black text-[#FFD700] disabled:opacity-35">{locked ? <Lock size={15} /> : isMinesPowerup ? "TON soon" : confirm ? "Confirm" : "Buy"}</button></div></motion.div>; })}</section>}
+      {(activeTab === "powerups" || activeTab === "boosts") && <section className="grid grid-cols-2 gap-2">{cards.map((card) => { const Icon = card.icon; const locked = !!card.vipOnly && !vip; const isMinesPowerup = activeTab === "boosts"; const isBuyingThis = buyingPowerup === card.id; const canAfford = card.cost === 0 || (user?.goldCoins ?? 0) >= card.cost; const confirm = confirming === card.id; return <motion.div key={card.id} layout className="shop-glass rounded-2xl p-3 relative overflow-hidden" style={{ borderColor: `${card.tone}44` }}>{card.badge && <div className="absolute right-0 top-0 rounded-bl-2xl px-3 py-1 text-[9px] font-black" style={{ background: `${card.tone}CC`, color: card.tone === "#FFD700" || card.tone === "#ffd700" ? "#090909" : "white" }}>{card.badge}</div>}<PremiumIcon tone={card.tone}><Icon size={26} style={{ color: card.tone }} /></PremiumIcon><h3 className="mt-3 text-base font-black leading-tight">{card.name}</h3><p className="mt-1 min-h-[44px] font-mono text-[10px] leading-relaxed text-white/48">{card.desc}</p><div className="mt-3 flex items-center justify-between gap-2"><div><div className="font-mono text-[10px] text-white/35">{card.uses}</div><div className="font-mono text-sm font-black text-[#FFD700]">{card.cost > 0 ? `${card.cost.toLocaleString()} GC` : "TON"}</div></div><button onClick={() => handleBuy(card)} disabled={locked || (!!buyingPowerup && !isBuyingThis) || (!canAfford && card.cost > 0) || purchaseMutation.isPending} className="rounded-xl border border-[#FFD700]/35 bg-[#FFD700]/10 px-3 py-2 font-black text-[#FFD700] disabled:opacity-35">{locked ? <Lock size={15} /> : isBuyingThis ? "Verifying" : isMinesPowerup ? "Pay TON" : confirm ? "Confirm" : "Buy"}</button></div></motion.div>; })}</section>}
       {activeGemCount > 0 && <div className="mt-3 rounded-2xl border border-[#FFD700]/25 bg-[#FFD700]/8 p-3 font-mono text-xs text-[#FFD700]">Active inventory: {activeGemCount} power-up uses ready.</div>}
     </div>
   );
