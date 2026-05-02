@@ -5,12 +5,20 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { apiRateLimit } from "./lib/rateLimit";
 import { ensureCreatorMissionColumns } from "./lib/ensureCreatorMissionColumns";
+import { ensureBattleTables } from "./lib/ensureBattleTables";
+import { startJobs } from "./jobs";
 
 const app: Express = express();
 
 ensureCreatorMissionColumns().catch((err) => {
   logger.error({ err }, "Creator Missions startup migration failed");
 });
+
+ensureBattleTables().catch((err) => {
+  logger.error({ err }, "Battle startup migration failed");
+});
+
+startJobs();
 
 app.use(
   pinoHttp({
