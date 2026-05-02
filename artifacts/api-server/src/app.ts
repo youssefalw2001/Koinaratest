@@ -5,11 +5,16 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { apiRateLimit } from "./lib/rateLimit";
 import { ensureCreatorMissionColumns } from "./lib/ensureCreatorMissionColumns";
+import { ensureAlphaMarketsTables } from "./lib/ensureAlphaMarketsTables";
 
 const app: Express = express();
 
 ensureCreatorMissionColumns().catch((err) => {
   logger.error({ err }, "Creator Missions startup migration failed");
+});
+
+ensureAlphaMarketsTables().catch((err) => {
+  logger.error({ err }, "Alpha Markets startup migration failed");
 });
 
 app.use(
