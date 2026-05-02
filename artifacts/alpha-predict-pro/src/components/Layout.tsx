@@ -22,7 +22,9 @@ import { parseVipExpiry, getVipCountdownLabel } from "@/lib/vipExpiry";
 import { formatGcUsd, FREE_GC_PER_USD, VIP_GC_PER_USD } from "@/lib/format";
 import { useLanguage } from "@/lib/language";
 
-const API_BASE = `${(import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""}/api`;
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
+const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
+const API_BASE = `${API_ROOT}/api`;
 
 const tabs = [
   { path: "/", icon: Zap, label: "Trade" },
