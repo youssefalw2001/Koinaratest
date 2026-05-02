@@ -1,6 +1,7 @@
 /**
  * Frontend mirror of the backend isVipActive() helper.
- * Returns true if the user has an active paid VIP subscription OR an active Day-7 trial.
+ * VIP is active only when the user has an active paid VIP subscription.
+ * Free automatic VIP trials are intentionally ignored/removed for launch economy safety.
  */
 export function isVipActive(user: {
   isVip: boolean;
@@ -8,19 +9,14 @@ export function isVipActive(user: {
   vipTrialExpiresAt?: string | null;
 } | null | undefined): boolean {
   if (!user) return false;
-  const now = Date.now();
-  const parseDate = (raw?: string | null): number | null => {
-    if (!raw) return null;
-    const direct = new Date(raw).getTime();
-    if (Number.isFinite(direct)) return direct;
-    const numeric = Number(raw);
-    if (!Number.isFinite(numeric)) return null;
-    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    return Number.isFinite(millis) ? millis : null;
-  };
-  const vipExpiry = parseDate(user.vipExpiresAt);
-  const trialExpiry = parseDate(user.vipTrialExpiresAt);
-  if (user.isVip && vipExpiry !== null && vipExpiry > now) return true;
-  if (trialExpiry !== null && trialExpiry > now) return true;
-  return false;
+  const raw = user.vipExpiresAt;
+  if (!user.isVip || !raw) return false;
+
+  const direct = new Date(raw).getTime();
+  if (Number.isFinite(direct)) return direct > Date.now();
+
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return false;
+  const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  return Number.isFinite(millis) && millis > Date.now();
 }

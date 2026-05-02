@@ -24,6 +24,7 @@ import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/EarnCreatorLaunch";
 import Shop from "./pages/ShopPremiumLaunch";
 import Wallet from "./pages/WalletSimplified";
+import VipCheckout from "./pages/VipCheckout";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/ProfilePremiumLaunch";
 import Academy from "./pages/Academy";
@@ -204,9 +205,9 @@ function VipPromoModal() {
       if (!clickable) return;
       const label = (clickable.textContent ?? "").toLowerCase();
       const href = link?.getAttribute("href") ?? "";
-      const looksLikeVip = label.includes("activate vip") || label.includes("go vip") || label.includes("purchase vip");
-      const goesWallet = href.endsWith("/wallet") || href === "/wallet";
-      if (looksLikeVip && (goesWallet || label.includes("activate vip"))) {
+      const looksLikeVip = label.includes("activate vip") || label.includes("go vip") || label.includes("purchase vip") || label.includes("unlock vip");
+      const goesVip = href.endsWith("/vip") || href === "/vip";
+      if (looksLikeVip && !goesVip) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -219,9 +220,8 @@ function VipPromoModal() {
 
   const dismiss = () => { setManualVipPromo(false); dismissVipPromo(); };
   const handleGoVip = () => {
-    try { localStorage.setItem("koinara_auto_vip_checkout", "1"); } catch {}
     dismiss();
-    setLocation("/wallet");
+    setLocation("/vip");
   };
   return (
     <AnimatePresence>
@@ -231,7 +231,7 @@ function VipPromoModal() {
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full flex items-center justify-center mb-3 border-2 border-[#f5c518]" style={{ boxShadow: "0 0 30px rgba(245,197,24,0.5)", background: "rgba(245,197,24,0.1)" }}><Crown size={32} className="text-[#f5c518] drop-shadow-[0_0_15px_#f5c518]" /></div>
               <div className="font-mono text-2xl font-black text-[#f5c518] mb-1">Unlock Koinara VIP</div>
-              <div className="font-mono text-xs text-white/55 mb-4">Higher caps, better withdrawal rules, creator/referral upside, and premium earning room.</div>
+              <div className="font-mono text-xs text-white/55 mb-4">Paid VIP only. No free trials. Get higher caps, bigger Battle stakes, and Creator Pass included.</div>
               <div className="w-full space-y-2 mb-5">
                 {[
                   "15,000 GC daily Battle cap instead of 5,000",
@@ -304,7 +304,7 @@ function Day7CelebrationModal() {
       {showDay7Celebration && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] flex items-end justify-center bg-black/90" onClick={dismissDay7Celebration}>
           <motion.div initial={{ y: 400, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 22, stiffness: 280 }} className="w-full max-w-[420px] p-6 pb-10 rounded-t-3xl border-t-2 border-[#00f0ff]" style={{ background: "linear-gradient(180deg, #050a0a 0%, #000000 100%)", boxShadow: "0 -30px 100px rgba(0,240,255,0.3)" }} onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">+ 24h VIP Trial</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP BATTLING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
+            <div className="flex flex-col items-center text-center"><div className="relative mb-4"><Trophy size={52} className="text-[#00f0ff] drop-shadow-[0_0_25px_#00f0ff]" /><Star size={18} className="absolute -top-1 -right-2 text-[#f5c518] drop-shadow-[0_0_8px_#f5c518]" /></div><div className="font-mono text-[10px] text-[#00f0ff]/60 tracking-widest uppercase mb-1">Day 7 Survivor</div><div className="font-mono text-3xl font-black text-white mb-2">Bonus Unlocked!</div><div className="font-mono text-[#00f0ff] text-4xl font-black mb-1">+3,000 TC</div><div className="font-mono text-xs text-white/40 mb-1">VIP is paid-only and can be activated from the VIP checkout.</div><div className="font-mono text-[10px] text-white/30 mb-8">You have survived 7 days in the arena. The market respects consistency.</div><button onClick={() => { dismissDay7Celebration(); setLocation("/"); }} className="w-full py-4 rounded-2xl font-mono text-base font-black mb-3" style={{ background: "linear-gradient(90deg, #00f0ff, #0080ff)", color: "#000", boxShadow: "0 0 30px rgba(0,240,255,0.5)" }}>KEEP BATTLING</button><button onClick={dismissDay7Celebration} className="font-mono text-xs text-white/30 hover:text-white/50 transition-colors">Close</button></div>
           </motion.div>
         </motion.div>
       )}
@@ -329,6 +329,7 @@ function Router() {
         <Route path="/academy" component={() => <Bounded><Academy /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
         <Route path="/creator" component={() => <Bounded><CreatorCenter /></Bounded>} />
+        <Route path="/vip" component={() => <Bounded><VipCheckout /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />

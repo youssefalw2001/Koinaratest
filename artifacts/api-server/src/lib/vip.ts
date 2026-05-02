@@ -1,8 +1,7 @@
 /**
- * Shared VIP/trial eligibility helper — single source of truth.
- * VIP is active when either:
- *   - user.isVip is true AND vipExpiresAt is in the future (paid/TC plan), OR
- *   - vipTrialExpiresAt is set and still in the future (Day-7 trial)
+ * Shared VIP eligibility helper — single source of truth.
+ * VIP is active only when the user has an active paid VIP subscription.
+ * Free automatic VIP trials are intentionally ignored/removed for launch economy safety.
  */
 export function isVipActive(user: {
   isVip: boolean;
@@ -10,7 +9,5 @@ export function isVipActive(user: {
   vipTrialExpiresAt: Date | null;
 }): boolean {
   const now = new Date();
-  if (user.isVip && user.vipExpiresAt && user.vipExpiresAt > now) return true;
-  if (user.vipTrialExpiresAt && user.vipTrialExpiresAt > now) return true;
-  return false;
+  return !!(user.isVip && user.vipExpiresAt && user.vipExpiresAt > now);
 }
