@@ -40,9 +40,12 @@ app.use(
   }),
 );
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(",")
+  ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
   : ["http://localhost:5173", "http://localhost:4173"];
-app.use(cors({ origin: allowedOrigins, methods: ["GET", "POST", "PUT", "DELETE"] }));
+if (process.env.NODE_ENV === "production" && !process.env.CORS_ALLOWED_ORIGINS) {
+  logger.warn("CORS_ALLOWED_ORIGINS is not set — API will only accept requests from localhost. Set this to your GitHub Pages URL in Railway.");
+}
+app.use(cors({ origin: allowedOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

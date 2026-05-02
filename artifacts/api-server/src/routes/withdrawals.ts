@@ -3,6 +3,7 @@ import { eq, sql, desc, and, gte, gt } from "drizzle-orm";
 import { db, usersTable, withdrawalQueueTable, platformDailyStatsTable, vipTxHashesTable } from "@workspace/db";
 import { z } from "zod";
 import { serializeRow } from "../lib/serialize";
+import { isPaymentTxHashUsed } from "../lib/paymentTxGuard";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 import { beginIdempotency } from "../lib/idempotency";
 import { logger } from "../lib/logger";
@@ -22,6 +23,10 @@ const VIP_WEEKLY_MAX_USD  = 100;  // $100/week
 const FEE_PCT = 0.06;  // 6% fee
 
 const DAILY_PAYOUT_RATIO = 0.5;
+// Minimum daily payout capacity regardless of yesterday's revenue.
+// Prevents day-1 and low-revenue days from blocking all withdrawals.
+// 50,000 GC = $10 for free users / $20 for VIP — a safe bootstrap floor.
+const DAILY_PAYOUT_FLOOR_GC = 50_000;
 const WITHDRAWAL_COOLDOWN_MS = 3 * 60_000;
 const WITHDRAWAL_MAX_24H_COUNT = 6;
 
@@ -214,15 +219,9 @@ router.post("/withdrawals/verify-fee", async (req, res): Promise<void> => {
   }
 
   const verifiedTxHash = verification.txHash!;
-  const [existingTx] = await db
-    .select()
-    .from(vipTxHashesTable)
-    .where(eq(vipTxHashesTable.txHash, verifiedTxHash))
-    .limit(1);
-
-  if (existingTx) {
+  if (await isPaymentTxHashUsed(verifiedTxHash)) {
     logger.warn({ telegramId: authedId, txHash: verifiedTxHash }, "Verification tx hash replay attempt");
-    res.status(409).json({ error: "This transaction has already been used for verification. Each payment can only be used once." });
+    res.status(409).json({ error: "This transaction has already been used for a purchase. Each payment can only be used once." });
     return;
   }
 
@@ -323,7 +322,7 @@ router.post("/withdrawals/request", async (req, res): Promise<void> => {
 
   const [prevDayStats] = await db.select().from(platformDailyStatsTable).where(eq(platformDailyStatsTable.date, yesterdayStr)).limit(1);
   const prevRevenueGc = prevDayStats?.totalRevenueGc ?? 0;
-  const maxDailyPayoutGc = Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO);
+  const maxDailyPayoutGc = Math.max(DAILY_PAYOUT_FLOOR_GC, Math.floor(prevRevenueGc * DAILY_PAYOUT_RATIO));
 
   const feeGc   = Math.floor(gcAmount * FEE_PCT);
   const netGc   = gcAmount - feeGc;
