@@ -90,43 +90,6 @@ async function ensureBetaGateSchema(): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS users_beta_access_granted_idx ON users (beta_access_granted)`);
 }
 
-async function waitlistUser(input: {
-  telegramId: string;
-  username?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  photoUrl?: string | null;
-  source?: string | null;
-}): Promise<BetaWaitlistResponse> {
-  const limit = betaLimit();
-  const waitlist = await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(${BETA_LOCK_ID})`);
-    const existing = await tx.select().from(betaWaitlistTable).where(eq(betaWaitlistTable.telegramId, input.telegramId)).limit(1);
-    if (existing[0]) return existing[0];
-
-    const rows = await tx.select({ cnt: count() }).from(betaWaitlistTable);
-    const position = Number(rows[0]?.cnt ?? 0) + 1;
-    const [inserted] = await tx.insert(betaWaitlistTable).values({
-      telegramId: input.telegramId,
-      username: input.username ?? null,
-      firstName: input.firstName ?? null,
-      lastName: input.lastName ?? null,
-      photoUrl: input.photoUrl ?? null,
-      source: input.source ?? null,
-      position,
-    }).returning();
-    return inserted;
-  });
-
-  return {
-    betaLocked: true,
-    betaGateEnabled: true,
-    betaLimit: limit,
-    waitlistPosition: waitlist.position,
-    message: `Koinara Founder Beta is full. You are waitlist #${waitlist.position}.`,
-  };
-}
-
 async function createUserOrWaitlist(input: {
   telegramId: string;
   username?: string | null;
@@ -184,7 +147,7 @@ async function createUserOrWaitlist(input: {
       return { waitlist: { betaLocked: true, betaGateEnabled: true, betaLimit: limit, waitlistPosition: waitlistRow.position, message: `Koinara Founder Beta is full. You are waitlist #${waitlistRow.position}.` } };
     }
 
-    const betaNumber = ownerBypass && acceptedCount >= limit ? acceptedCount + 1 : acceptedCount + 1;
+    const betaNumber = acceptedCount + 1;
     const [newUser] = await tx.insert(usersTable).values({
       telegramId: input.telegramId,
       username: input.username,
@@ -339,7 +302,14 @@ router.get("/users/:telegramId/vip/memo", async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const authId = await resolveAuthenticatedTelegramId(req, res, params.data.telegramId);
   if (!authId) return;
-  res.json({ plan: "monthly", memo: vipMemo(authId, "monthly") });
+  const operatorWallet = getKoinaraWallet();
+  if (!operatorWallet) { res.status(503).json({ error: "TON payment wallet is not configured." }); return; }
+  res.json({
+    plan: "monthly",
+    memo: vipMemo(authId, "monthly"),
+    operatorWallet,
+    amountNano: TON_MONTHLY_NANO.toString(),
+  });
 });
 
 router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> => {
@@ -424,7 +394,6 @@ router.post("/users/:telegramId/owner-refill-tc", async (req, res): Promise<void
   if (!ownerEnvId) { res.status(503).json({ error: "Owner tools are not configured on this server." }); return; }
   const { telegramId } = req.params;
   if (telegramId !== ownerEnvId) { res.status(403).json({ error: "Forbidden." }); return; }
-  // Require valid Telegram auth so anyone who knows the owner ID can't call this
   const authedId = resolveAuthenticatedTelegramId(req, res, telegramId);
   if (!authedId) return;
   const TC_REFILL = 999_999;
