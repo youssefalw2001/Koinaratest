@@ -1,5 +1,5 @@
-import { and, count, eq, gte, lte, or, sql } from "drizzle-orm";
-import { battlesTable, db, usersTable } from "@workspace/db";
+import { and, count, desc, eq, gt, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { battlesTable, db, gemInventoryTable, usersTable } from "@workspace/db";
 import { getSymbolPrice, type SupportedSymbol } from "./btcPriceCache";
 import { isVipActive } from "./vip";
 import { logger } from "./logger";
@@ -15,6 +15,8 @@ const FREE_DAILY_BATTLE_GC_CAP = 5000;
 const VIP_DAILY_BATTLE_GC_CAP = 15000;
 const BATTLE_DURATION_MS = 60_000;
 const WAITING_EXPIRY_MS = 5 * 60_000;
+const SHIELD_REFUND_PCT = 0.70;
+const SHIELD_MAX_PROTECTED_STAKE_TC = 1000;
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -43,6 +45,31 @@ function normalizeBattleType(raw: unknown): BattleType {
 function normalizeStake(raw: unknown): number | null {
   const stake = Number(raw);
   return BATTLE_STAKES.includes(stake as (typeof BATTLE_STAKES)[number]) ? stake : null;
+}
+
+function activeGemFilter(telegramId: string, gemType: string) {
+  return and(
+    eq(gemInventoryTable.telegramId, telegramId),
+    eq(gemInventoryTable.gemType, gemType),
+    gt(gemInventoryTable.usesRemaining, 0),
+    or(isNull(gemInventoryTable.expiresAt), gt(gemInventoryTable.expiresAt, new Date())),
+  );
+}
+
+async function hasActiveBattlePriority(telegramId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: gemInventoryTable.id })
+    .from(gemInventoryTable)
+    .where(
+      and(
+        eq(gemInventoryTable.telegramId, telegramId),
+        or(eq(gemInventoryTable.gemType, "battle_priority_queue"), eq(gemInventoryTable.gemType, "battle_pass")),
+        gt(gemInventoryTable.usesRemaining, 0),
+        or(isNull(gemInventoryTable.expiresAt), gt(gemInventoryTable.expiresAt, new Date())),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 async function livePrice(symbol: SupportedSymbol): Promise<number> {
@@ -136,9 +163,15 @@ export async function createOrJoinBattle(input: {
       .from(battlesTable)
       .where(and(eq(battlesTable.status, "waiting"), eq(battlesTable.battleType, "quick"), eq(battlesTable.stakeTc, stakeTc), gte(battlesTable.expiresAt, new Date())))
       .orderBy(battlesTable.createdAt)
-      .limit(5);
+      .limit(25);
 
-    const candidate = waiting.find((row) => row.player1TelegramId !== input.telegramId);
+    const candidates = waiting.filter((row) => row.player1TelegramId !== input.telegramId);
+    let candidate = candidates[0];
+    if (candidates.length > 1) {
+      const priorityFlags = await Promise.all(candidates.map((row) => hasActiveBattlePriority(row.player1TelegramId)));
+      candidate = candidates.find((_row, idx) => priorityFlags[idx]) ?? candidates[0];
+    }
+
     if (candidate) {
       await ensureCoordinationAllowed(candidate.player1TelegramId, input.telegramId);
       const startPrice = await livePrice(symbol);
@@ -252,6 +285,7 @@ export async function resolveBattleByCode(battleCode: string) {
     }
 
     const winnerTelegramId = battle.player1Prediction === side ? battle.player1TelegramId : battle.player2TelegramId!;
+    const loserTelegramId = winnerTelegramId === battle.player1TelegramId ? battle.player2TelegramId! : battle.player1TelegramId;
     const [winner] = await tx.select().from(usersTable).where(eq(usersTable.telegramId, winnerTelegramId)).for("update").limit(1);
     const vip = winner ? isVipActive(winner) : false;
     const today = todayStr();
@@ -270,15 +304,33 @@ export async function resolveBattleByCode(battleCode: string) {
       }).where(eq(usersTable.telegramId, winnerTelegramId));
     }
 
+    let shieldRefundTc = 0;
+    const [shield] = await tx
+      .select()
+      .from(gemInventoryTable)
+      .where(activeGemFilter(loserTelegramId, "battle_shield"))
+      .orderBy(gemInventoryTable.createdAt)
+      .limit(1);
+
+    if (shield) {
+      shieldRefundTc = Math.floor(Math.min(battle.stakeTc, SHIELD_MAX_PROTECTED_STAKE_TC) * SHIELD_REFUND_PCT);
+      if (shieldRefundTc > 0) {
+        await tx.update(usersTable).set({ tradeCredits: sql`${usersTable.tradeCredits} + ${shieldRefundTc}` }).where(eq(usersTable.telegramId, loserTelegramId));
+      }
+      await tx.update(gemInventoryTable).set({ usesRemaining: sql`${gemInventoryTable.usesRemaining} - 1` }).where(eq(gemInventoryTable.id, shield.id));
+    }
+
+    const baseHouseTcKept = Math.floor(battle.stakeTc * 2 * rake);
     const [updated] = await tx.update(battlesTable).set({
       status: "resolved",
       endPrice,
       winnerTelegramId,
       gcPayout,
-      houseTcKept: Math.floor(battle.stakeTc * 2 * rake),
+      refundedTc: shieldRefundTc,
+      houseTcKept: Math.max(0, baseHouseTcKept - shieldRefundTc),
       resolvedAt: new Date(),
     }).where(eq(battlesTable.id, battle.id)).returning();
-    logger.info({ battleCode, winnerTelegramId, rawPayout, gcPayout, capRemaining: remaining }, "Battle resolved with winner");
+    logger.info({ battleCode, winnerTelegramId, rawPayout, gcPayout, capRemaining: remaining, shieldRefundTc }, "Battle resolved with winner");
     return updated ?? battle;
   });
 }
