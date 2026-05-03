@@ -20,7 +20,7 @@ import { withRequiredMemo } from "@/lib/tonPayment";
 import { trackEvent } from "@/lib/analytics";
 
 // Pages
-import Battle from "./pages/Battle";
+import Arena from "./pages/QuickTradeArena";
 import Mines from "./pages/MinesWithFeedback";
 import Earn from "./pages/EarnCreatorLaunch";
 import Shop from "./pages/ShopPremiumLaunch";
@@ -197,21 +197,23 @@ function MinesPassDirectPaymentBridge() {
 
 function VipPromoModal() {
   const { showVipPromo, dismissVipPromo, user } = useTelegram() as ReturnType<typeof useTelegram> & { user: any };
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [manualVipPromo, setManualVipPromo] = useState(false);
-  const visible = showVipPromo || manualVipPromo;
+  const visible = location !== "/vip" && (showVipPromo || manualVipPromo);
 
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
+      if (location === "/vip") return;
       const target = event.target as HTMLElement | null;
       const link = target?.closest?.("a") as HTMLAnchorElement | null;
       const clickable = target?.closest?.("a,button") as HTMLElement | null;
       if (!clickable) return;
       const label = (clickable.textContent ?? "").toLowerCase();
       const href = link?.getAttribute("href") ?? "";
+      const isRealTonPayment = label.includes("with ton") || label.includes("connect & pay") || label.includes("processing vip") || label.includes("vip active");
       const looksLikeVip = label.includes("activate vip") || label.includes("go vip") || label.includes("purchase vip") || label.includes("unlock vip");
       const goesVip = href.endsWith("/vip") || href === "/vip";
-      if (looksLikeVip && !goesVip) {
+      if (looksLikeVip && !goesVip && !isRealTonPayment) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -221,7 +223,7 @@ function VipPromoModal() {
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [user?.telegramId]);
+  }, [location, user?.telegramId]);
 
   const dismiss = () => { setManualVipPromo(false); dismissVipPromo(); };
   const handleGoVip = () => {
@@ -339,8 +341,8 @@ function Router() {
       <HomeWalletTrustPanel />
       <AccountBootstrapError />
       <Switch>
-        <Route path="/" component={() => <Bounded><Battle /></Bounded>} />
-        <Route path="/battle" component={() => <Bounded><Battle /></Bounded>} />
+        <Route path="/" component={() => <Bounded><Arena /></Bounded>} />
+        <Route path="/battle" component={() => <Bounded><Arena /></Bounded>} />
         <Route path="/mines" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/academy" component={() => <Bounded><Academy /></Bounded>} />
