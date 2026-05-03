@@ -50,7 +50,7 @@ export default function VipCheckout() {
     try {
       if (!tonConnectUI.connected) {
         setAutoPayAfterConnect(true);
-        setMessage("Connect Tonkeeper. VIP payment will open automatically after connection.");
+        setMessage("Connect Tonkeeper. Payment opens automatically after connection.");
         await tonConnectUI.openModal();
         return;
       }
@@ -58,7 +58,7 @@ export default function VipCheckout() {
       const senderAddress = tonConnectUI.account?.address || tonAddress || user.walletAddress;
       if (!senderAddress) {
         setAutoPayAfterConnect(true);
-        setMessage("Connect your TON wallet. VIP payment will open automatically after connection.");
+        setMessage("Connect your TON wallet. Payment opens automatically after connection.");
         await tonConnectUI.openModal();
         return;
       }
@@ -141,8 +141,8 @@ export default function VipCheckout() {
       <div className="mt-3 rounded-2xl border border-[#FFD700]/20 bg-[#FFD700]/8 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]/90">
         Price: 1.7 TON / $5.99 monthly. Tonkeeper opens with the exact Koinara VIP memo.
       </div>
-      <button onClick={activateVip} disabled={!user || busy || vip} className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#FF9900] font-black text-black disabled:opacity-45">
-        {busy ? <><Loader2 size={17} className="animate-spin"/>Processing VIP</> : vip ? "VIP ACTIVE" : tonConnectUI.connected ? "Activate VIP with TON" : "Connect & Pay with TON"}
+      <button data-ton-payment="vip" onClick={activateVip} disabled={!user || busy || vip} className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FFD700] to-[#FF9900] font-black text-black disabled:opacity-45">
+        {busy ? <><Loader2 size={17} className="animate-spin"/>Processing payment</> : vip ? "VIP ACTIVE" : tonConnectUI.connected ? "Pay 1.7 TON Now" : "Connect Wallet + Pay"}
       </button>
       <button onClick={() => tonConnectUI.openModal()} className="mt-2 w-full rounded-2xl border border-[#8BC3FF]/25 bg-[#8BC3FF]/8 py-3 font-mono text-xs font-black text-[#8BC3FF]">{tonConnectUI.connected || tonAddress ? "Switch TON Wallet" : "Connect TON Wallet"}</button>
       {message && <div className="mt-3 rounded-2xl border border-[#FFD700]/25 bg-black/35 p-3 font-mono text-[10px] leading-relaxed text-[#FFD700]">{message}</div>}
