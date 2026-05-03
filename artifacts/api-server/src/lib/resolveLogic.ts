@@ -3,12 +3,12 @@ import { db, predictionsTable, usersTable } from "@workspace/db";
 import { isVipActive } from "./vip";
 import { logger } from "./logger";
 
-export const GC_RATIO = 1.85;
-const DEFAULT_MULTIPLIER = 1.85;
-export const DAILY_GC_CAP_FREE = 7000;
-export const DAILY_GC_CAP_VIP = 20000;
-const MAX_TRADE_PAYOUT_FREE = 2500;
-const MAX_TRADE_PAYOUT_VIP = 8000;
+export const GC_RATIO = 1.35;
+const DEFAULT_MULTIPLIER = 1.35;
+export const DAILY_GC_CAP_FREE = 3000;
+export const DAILY_GC_CAP_VIP = 10000;
+const MAX_TRADE_PAYOUT_FREE = 1000;
+const MAX_TRADE_PAYOUT_VIP = 3500;
 
 export interface ResolveOutcome {
   ok: boolean;

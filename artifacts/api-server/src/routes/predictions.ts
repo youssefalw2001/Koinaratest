@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, or, gt, isNotNull, count, inArray, gte } from "drizzle-orm";
+import { eq, desc, sql, and, or, gt, isNotNull, inArray, gte } from "drizzle-orm";
 import { db, predictionsTable, usersTable, gemInventoryTable } from "@workspace/db";
 import {
   CreatePredictionBody,
@@ -21,17 +21,17 @@ import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
 
 const router: IRouter = Router();
 
-const MIN_BET_TC = 50;
+const FREE_STAKES_TC = [100, 250, 500, 600] as const;
+const VIP_STAKES_TC = [100, 250, 500, 600, 1000, 2000] as const;
 const RESOLVE_TOLERANCE_SEC = 0;
 const PRICE_MATCH_TOLERANCE = 0.2;
 
 const DURATION_TIERS: Record<number, number> = {
-  6: 1.5,
-  10: 1.65,
-  30: 1.75,
-  60: 1.85,
+  30: 1.25,
+  60: 1.35,
+  120: 1.45,
 };
-const VIP_MULTIPLIER_BONUS = 0.1;
+const VIP_MULTIPLIER_BONUS = 0.05;
 const MULTIPLIER_TOLERANCE = 0.001;
 const DEFAULT_DURATION_SEC = 60;
 const BINARY_GEM_TYPES = ["starter_boost", "hot_streak", "double_down", "precision_lock", "big_swing"] as const;
@@ -128,9 +128,9 @@ function parseSelectedGemIds(raw: unknown): number[] {
   return Array.from(new Set(ids)).slice(0, MAX_SELECTED_BINARY_GEMS);
 }
 
-function selectedGemMultiplier(gemTypes: string[]): number {
-  if (gemTypes.some((type) => type === "hot_streak" || type === "double_down" || type === "big_swing")) return 2;
-  if (gemTypes.includes("starter_boost")) return 1.5;
+function selectedGemMultiplier(_gemTypes: string[]): number {
+  // Legacy binary power-ups are no longer part of the simplified Quick Trade loop.
+  // Keep this as 1x so old inventories cannot create oversized GC liabilities.
   return 1;
 }
 
@@ -159,11 +159,6 @@ router.post("/predictions", async (req, res): Promise<void> => {
     return;
   }
 
-  if (amount < MIN_BET_TC) {
-    res.status(400).json({ error: `Minimum bet is ${MIN_BET_TC} Trade Credits` });
-    return;
-  }
-
   const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, authedId)).limit(1);
   if (!user) {
     res.status(404).json({ error: "User not found" });
@@ -171,18 +166,12 @@ router.post("/predictions", async (req, res): Promise<void> => {
   }
 
   const vipActive = isVipActive(user);
-  let maxBet = 1000;
-  if (vipActive) {
-    maxBet = 5000;
-  } else {
-    const referralCountResult = await db.select({ cnt: count() }).from(usersTable).where(eq(usersTable.referredBy, authedId));
-    const referralCount = referralCountResult[0]?.cnt ?? 0;
-    if (referralCount >= 5) maxBet = 5000;
-  }
-
-  if (amount > maxBet) {
+  const allowedStakes = vipActive ? VIP_STAKES_TC : FREE_STAKES_TC;
+  if (!allowedStakes.includes(amount as never)) {
     res.status(400).json({
-      error: maxBet === 1000 ? "Maximum bet is 1000 TC. Get VIP or refer 5 friends to unlock 5000 TC bets!" : `Maximum bet is ${maxBet} Trade Credits`,
+      error: vipActive
+        ? "Choose a valid VIP Quick Trade stake: 100, 250, 500, 600, 1000, or 2000 TC."
+        : "Choose a valid free Quick Trade stake: 100, 250, 500, or 600 TC. VIP unlocks 1000 and 2000 TC.",
     });
     return;
   }
@@ -208,7 +197,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
     const usedTypes = new Set<string>();
     for (const gem of selectedGems) {
       if (!BINARY_GEM_TYPES.includes(gem.gemType as (typeof BINARY_GEM_TYPES)[number])) {
-        res.status(400).json({ error: `${gem.gemType} cannot be used on Binary trades.` });
+        res.status(400).json({ error: `${gem.gemType} cannot be used on Quick Trade.` });
         return;
       }
       if (usedTypes.has(gem.gemType)) {
@@ -265,7 +254,7 @@ router.post("/predictions", async (req, res): Promise<void> => {
         .returning();
     });
 
-    logger.info({ predictionId: prediction.id, trustedSymbol: trustedEntry.symbol, trustedSource: trustedEntry.source, trustedEntryPrice: trustedEntry.price }, "Prediction created with trusted server price");
+    logger.info({ predictionId: prediction.id, trustedSymbol: trustedEntry.symbol, trustedSource: trustedEntry.source, trustedEntryPrice: trustedEntry.price }, "Quick Trade created with trusted server price");
     res.status(201).json(serializeRow(prediction as Record<string, unknown>));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "UNKNOWN";
@@ -277,8 +266,8 @@ router.post("/predictions", async (req, res): Promise<void> => {
       res.status(409).json({ error: "One or more selected power-ups were just used. Please refresh and try again." });
       return;
     }
-    logger.error({ err, telegramId: authedId }, "Prediction creation failed");
-    res.status(500).json({ error: "Failed to create prediction" });
+    logger.error({ err, telegramId: authedId }, "Quick Trade creation failed");
+    res.status(500).json({ error: "Failed to create Quick Trade" });
   }
 });
 
@@ -333,7 +322,7 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
   if (!authedId) return;
 
   if (prediction.status !== "pending") {
-    await replyWithCommit(400, { error: "Prediction already resolved" });
+    await replyWithCommit(400, { error: "Quick Trade already resolved" });
     return;
   }
 
@@ -356,13 +345,13 @@ router.post("/predictions/:id/resolve", async (req, res): Promise<void> => {
 
   const result = await resolvePredictionLogic(params.data.id, trustedExit.price, { autoResolved: false });
   if (!result.ok || !result.prediction) {
-    logger.warn({ predictionId: params.data.id, reason: result.reason ?? "unknown" }, "Prediction resolve failed");
+    logger.warn({ predictionId: params.data.id, reason: result.reason ?? "unknown" }, "Quick Trade resolve failed");
     await idempotencyHandle.abort();
     res.status(400).json({ error: result.reason ?? "Failed to resolve" });
     return;
   }
 
-  logger.info({ predictionId: params.data.id, trustedSymbol: trustedExit.symbol, trustedSource: trustedExit.source, trustedExitPrice: trustedExit.price }, "Prediction resolved with trusted server price");
+  logger.info({ predictionId: params.data.id, trustedSymbol: trustedExit.symbol, trustedSource: trustedExit.source, trustedExitPrice: trustedExit.price }, "Quick Trade resolved with trusted server price");
 
   await replyWithCommit(200, ResolvePredictionResponse.parse(serializeRow(result.prediction as unknown as Record<string, unknown>)));
 });

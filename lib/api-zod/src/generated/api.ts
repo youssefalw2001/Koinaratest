@@ -26,7 +26,7 @@ export const RegisterUserBody = zod.object({
   referredBy: zod.string().nullish(),
 });
 
-export const RegisterUserResponse = zod.object({
+export const UserShape = zod.object({
   id: zod.number(),
   telegramId: zod.string(),
   username: zod.string().nullish(),
@@ -37,30 +37,10 @@ export const RegisterUserResponse = zod.object({
   goldCoins: zod.number(),
   totalGcEarned: zod.number(),
   isVip: zod.boolean(),
-  day7BonusClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
-    ),
-  gcMilestoneTrialClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
-    ),
-  referralVipRewardPending: zod
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
-    ),
-  vipPlan: zod
-    .string()
-    .nullish()
-    .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
-    ),
+  day7BonusClaimed: zod.boolean().optional(),
+  gcMilestoneTrialClaimed: zod.boolean().optional(),
+  referralVipRewardPending: zod.boolean().optional(),
+  vipPlan: zod.string().nullish(),
   vipExpiresAt: zod.string().nullish(),
   vipTrialExpiresAt: zod.string().nullish(),
   hasVerified: zod.boolean(),
@@ -80,665 +60,76 @@ export const RegisterUserResponse = zod.object({
   createdAt: zod.string(),
 });
 
-/**
- * @summary Get user by Telegram ID
- */
-export const GetUserParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetUserResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  username: zod.string().nullish(),
-  firstName: zod.string().nullish(),
-  lastName: zod.string().nullish(),
-  photoUrl: zod.string().nullish(),
-  tradeCredits: zod.number(),
-  goldCoins: zod.number(),
-  totalGcEarned: zod.number(),
-  isVip: zod.boolean(),
-  day7BonusClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
-    ),
-  gcMilestoneTrialClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
-    ),
-  referralVipRewardPending: zod
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
-    ),
-  vipPlan: zod
-    .string()
-    .nullish()
-    .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
-    ),
-  vipExpiresAt: zod.string().nullish(),
-  vipTrialExpiresAt: zod.string().nullish(),
-  hasVerified: zod.boolean(),
-  walletAddress: zod.string().nullish(),
-  referredBy: zod.string().nullish(),
-  loginStreak: zod.number(),
-  lastLoginDate: zod.string().nullish(),
-  registrationDate: zod.string().nullish(),
-  dailyGcEarned: zod.number(),
-  dailyGcDate: zod.string().nullish(),
-  weeklyWithdrawnGc: zod.number(),
-  creatorPassPaid: zod.boolean().optional(),
-  creatorPassPaidAt: zod.string().nullish(),
-  creatorCredits: zod.number().optional().default(0),
-  totalCrEarned: zod.number().optional().default(0),
-  totalCrWithdrawn: zod.number().optional().default(0),
-  createdAt: zod.string(),
-});
+export const RegisterUserResponse = UserShape;
+export const GetUserParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetUserResponse = UserShape;
+export const GetUserStatsParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetUserStatsResponse = zod.object({ totalPredictions: zod.number(), wins: zod.number(), losses: zod.number(), winRate: zod.number(), totalTcWagered: zod.number(), totalGcEarned: zod.number(), referralCount: zod.number(), rank: zod.number() });
+export const UpdateWalletParams = zod.object({ telegramId: zod.coerce.string() });
+export const UpdateWalletBody = zod.object({ walletAddress: zod.string() });
+export const UpdateWalletResponse = UserShape;
+export const ActivateVipTrialParams = zod.object({ telegramId: zod.coerce.string() });
+export const ActivateVipTrialBody = zod.object({ reason: zod.enum(["tc_zero", "gc_milestone", "referral"]) });
+export const ActivateVipTrialResponse = UserShape;
+export const UpgradeToVipParams = zod.object({ telegramId: zod.coerce.string() });
+export const UpgradeToVipBody = zod.object({ plan: zod.enum(["monthly"]), senderAddress: zod.string().nullish() });
+export const UpgradeToVipResponse = UserShape;
 
 /**
- * @summary Get user stats (win rate, profit, streak, referrals)
- */
-export const GetUserStatsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetUserStatsResponse = zod.object({
-  totalPredictions: zod.number(),
-  wins: zod.number(),
-  losses: zod.number(),
-  winRate: zod.number(),
-  totalTcWagered: zod.number(),
-  totalGcEarned: zod.number(),
-  referralCount: zod.number(),
-  rank: zod.number(),
-});
-
-/**
- * @summary Link TON wallet address to user
- */
-export const UpdateWalletParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const UpdateWalletBody = zod.object({
-  walletAddress: zod.string(),
-});
-
-export const UpdateWalletResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  username: zod.string().nullish(),
-  firstName: zod.string().nullish(),
-  lastName: zod.string().nullish(),
-  photoUrl: zod.string().nullish(),
-  tradeCredits: zod.number(),
-  goldCoins: zod.number(),
-  totalGcEarned: zod.number(),
-  isVip: zod.boolean(),
-  day7BonusClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
-    ),
-  gcMilestoneTrialClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
-    ),
-  referralVipRewardPending: zod
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
-    ),
-  vipPlan: zod
-    .string()
-    .nullish()
-    .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
-    ),
-  vipExpiresAt: zod.string().nullish(),
-  vipTrialExpiresAt: zod.string().nullish(),
-  hasVerified: zod.boolean(),
-  walletAddress: zod.string().nullish(),
-  referredBy: zod.string().nullish(),
-  loginStreak: zod.number(),
-  lastLoginDate: zod.string().nullish(),
-  registrationDate: zod.string().nullish(),
-  dailyGcEarned: zod.number(),
-  dailyGcDate: zod.string().nullish(),
-  weeklyWithdrawnGc: zod.number(),
-  creatorPassPaid: zod.boolean().optional(),
-  creatorPassPaidAt: zod.string().nullish(),
-  creatorCredits: zod.number().optional().default(0),
-  totalCrEarned: zod.number().optional().default(0),
-  totalCrWithdrawn: zod.number().optional().default(0),
-  createdAt: zod.string(),
-});
-
-/**
- * @summary Activate a 24-hour VIP trial (TC=0, GC milestone, or referral trigger)
- */
-export const ActivateVipTrialParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const ActivateVipTrialBody = zod.object({
-  reason: zod.enum(["tc_zero", "gc_milestone", "referral"]),
-});
-
-export const ActivateVipTrialResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  username: zod.string().nullish(),
-  firstName: zod.string().nullish(),
-  lastName: zod.string().nullish(),
-  photoUrl: zod.string().nullish(),
-  tradeCredits: zod.number(),
-  goldCoins: zod.number(),
-  totalGcEarned: zod.number(),
-  isVip: zod.boolean(),
-  day7BonusClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
-    ),
-  gcMilestoneTrialClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
-    ),
-  referralVipRewardPending: zod
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
-    ),
-  vipPlan: zod
-    .string()
-    .nullish()
-    .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
-    ),
-  vipExpiresAt: zod.string().nullish(),
-  vipTrialExpiresAt: zod.string().nullish(),
-  hasVerified: zod.boolean(),
-  walletAddress: zod.string().nullish(),
-  referredBy: zod.string().nullish(),
-  loginStreak: zod.number(),
-  lastLoginDate: zod.string().nullish(),
-  registrationDate: zod.string().nullish(),
-  dailyGcEarned: zod.number(),
-  dailyGcDate: zod.string().nullish(),
-  weeklyWithdrawnGc: zod.number(),
-  creatorPassPaid: zod.boolean().optional(),
-  creatorPassPaidAt: zod.string().nullish(),
-  creatorCredits: zod.number().optional().default(0),
-  totalCrEarned: zod.number().optional().default(0),
-  totalCrWithdrawn: zod.number().optional().default(0),
-  createdAt: zod.string(),
-});
-
-/**
- * @summary Subscribe to VIP (deduct TC or verify on-chain TON payment)
- */
-export const UpgradeToVipParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const UpgradeToVipBody = zod.object({
-  plan: zod.enum(["monthly"]),
-  senderAddress: zod
-    .string()
-    .nullish()
-    .describe(
-      "The sender's TON wallet address (user-friendly or raw). Used to locate the on-chain payment transaction.",
-    ),
-});
-
-export const UpgradeToVipResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  username: zod.string().nullish(),
-  firstName: zod.string().nullish(),
-  lastName: zod.string().nullish(),
-  photoUrl: zod.string().nullish(),
-  tradeCredits: zod.number(),
-  goldCoins: zod.number(),
-  totalGcEarned: zod.number(),
-  isVip: zod.boolean(),
-  day7BonusClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the Day-7 survivor bonus (+3000 TC) has been awarded; decoupled from hadVipTrial",
-    ),
-  gcMilestoneTrialClaimed: zod
-    .boolean()
-    .optional()
-    .describe(
-      "True once the GC-milestone trial (goldCoins >= 5000) has been granted; prevents re-claiming",
-    ),
-  referralVipRewardPending: zod
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true when a user this person referred purchases VIP; cleared after trial is activated",
-    ),
-  vipPlan: zod
-    .string()
-    .nullish()
-    .describe(
-      "Active VIP plan identifier: ton_weekly, ton_monthly, or null",
-    ),
-  vipExpiresAt: zod.string().nullish(),
-  vipTrialExpiresAt: zod.string().nullish(),
-  hasVerified: zod.boolean(),
-  walletAddress: zod.string().nullish(),
-  referredBy: zod.string().nullish(),
-  loginStreak: zod.number(),
-  lastLoginDate: zod.string().nullish(),
-  registrationDate: zod.string().nullish(),
-  dailyGcEarned: zod.number(),
-  dailyGcDate: zod.string().nullish(),
-  weeklyWithdrawnGc: zod.number(),
-  creatorPassPaid: zod.boolean().optional(),
-  creatorPassPaidAt: zod.string().nullish(),
-  creatorCredits: zod.number().optional().default(0),
-  totalCrEarned: zod.number().optional().default(0),
-  totalCrWithdrawn: zod.number().optional().default(0),
-  createdAt: zod.string(),
-});
-
-/**
- * @summary Place a trade prediction (Long or Short) — deducts Trade Credits
+ * @summary Place a Quick Trade prediction (UP/DOWN) — deducts Trade Credits
  */
 export const createPredictionBodyDurationDefault = 60;
-export const createPredictionBodyMultiplierDefault = 1.85;
-
+export const createPredictionBodyMultiplierDefault = 1.35;
 export const CreatePredictionBody = zod.object({
   telegramId: zod.string(),
   direction: zod.enum(["long", "short"]),
   amount: zod.number(),
   entryPrice: zod.number(),
-  duration: zod
-    .union([zod.literal(6), zod.literal(10), zod.literal(30), zod.literal(60)])
-    .default(createPredictionBodyDurationDefault)
-    .describe("Round duration in seconds. Allowed: 6, 10, 30, 60."),
-  multiplier: zod
-    .number()
-    .default(createPredictionBodyMultiplierDefault)
-    .describe(
-      "GC payout multiplier for the selected tier (+ optional VIP bonus). Validated server-side against the duration.",
-    ),
+  duration: zod.union([zod.literal(30), zod.literal(60), zod.literal(120)]).default(createPredictionBodyDurationDefault).describe("Quick Trade duration in seconds. Allowed: 30, 60, 120."),
+  multiplier: zod.number().default(createPredictionBodyMultiplierDefault).describe("GC payout multiplier for the selected tier. Validated server-side."),
 });
 
-/**
- * @summary Resolve a prediction — awards Gold Coins on win
- */
-export const ResolvePredictionParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-export const ResolvePredictionBody = zod.object({
-  exitPrice: zod.number(),
-});
-
-export const ResolvePredictionResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  direction: zod.string(),
-  amount: zod.number(),
-  entryPrice: zod.number(),
-  exitPrice: zod.number().nullish(),
-  status: zod.enum(["pending", "won", "lost"]),
-  payout: zod.number().nullish(),
-  duration: zod
-    .number()
-    .optional()
-    .describe("Round duration in seconds used for this prediction."),
-  multiplier: zod
-    .number()
-    .optional()
-    .describe(
-      "GC payout multiplier applied to the winning bet for this prediction.",
-    ),
-  autoResolved: zod.boolean(),
-  createdAt: zod.string(),
-  resolvedAt: zod.string().nullish(),
-});
-
-/**
- * @summary Get recent predictions for a user
- */
-export const GetUserPredictionsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
+export const ResolvePredictionParams = zod.object({ id: zod.coerce.number() });
+export const ResolvePredictionBody = zod.object({ exitPrice: zod.number() });
+export const ResolvePredictionResponse = zod.object({ id: zod.number(), telegramId: zod.string(), direction: zod.string(), amount: zod.number(), entryPrice: zod.number(), exitPrice: zod.number().nullish(), status: zod.enum(["pending", "won", "lost"]), payout: zod.number().nullish(), duration: zod.number().optional(), multiplier: zod.number().optional(), autoResolved: zod.boolean(), createdAt: zod.string(), resolvedAt: zod.string().nullish() });
+export const GetUserPredictionsParams = zod.object({ telegramId: zod.coerce.string() });
 export const getUserPredictionsQueryLimitDefault = 20;
-
-export const GetUserPredictionsQueryParams = zod.object({
-  limit: zod.coerce.number().default(getUserPredictionsQueryLimitDefault),
-});
-
-export const GetUserPredictionsResponseItem = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  direction: zod.string(),
-  amount: zod.number(),
-  entryPrice: zod.number(),
-  exitPrice: zod.number().nullish(),
-  status: zod.enum(["pending", "won", "lost"]),
-  payout: zod.number().nullish(),
-  duration: zod
-    .number()
-    .optional()
-    .describe("Round duration in seconds used for this prediction."),
-  multiplier: zod
-    .number()
-    .optional()
-    .describe(
-      "GC payout multiplier applied to the winning bet for this prediction.",
-    ),
-  autoResolved: zod.boolean(),
-  createdAt: zod.string(),
-  resolvedAt: zod.string().nullish(),
-});
-export const GetUserPredictionsResponse = zod.array(
-  GetUserPredictionsResponseItem,
-);
-
-/**
- * @summary Recent Gold Coin wins by VIP users (anonymized) for the FOMO ticker
- */
-export const GetVipActivityResponseItem = zod.object({
-  displayName: zod.string(),
-  payout: zod.number(),
-  resolvedAt: zod.string(),
-});
+export const GetUserPredictionsQueryParams = zod.object({ limit: zod.coerce.number().default(getUserPredictionsQueryLimitDefault) });
+export const GetUserPredictionsResponseItem = ResolvePredictionResponse;
+export const GetUserPredictionsResponse = zod.array(GetUserPredictionsResponseItem);
+export const GetVipActivityResponseItem = zod.object({ displayName: zod.string(), payout: zod.number(), resolvedAt: zod.string() });
 export const GetVipActivityResponse = zod.array(GetVipActivityResponseItem);
-
-/**
- * @summary Get top players by Gold Coins earned
- */
 export const getLeaderboardQueryLimitDefault = 10;
-
-export const GetLeaderboardQueryParams = zod.object({
-  limit: zod.coerce.number().default(getLeaderboardQueryLimitDefault),
-});
-
-export const GetLeaderboardResponseItem = zod.object({
-  telegramId: zod.string(),
-  username: zod.string().nullish(),
-  firstName: zod.string().nullish(),
-  goldCoins: zod.number(),
-  totalGcEarned: zod.number(),
-  isVip: zod.boolean(),
-  rank: zod.number(),
-});
+export const GetLeaderboardQueryParams = zod.object({ limit: zod.coerce.number().default(getLeaderboardQueryLimitDefault) });
+export const GetLeaderboardResponseItem = zod.object({ telegramId: zod.string(), username: zod.string().nullish(), firstName: zod.string().nullish(), goldCoins: zod.number(), totalGcEarned: zod.number(), isVip: zod.boolean(), rank: zod.number() });
 export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem);
-
-/**
- * @summary List all available quests
- */
-export const ListQuestsResponseItem = zod.object({
-  id: zod.number(),
-  title: zod.string(),
-  description: zod.string(),
-  reward: zod.number(),
-  externalUrl: zod.string(),
-  category: zod.string(),
-  isVipOnly: zod.boolean(),
-  iconName: zod.string(),
-});
+export const ListQuestsResponseItem = zod.object({ id: zod.number(), title: zod.string(), description: zod.string(), reward: zod.number(), externalUrl: zod.string(), category: zod.string(), isVipOnly: zod.boolean(), iconName: zod.string() });
 export const ListQuestsResponse = zod.array(ListQuestsResponseItem);
-
-/**
- * @summary Claim Trade Credits reward for completing a quest
- */
-export const ClaimQuestParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-export const ClaimQuestBody = zod.object({
-  telegramId: zod.string(),
-});
-
-export const ClaimQuestResponse = zod.object({
-  tcAwarded: zod.number(),
-  newTcBalance: zod.number(),
-  message: zod.string(),
-});
-
-/**
- * @summary Get today's ad watch count and remaining cap for a user
- */
-export const GetAdStatusParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetAdStatusResponse = zod.object({
-  adsWatchedToday: zod.number(),
-  dailyCap: zod.number(),
-});
-
-/**
- * @summary Record a rewarded ad watch and credit Trade Credits
- */
-export const WatchAdBody = zod.object({
-  telegramId: zod.string(),
-});
-
-export const WatchAdResponse = zod.object({
-  tcAwarded: zod.number(),
-  newTcBalance: zod.number(),
-  adsWatchedToday: zod.number(),
-  dailyCap: zod.number(),
-  message: zod.string(),
-});
-
-/**
- * @summary Confirm one-time identity verification TON payment (sets hasVerified=true)
- */
-export const VerifyWithdrawalFeeBody = zod.object({
-  telegramId: zod.string(),
-  senderAddress: zod.string().describe("TON wallet address of the sender"),
-});
-
-export const VerifyWithdrawalFeeResponse = zod.object({
-  success: zod.boolean(),
-  alreadyVerified: zod.boolean(),
-});
-
-/**
- * @summary Request a GC withdrawal (deducts GC, queues payout)
- */
-export const RequestWithdrawalBody = zod.object({
-  telegramId: zod.string(),
-  gcAmount: zod.number().describe("Amount of Gold Coins to withdraw"),
-  usdtWallet: zod.string().describe("USDT TRC-20 wallet address for payout"),
-});
-
-export const RequestWithdrawalResponse = zod.object({
-  success: zod.boolean(),
-  gcDeducted: zod.number(),
-  netUsd: zod.number(),
-  feeUsd: zod.number(),
-  estimatedTime: zod.string(),
-  weeklyRemainingUsd: zod.string(),
-  weeklyRemainingGc: zod.number(),
-  newGcBalance: zod.number(),
-});
-
-/**
- * @summary Get withdrawal history and weekly cap status for a user
- */
-export const GetWithdrawalsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetWithdrawalsResponse = zod.object({
-  withdrawals: zod.array(
-    zod.object({
-      id: zod.number(),
-      telegramId: zod.string(),
-      amountGc: zod.number(),
-      feePct: zod.number(),
-      feeGc: zod.number(),
-      netGc: zod.number(),
-      usdValue: zod.number(),
-      netUsd: zod.number(),
-      status: zod.enum(["pending", "processing", "complete", "failed"]),
-      walletAddress: zod.string(),
-      txHash: zod.string().nullish(),
-      isVip: zod.number(),
-      tier: zod.string(),
-      processesAt: zod.string().nullish(),
-      createdAt: zod.string(),
-    }),
-  ),
-  weeklyRemainingGc: zod.number(),
-  weeklyMaxGc: zod.number(),
-  weeklyUsedGc: zod.number(),
-  hasVerified: zod.boolean(),
-});
-
-/**
- * @summary Update withdrawal status (admin)
- */
-export const UpdateWithdrawalStatusParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-export const UpdateWithdrawalStatusBody = zod.object({
-  status: zod.enum(["pending", "processing", "complete", "failed"]).optional(),
-  txHash: zod.string().optional(),
-});
-
-export const UpdateWithdrawalStatusResponse = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  amountGc: zod.number(),
-  feePct: zod.number(),
-  feeGc: zod.number(),
-  netGc: zod.number(),
-  usdValue: zod.number(),
-  netUsd: zod.number(),
-  status: zod.enum(["pending", "processing", "complete", "failed"]),
-  walletAddress: zod.string(),
-  txHash: zod.string().nullish(),
-  isVip: zod.number(),
-  tier: zod.string(),
-  processesAt: zod.string().nullish(),
-  createdAt: zod.string(),
-});
-
-/**
- * @summary Claim daily login reward in Trade Credits (streak-based)
- */
-export const ClaimDailyRewardBody = zod.object({
-  telegramId: zod.string(),
-});
-
-export const ClaimDailyRewardResponse = zod.object({
-  tcAwarded: zod.number(),
-  newTcBalance: zod.number(),
-  streak: zod.number(),
-  message: zod.string(),
-  isVipBonus: zod.boolean(),
-});
-
-/**
- * @summary Get referral count and pending GC earnings for a user
- */
-export const GetReferralStatsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetReferralStatsResponse = zod.object({
-  referralCount: zod.number(),
-  pendingGc: zod.number(),
-  isUnlocked: zod.boolean(),
-  unlocksAt: zod.string().nullish(),
-});
-
-/**
- * @summary Purchase a gem powerup with GC
- */
-export const PurchaseGemBody = zod.object({
-  telegramId: zod.string(),
-  gemType: zod.enum([
-    "starter_boost",
-    "big_swing",
-    "streak_saver",
-    "mystery_box",
-    "daily_refill",
-    "double_or_nothing",
-    "hot_streak",
-    "double_down",
-    "precision_lock",
-    "comeback_king",
-    "revenge_shield",
-    "safe_reveal",
-    "gem_magnet",
-    "second_chance",
-  ]),
-});
-
-/**
- * @summary Get all active powerup gems for a user
- */
-export const GetActiveGemsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetActiveGemsResponseItem = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  gemType: zod.string(),
-  usesRemaining: zod.number(),
-  expiresAt: zod.string().nullish(),
-  createdAt: zod.string(),
-});
+export const ClaimQuestParams = zod.object({ id: zod.coerce.number() });
+export const ClaimQuestBody = zod.object({ telegramId: zod.string() });
+export const ClaimQuestResponse = zod.object({ tcAwarded: zod.number(), newTcBalance: zod.number(), message: zod.string() });
+export const GetAdStatusParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetAdStatusResponse = zod.object({ adsWatchedToday: zod.number(), dailyCap: zod.number() });
+export const WatchAdBody = zod.object({ telegramId: zod.string() });
+export const WatchAdResponse = zod.object({ tcAwarded: zod.number(), newTcBalance: zod.number(), adsWatchedToday: zod.number(), dailyCap: zod.number(), message: zod.string() });
+export const VerifyWithdrawalFeeBody = zod.object({ telegramId: zod.string(), senderAddress: zod.string() });
+export const VerifyWithdrawalFeeResponse = zod.object({ success: zod.boolean(), alreadyVerified: zod.boolean() });
+export const RequestWithdrawalBody = zod.object({ telegramId: zod.string(), gcAmount: zod.number(), usdtWallet: zod.string() });
+export const RequestWithdrawalResponse = zod.object({ success: zod.boolean(), gcDeducted: zod.number(), netUsd: zod.number(), feeUsd: zod.number(), estimatedTime: zod.string(), weeklyRemainingUsd: zod.string(), weeklyRemainingGc: zod.number(), newGcBalance: zod.number() });
+export const GetWithdrawalsParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetWithdrawalsResponse = zod.object({ withdrawals: zod.array(zod.any()), weeklyRemainingGc: zod.number(), weeklyMaxGc: zod.number(), weeklyUsedGc: zod.number(), hasVerified: zod.boolean() });
+export const UpdateWithdrawalStatusParams = zod.object({ id: zod.coerce.number() });
+export const UpdateWithdrawalStatusBody = zod.object({ status: zod.enum(["pending", "processing", "complete", "failed"]).optional(), txHash: zod.string().optional() });
+export const UpdateWithdrawalStatusResponse = zod.any();
+export const ClaimDailyRewardBody = zod.object({ telegramId: zod.string() });
+export const ClaimDailyRewardResponse = zod.object({ tcAwarded: zod.number(), newTcBalance: zod.number(), streak: zod.number(), message: zod.string(), isVipBonus: zod.boolean() });
+export const GetReferralStatsParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetReferralStatsResponse = zod.object({ referralCount: zod.number(), pendingGc: zod.number(), isUnlocked: zod.boolean(), unlocksAt: zod.string().nullish() });
+export const PurchaseGemBody = zod.object({ telegramId: zod.string(), gemType: zod.enum(["starter_boost", "big_swing", "streak_saver", "mystery_box", "daily_refill", "double_or_nothing", "hot_streak", "double_down", "precision_lock", "comeback_king", "revenge_shield", "safe_reveal", "gem_magnet", "second_chance", "battle_shield", "battle_pass", "battle_streak_saver", "battle_priority_queue"]) });
+export const GetActiveGemsParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetActiveGemsResponseItem = zod.object({ id: zod.number(), telegramId: zod.string(), gemType: zod.string(), usesRemaining: zod.number(), expiresAt: zod.string().nullish(), createdAt: zod.string() });
 export const GetActiveGemsResponse = zod.array(GetActiveGemsResponseItem);
-
-/**
- * @summary Submit a content post URL for VIP reward review
- */
-export const SubmitContentBody = zod.object({
-  telegramId: zod.string(),
-  platform: zod.enum(["tiktok", "instagram", "youtube", "x"]),
-  url: zod.string(),
-});
-
-/**
- * @summary Get all content submissions for a user
- */
-export const GetContentSubmissionsParams = zod.object({
-  telegramId: zod.coerce.string(),
-});
-
-export const GetContentSubmissionsResponseItem = zod.object({
-  id: zod.number(),
-  telegramId: zod.string(),
-  platform: zod.string(),
-  url: zod.string(),
-  viewCount: zod.number(),
-  status: zod.string(),
-  gcAwarded: zod.number(),
-  createdAt: zod.string(),
-  updatedAt: zod.string().optional(),
-});
-export const GetContentSubmissionsResponse = zod.array(
-  GetContentSubmissionsResponseItem,
-);
+export const SubmitContentBody = zod.object({ telegramId: zod.string(), platform: zod.enum(["tiktok", "instagram", "youtube", "x"]), url: zod.string() });
+export const GetContentSubmissionsParams = zod.object({ telegramId: zod.coerce.string() });
+export const GetContentSubmissionsResponseItem = zod.object({ id: zod.number(), telegramId: zod.string(), platform: zod.string(), url: zod.string(), viewCount: zod.number(), status: zod.string(), gcAwarded: zod.number(), createdAt: zod.string(), updatedAt: zod.string().optional() });
+export const GetContentSubmissionsResponse = zod.array(GetContentSubmissionsResponseItem);
