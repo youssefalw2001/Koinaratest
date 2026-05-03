@@ -1,3 +1,9 @@
+interface TelegramHapticFeedback {
+  impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+  notificationOccurred: (type: "error" | "success" | "warning") => void;
+  selectionChanged: () => void;
+}
+
 interface TelegramWebApp {
   openTelegramLink: (url: string) => void;
   openLink: (url: string) => void;
@@ -16,6 +22,7 @@ interface TelegramWebApp {
     };
     start_param?: string;
   };
+  HapticFeedback?: TelegramHapticFeedback;
 }
 
 interface Window {

@@ -12,6 +12,8 @@ import marketRouter from "./market";
 import featuresRouter from "./features";
 import exchangeRouter from "./exchange";
 import minesRouter from "./mines";
+import commissionsRouter from "./commissions";
+import creatorPassRouter from "./creatorPass";
 
 const router: IRouter = Router();
 
@@ -28,5 +30,7 @@ router.use(marketRouter);
 router.use(featuresRouter);
 router.use(exchangeRouter);
 router.use(minesRouter);
+router.use(commissionsRouter);
+router.use(creatorPassRouter);
 
 export default router;

@@ -73,6 +73,10 @@ export const RegisterUserResponse = zod.object({
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
   affiliateCommissionGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional().default(false),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  directReferralCount: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -130,6 +134,10 @@ export const GetUserResponse = zod.object({
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
   affiliateCommissionGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional().default(false),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  directReferralCount: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -209,6 +217,10 @@ export const UpdateWalletResponse = zod.object({
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
   affiliateCommissionGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional().default(false),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  directReferralCount: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -270,6 +282,10 @@ export const ActivateVipTrialResponse = zod.object({
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
   affiliateCommissionGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional().default(false),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  directReferralCount: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 
@@ -337,6 +353,10 @@ export const UpgradeToVipResponse = zod.object({
   dailyGcDate: zod.string().nullish(),
   weeklyWithdrawnGc: zod.number(),
   affiliateCommissionGc: zod.number(),
+  creatorPassPaid: zod.boolean().optional().default(false),
+  creatorCredits: zod.number().optional().default(0),
+  totalCrEarned: zod.number().optional().default(0),
+  directReferralCount: zod.number().optional().default(0),
   createdAt: zod.string(),
 });
 

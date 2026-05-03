@@ -21,6 +21,8 @@ import { LanguageProvider } from "@/lib/language";
 import Terminal from "./pages/Terminal";
 import Mines from "./pages/Mines";
 import Earn from "./pages/Earn";
+import EarnCreatorLaunch from "./pages/EarnCreatorLaunch";
+import CreatorCenter from "./pages/CreatorCenter";
 import Shop from "./pages/Shop";
 import Wallet from "./pages/Wallet";
 import Leaderboard from "./pages/Leaderboard";
@@ -287,7 +289,8 @@ function Router() {
         <Route path="/crash" component={() => <Bounded><Mines /></Bounded>} />
         <Route path="/lootbox" component={() => <Bounded><Lootbox /></Bounded>} />
         <Route path="/exchange" component={() => <Bounded><Exchange /></Bounded>} />
-        <Route path="/earn" component={() => <Bounded><Earn /></Bounded>} />
+        <Route path="/earn" component={() => <Bounded><EarnCreatorLaunch /></Bounded>} />
+        <Route path="/creator" component={() => <Bounded><CreatorCenter /></Bounded>} />
         <Route path="/shop" component={() => <Bounded><Shop /></Bounded>} />
         <Route path="/wallet" component={() => <Bounded><Wallet /></Bounded>} />
         <Route path="/leaderboard" component={() => <Bounded><Leaderboard /></Bounded>} />

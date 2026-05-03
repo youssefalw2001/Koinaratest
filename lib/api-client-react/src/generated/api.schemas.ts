@@ -106,6 +106,10 @@ export interface User {
   dailyGcDate?: string | null;
   weeklyWithdrawnGc: number;
   affiliateCommissionGc: number;
+  creatorPassPaid?: boolean;
+  creatorCredits?: number;
+  totalCrEarned?: number;
+  directReferralCount?: number;
   createdAt: string;
 }
 

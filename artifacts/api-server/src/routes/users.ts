@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-zod";
 import { serializeRow } from "../lib/serialize";
 import { resolveAuthenticatedTelegramId } from "../lib/telegramAuth";
+import { processCommission } from "./commissions";
 
 const router: IRouter = Router();
 
@@ -197,6 +198,18 @@ router.post("/users/register", async (req, res): Promise<void> => {
     return;
   }
 
+  // Validate referral code: must be an existing user and not a self-referral
+  let resolvedReferredBy: string | null = null;
+  if (referredBy && referredBy !== telegramId) {
+    const [referrer] = await db
+      .select({ telegramId: usersTable.telegramId })
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, referredBy))
+      .limit(1);
+    if (referrer) resolvedReferredBy = referrer.telegramId;
+    // If referrer not found: ignore silently (no error)
+  }
+
   const [newUser] = await db
     .insert(usersTable)
     .values({
@@ -205,7 +218,7 @@ router.post("/users/register", async (req, res): Promise<void> => {
       firstName,
       lastName,
       photoUrl,
-      referredBy: referredBy ?? null,
+      referredBy: resolvedReferredBy,
       tradeCredits: 500,
       goldCoins: 0,
       totalGcEarned: 0,
@@ -213,12 +226,12 @@ router.post("/users/register", async (req, res): Promise<void> => {
     })
     .returning();
 
-  // Referral reward: credit referrer with 200 TC when a new user joins via their link
-  if (referredBy) {
+  // Referral signup bonus: credit referrer with 200 TC when a new user joins via their link
+  if (resolvedReferredBy) {
     await db
       .update(usersTable)
       .set({ tradeCredits: sql`${usersTable.tradeCredits} + 200` })
-      .where(eq(usersTable.telegramId, referredBy));
+      .where(eq(usersTable.telegramId, resolvedReferredBy));
   }
 
   res.status(200).json(USER_SCHEMA(newUser as Record<string, unknown>));
@@ -245,7 +258,14 @@ router.get("/users/:telegramId", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(GetUserResponse.parse(serializeRow(user as Record<string, unknown>)));
+  const [directCountRow] = await db
+    .select({ cnt: count() })
+    .from(usersTable)
+    .where(eq(usersTable.referredBy, params.data.telegramId));
+  const directReferralCount = Number(directCountRow?.cnt ?? 0);
+
+  const serialized = serializeRow(user as Record<string, unknown>);
+  res.json(GetUserResponse.parse({ ...serialized, directReferralCount }));
 });
 
 router.get("/users/:telegramId/stats", async (req, res): Promise<void> => {
@@ -469,6 +489,18 @@ router.post("/users/:telegramId/vip/subscribe", async (req, res): Promise<void> 
         }
       }
     }
+
+    // CR commission system: processCommission for Creator Pass holders
+    // VIP monthly price is ~$5.99; this runs alongside the existing GC affiliate commission.
+    await processCommission({
+      buyerTelegramId: params.data.telegramId,
+      purchaseType: "vip_purchase",
+      grossUsd: 5.99,
+      isRenewal: !!(user.isVip && user.vipExpiresAt && new Date(user.vipExpiresAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+    }).catch((err) => {
+      // Log but never fail the VIP upgrade due to commission errors
+      console.error("[VIP] processCommission failed:", err);
+    });
 
     res.json(UpgradeToVipResponse.parse(serializeRow(updated as Record<string, unknown>)));
     return;

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowDownUp, Gem, Zap, Shield, Package, RefreshCw, Crown, Lock, CheckCircle,
   Wallet, Rocket, Flame, Star, TrendingUp, Target, Bomb, Eye, Magnet, RotateCcw,
-  Swords, ChevronDown,
+  Swords, ChevronDown, X,
 } from "lucide-react";
 import { usePurchaseGem, useGetActiveGems, getGetActiveGemsQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { useTelegram } from "@/lib/TelegramProvider";
