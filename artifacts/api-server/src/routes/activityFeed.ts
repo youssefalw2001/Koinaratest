@@ -35,13 +35,15 @@ router.get("/activity/feed", async (_req, res): Promise<void> => {
     .orderBy(desc(withdrawalQueueTable.createdAt))
     .limit(100);
 
-  const items: FeedRow[] = rows.map((row) => ({
-    type: "withdrawal",
-    name: safeName(row.firstName, row.username, row.telegramId),
-    amountUsd: Number(row.netUsd ?? 0),
-    network: row.payoutNetwork === "usdt_ton" ? "USDT TON" : "USDT",
-    createdAt: row.createdAt,
-  })).filter((row) => row.amountUsd > 0);
+  const items = rows
+    .map((row): FeedRow => ({
+      type: "withdrawal",
+      name: safeName(row.firstName, row.username, row.telegramId),
+      amountUsd: Number(row.netUsd ?? 0),
+      network: row.payoutNetwork === "usdt_ton" ? "USDT TON" : "USDT",
+      createdAt: row.createdAt,
+    }))
+    .filter((row): row is FeedRow => row.amountUsd > 0);
 
   res.json({ items });
 });
