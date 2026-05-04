@@ -10,7 +10,6 @@ import { useLanguage } from "@/lib/language";
 const PRODUCTION_API_URL = "https://workspaceapi-server-production-4e16.up.railway.app";
 const API_ROOT = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || PRODUCTION_API_URL);
 const API_BASE = `${API_ROOT}/api`;
-const INR_PER_USD = 83.5;
 
 const tabs = [
   { path: "/creator", icon: Rocket, label: "Creator" },
@@ -24,7 +23,7 @@ type PublicActivity = { type?: string; name?: string; amountUsd?: number; networ
 
 const COMMUNITY_NAMES = [
   "Aisha", "Faisal", "Youssef", "Mona", "Noura", "Omar", "Rohan", "Aarav", "Isha", "Priya",
-  "@crypto_hawk", "@koinhunter", "@india_alpha", "@btc_rider", "@desi_trader", "@tonpilot",
+  "@crypto_hawk", "@koinhunter", "@mena_alpha", "@btc_rider", "@desi_trader", "@tonpilot",
   "Fatima", "Hassan", "Sara", "Ali", "Rahul", "Meera", "Aditya", "Kavya",
 ];
 
@@ -36,9 +35,8 @@ function buildCommunityTicker(language: "en" | "hi" | "ar"): string[] {
 
 function languageShortLabel(language: "en" | "hi" | "ar"): string { return language === "hi" ? "EN" : "HI"; }
 function languageFullLabel(language: "en" | "hi" | "ar"): string { return language === "hi" ? "English" : "हिंदी"; }
-function crToInr(cr: number): number { return Math.round((cr / 1000) * INR_PER_USD); }
 function formatCrPill(cr: number): string {
-  if (cr >= 1000) return `${cr.toLocaleString()} CR ≈ ₹${crToInr(cr)}`;
+  if (cr >= 1000) return `${cr.toLocaleString()} CR ≈ AED ${((cr / 1000) * 3.67).toFixed(2)}`;
   return `${cr.toLocaleString()} CR`;
 }
 
@@ -65,7 +63,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         const items = (Array.isArray(data.items) ? data.items : [])
           .filter((item) => item.type === "withdrawal" && item.name && Number(item.amountUsd) > 0)
           .slice(0, 100)
-          .map((item) => `${item.name} withdrew $${Number(item.amountUsd).toFixed(2)} ${item.network ?? "USDT"}`);
+          .map((item) => `${item.name} withdrew ${Number(item.amountUsd).toFixed(2)} ${item.network ?? "USDT"}`);
         if (!cancelled) setRealTickerItems(items);
       } catch {}
     };
@@ -105,7 +103,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="px-5 pb-3 flex items-center gap-2 flex-wrap">
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/25 bg-[#FFD700]/8 px-2.5 py-1.5"><Trophy size={10} className="text-[#FFD700]"/><span className="font-mono text-[9px] font-black text-[#FFD700] tracking-[0.08em]">BETA #{betaNumber ?? "—"}/{betaLimit}</span></div>
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#4DA3FF] shadow-[0_0_8px_#4DA3FF]" /><span className="font-mono text-[11px] font-bold text-[#8BC3FF] tabular-nums">{(user.tradeCredits ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-white/30">Play TC</span></div>
-            <div id="gc-balance-pill" className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/20 bg-[#FFD700]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-[11px] font-bold text-[#FFD700] tabular-nums">{(user.goldCoins ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-[#FFD700]/40">Play Coins</span><span className="font-mono text-[8px] text-white/20 ml-1">≈ {formatGcUsd(user.goldCoins ?? 0, gcRate)}</span></div>
+            <div id="gc-balance-pill" className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/20 bg-[#FFD700]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" /><span className="font-mono text-[11px] font-bold text-[#FFD700] tabular-nums">{(user.goldCoins ?? 0).toLocaleString()}</span><span className="font-mono text-[8px] text-[#FFD700]/40">Game GC</span><span className="font-mono text-[8px] text-white/20 ml-1">≈ {formatGcUsd(user.goldCoins ?? 0, gcRate)}</span></div>
             {creatorPassPaid ? <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#00F5A0]/30 bg-[#00F5A0]/5 px-2.5 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-[#00F5A0] shadow-[0_0_8px_#00F5A0]"/><span className="font-mono text-[11px] font-bold text-[#00F5A0] tabular-nums">{formatCrPill(creatorCredits)}</span></div> : <Link href="/creator"><span className="inline-flex items-center gap-1 rounded-lg border border-[#00F5A0]/25 bg-[#00F5A0]/7 px-2.5 py-1.5 font-mono text-[9px] font-black text-[#00F5A0]"><Rocket size={10}/>Creator</span></Link>}
             {vip && <div className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[#FFD700]/30 bg-[#FFD700]/10 px-2.5 py-1.5"><Crown size={11} className="text-[#FFD700]" /><span className="font-mono text-[9px] font-black text-[#FFD700] tracking-[0.12em]">VIP</span></div>}
           </div>
@@ -115,7 +113,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="flex-1 overflow-y-auto pb-24"><AnimatePresence mode="wait"><motion.div key={location} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}>{children}</motion.div></AnimatePresence></main>
-      <nav className="fixed bottom-0 left-0 right-0 max-w-[420px] mx-auto z-50 border-t border-white/[0.05] premium-glass px-1"><div className="flex justify-around items-center h-20">{tabs.map((tab) => { const { path, icon: Icon } = tab; const active = location === path || (path !== "/" && location.startsWith(path)); return <Link key={path} href={path} className="relative group"><div className={`flex flex-col items-center py-2 px-1.5 gap-1.5 transition-all duration-300 ${active ? "text-[#FFD700]" : "text-white/30 hover:text-white/50"}`}><div className="relative">{active && <motion.div layoutId="nav-glow" className="absolute -inset-2 bg-[#FFD700]/10 blur-md rounded-full" />}<Icon size={18} className={`relative z-10 ${active ? "drop-shadow-[0_0_10px_rgba(255,215,0,0.5)]" : ""}`} strokeWidth={active ? 2.5 : 2} />{tab.path === "/creator" && (!creatorPassPaid ? (<div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-[#00F5A0]" style={{ animation: "creator-pulse 2s ease-in-out infinite", boxShadow: "0 0 6px #00F5A0" }} />) : creatorCredits >= 1000 ? (<div className="absolute -top-1 -right-2 rounded-full bg-[#00F5A0] text-black font-black leading-none px-1 py-0.5" style={{ fontSize: "8px" }}>{"₹" + crToInr(creatorCredits)}</div>) : null)}</div><span className={`text-[7px] font-black tracking-[0.06em] uppercase relative z-10 ${active ? "opacity-100" : "opacity-60"}`}>{tab.label}</span>{active && <motion.div layoutId="nav-indicator" className="absolute -bottom-1 w-1 h-1 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" />}</div></Link>; })}</div></nav>
+      <nav className="fixed bottom-0 left-0 right-0 max-w-[420px] mx-auto z-50 border-t border-white/[0.05] premium-glass px-1"><div className="flex justify-around items-center h-20">{tabs.map((tab) => { const { path, icon: Icon } = tab; const active = location === path || (path !== "/" && location.startsWith(path)); return <Link key={path} href={path} className="relative group"><div className={`flex flex-col items-center py-2 px-1.5 gap-1.5 transition-all duration-300 ${active ? "text-[#FFD700]" : "text-white/30 hover:text-white/50"}`}><div className="relative">{active && <motion.div layoutId="nav-glow" className="absolute -inset-2 bg-[#FFD700]/10 blur-md rounded-full" />}<Icon size={18} className={`relative z-10 ${active ? "drop-shadow-[0_0_10px_rgba(255,215,0,0.5)]" : ""}`} strokeWidth={active ? 2.5 : 2} />{tab.path === "/creator" && (!creatorPassPaid ? (<div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-[#00F5A0]" style={{ animation: "creator-pulse 2s ease-in-out infinite", boxShadow: "0 0 6px #00F5A0" }} />) : creatorCredits >= 1000 ? (<div className="absolute -top-1 -right-2 rounded-full bg-[#00F5A0] text-black font-black leading-none px-1 py-0.5" style={{ fontSize: "8px" }}>{"AED " + ((creatorCredits / 1000) * 3.67).toFixed(0)}</div>) : null)}</div><span className={`text-[7px] font-black tracking-[0.06em] uppercase relative z-10 ${active ? "opacity-100" : "opacity-60"}`}>{tab.label}</span>{active && <motion.div layoutId="nav-indicator" className="absolute -bottom-1 w-1 h-1 rounded-full bg-[#FFD700] shadow-[0_0_8px_#FFD700]" />}</div></Link>; })}</div></nav>
     </div>
   );
 }
