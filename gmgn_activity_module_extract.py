@@ -6,12 +6,15 @@ import urllib.request
 from pathlib import Path
 
 URL = "https://gmgn.ai/_next/static/chunks/9601-8093e58520d052b8.js"
-MODULE_ID = "542550"
+MODULE_IDS = ("542550", "704108", "170051", "593862", "458505")
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 
 
 def fetch(url: str) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/javascript,*/*"})
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": UA, "Accept": "application/javascript,*/*"},
+    )
     with urllib.request.urlopen(request, timeout=40) as response:
         return response.read(20_000_000).decode("utf-8", errors="replace")
 
@@ -69,19 +72,53 @@ def matching_brace(text: str, open_index: int) -> int | None:
     return None
 
 
-def main() -> int:
-    text = fetch(URL)
+def extract_module(text: str, module_id: str) -> dict:
     pattern = re.compile(
-        rf"(?:(?<=\{{)|(?<=,)){MODULE_ID}:(?:function\([^)]*\)|\([^)]*\)=>|[A-Za-z_$][A-Za-z0-9_$]*=>)\{{"
+        rf"(?:(?<=\{{)|(?<=,)){module_id}:(?:function\([^)]*\)|\([^)]*\)=>|[A-Za-z_$][A-Za-z0-9_$]*=>)\{{"
     )
     match = pattern.search(text)
     if not match:
-        raise SystemExit("module not found")
+        return {"module_id": module_id, "error": "not found"}
     open_index = match.end() - 1
     close_index = matching_brace(text, open_index)
     if close_index is None:
-        raise SystemExit("module brace not found")
+        return {"module_id": module_id, "error": "closing brace not found"}
     body = text[open_index + 1 : close_index]
+    strings = sorted(
+        {
+            value
+            for value in re.findall(r'["\']([^"\']{1,180})["\']', body)
+            if any(
+                term in value.lower()
+                for term in (
+                    "/api",
+                    "/tapi",
+                    "/xapi",
+                    "community",
+                    "callout",
+                    "media",
+                    "upload",
+                    "twitter",
+                    "message",
+                )
+            )
+        }
+    )
+    return {
+        "module_id": module_id,
+        "start": match.start(),
+        "end": close_index + 1,
+        "module_bytes": len(body),
+        "interesting_strings": strings,
+        "body": body,
+    }
+
+
+def main() -> int:
+    text = fetch(URL)
+    modules = [extract_module(text, module_id) for module_id in MODULE_IDS]
+    activity = next((module for module in modules if module.get("module_id") == "542550"), {})
+    body = activity.get("body", "")
     aliases = re.findall(r"([A-Za-z_$][A-Za-z0-9_$]*)=l\(688884\)", body)
     alias_hits = {}
     for alias in aliases:
@@ -95,20 +132,16 @@ def main() -> int:
         ]
     report = {
         "url": URL,
-        "module_id": MODULE_ID,
-        "module_bytes": len(body),
-        "aliases": aliases,
-        "alias_hits": alias_hits,
-        "body": body,
+        "modules": modules,
+        "autopause_aliases": aliases,
+        "autopause_alias_hits": alias_hits,
     }
-    out = Path("gmgn_activity_module_542550.json")
+    out = Path("gmgn_community_media_modules.json")
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print("MODULE_BYTES", len(body))
-    print("ALIASES", aliases)
-    for alias, hits in alias_hits.items():
-        print("ALIAS_HITS", alias, len(hits))
-        for hit in hits:
-            print(hit["context"][:6000])
+    for module in modules:
+        print("MODULE", module.get("module_id"), "BYTES", module.get("module_bytes"), "ERROR", module.get("error"))
+        print("STRINGS", json.dumps(module.get("interesting_strings", []), ensure_ascii=False))
+    print("AUTOPAUSE_ALIASES", aliases)
     print(f"WROTE {out} ({out.stat().st_size} bytes)")
     return 0
 
