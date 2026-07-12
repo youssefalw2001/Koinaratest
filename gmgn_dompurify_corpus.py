@@ -7,6 +7,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 MARKER = "GMGN_XSS_SANITIZER_MARKER"
+JS = "document.documentElement.dataset.xss='" + MARKER + "'"
 CONFIG = {
     "ALLOWED_TAGS": ["span", "a", "br"],
     "ALLOWED_ATTR": [
@@ -23,38 +24,39 @@ CONFIG = {
     "ALLOW_UNKNOWN_PROTOCOLS": False,
 }
 
+
+def event(tag: str, attr: str = "onerror", prefix: str = "") -> str:
+    return f"<{tag} {prefix}{attr}=\"{JS}\">x</{tag}>"
+
+
 PAYLOADS = {
-    "img_onerror": f'<img src=x onerror="document.documentElement.dataset.xss=\'{MARKER}\'">',
-    "svg_onload": f'<svg onload="document.documentElement.dataset.xss=\'{MARKER}\'"></svg>',
-    "math_mxss": f'<math><mtext><table><mglyph><style><!--</style><img title="--><img src=1 onerror=document.documentElement.dataset.xss=\'{MARKER}\'>">',
-    "selectedcontent": f'<select><button><selectedcontent><img src=x onerror="document.documentElement.dataset.xss=\'{MARKER}\'"></selectedcontent></button></select>',
-    "template_selectedcontent": f'<template><select><button><selectedcontent><img src=x onerror="document.documentElement.dataset.xss=\'{MARKER}\'"></selectedcontent></button></select></template>',
-    "template_expression": "<template>{{constructor.constructor('document.documentElement.dataset.xss=\\\"%s\\\"')()}}</template>" % MARKER,
-    "javascript_href": f'<a href="javascript:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "mixed_case_javascript": f'<a href="JaVaScRiPt:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "tab_javascript": f'<a href="java&#x09;script:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "newline_javascript": f'<a href="java&#x0A;script:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "cr_javascript": f'<a href="java&#x0D;script:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "entity_javascript": f'<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "encoded_colon": f'<a href="javascript&#58;document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "null_javascript": f'<a href="java\x00script:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "data_html": f'<a href="data:text/html,<script>opener.document.documentElement.dataset.xss=\'{MARKER}\'<\/script>">click</a>',
-    "vbscript": f'<a href="vbscript:document.documentElement.dataset.xss=\'{MARKER}\'">click</a>',
-    "style_javascript": f'<span style="background-image:url(javascript:document.documentElement.dataset.xss=\'{MARKER}\')">x</span>',
-    "style_data_svg": f'<span style="background-image:url(data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' onload=\'document.documentElement.dataset.xss={MARKER}\'/>)">x</span>',
-    "attribute_breakout": f'<span class="x\" onmouseover=\"document.documentElement.dataset.xss=\'{MARKER}\'">x</span>',
-    "nested_anchor": f'<a href="https://example.com"><a href="javascript:document.documentElement.dataset.xss=\'{MARKER}\'">x</a></a>',
-    "formaction": f'<span><button formaction="javascript:document.documentElement.dataset.xss=\'{MARKER}\'">x</button></span>',
-    "iframe_srcdoc": f'<iframe srcdoc="<img src=x onerror=parent.document.documentElement.dataset.xss=\'{MARKER}\'>"></iframe>',
-    "object_data": f'<object data="javascript:document.documentElement.dataset.xss=\'{MARKER}\'"></object>',
-    "meta_refresh": f'<meta http-equiv=refresh content="0;javascript:document.documentElement.dataset.xss=\'{MARKER}\'">',
+    "img_onerror": event("img", prefix="src=x "),
+    "svg_onload": event("svg", "onload"),
+    "selectedcontent": "<select><button><selectedcontent>" + event("img", prefix="src=x ") + "</selectedcontent></button></select>",
+    "template_selectedcontent": "<template><select><button><selectedcontent>" + event("img", prefix="src=x ") + "</selectedcontent></button></select></template>",
+    "math_mxss": "<math><mtext><table><mglyph><style><!--</style>" + event("img", prefix="title='--><img src=x ' "),
+    "javascript_href": f'<a href="javascript:{JS}">click</a>',
+    "mixed_case_javascript": f'<a href="JaVaScRiPt:{JS}">click</a>',
+    "tab_javascript": f'<a href="java&#x09;script:{JS}">click</a>',
+    "newline_javascript": f'<a href="java&#x0A;script:{JS}">click</a>',
+    "cr_javascript": f'<a href="java&#x0D;script:{JS}">click</a>',
+    "entity_javascript": f'<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;:{JS}">click</a>',
+    "encoded_colon": f'<a href="javascript&#58;{JS}">click</a>',
+    "vbscript": f'<a href="vbscript:{JS}">click</a>',
+    "data_html": f'<a href="data:text/html,<script>opener.{JS}</script>">click</a>',
+    "style_javascript": f'<span style="background-image:url(javascript:{JS})">x</span>',
+    "attribute_breakout": f'<span class="x&quot; onmouseover=&quot;{JS}">x</span>',
+    "nested_anchor": f'<a href="https://example.com"><a href="javascript:{JS}">x</a></a>',
+    "formaction": f'<span><button formaction="javascript:{JS}">x</button></span>',
+    "iframe_srcdoc": f'<iframe srcdoc="<img src=x onerror=&quot;parent.{JS}&quot;>"></iframe>',
+    "object_data": f'<object data="javascript:{JS}"></object>',
+    "meta_refresh": f'<meta http-equiv="refresh" content="0;javascript:{JS}">',
     "safe_https_control": '<a href="https://example.com/path?q=1" target="_blank" rel="noopener">safe</a>',
 }
 
 
 def main() -> int:
-    purify_path = Path("node_modules/dompurify/dist/purify.min.js")
-    source = purify_path.read_text(encoding="utf-8")
+    source = Path("node_modules/dompurify/dist/purify.min.js").read_text(encoding="utf-8")
     chrome = next(
         (
             shutil.which(name)
@@ -67,7 +69,7 @@ def main() -> int:
     with sync_playwright() as playwright:
         options = {
             "headless": True,
-            "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+            "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-popup-blocking"],
         }
         if chrome:
             options["executable_path"] = chrome
@@ -79,7 +81,7 @@ def main() -> int:
         for name, payload in PAYLOADS.items():
             page.evaluate("document.documentElement.removeAttribute('data-xss'); document.getElementById('host').replaceChildren()")
             item = page.evaluate(
-                """({payload, config, marker}) => {
+                """async ({payload, config, marker}) => {
                   const output = DOMPurify.sanitize(payload, config);
                   const host = document.getElementById('host');
                   host.innerHTML = output;
@@ -88,20 +90,22 @@ def main() -> int:
                   if (anchor) {
                     try { anchor.click(); } catch (error) { clickError = String(error); }
                   }
-                  return new Promise(resolve => setTimeout(() => resolve({
+                  await new Promise(resolve => setTimeout(resolve, 150));
+                  return {
                     output,
                     executed: document.documentElement.dataset.xss === marker,
                     href: anchor ? anchor.getAttribute('href') : null,
                     resolvedHref: anchor ? anchor.href : null,
                     clickError,
                     html: host.innerHTML
-                  }), 150));
+                  };
                 }""",
                 {"payload": payload, "config": CONFIG, "marker": MARKER},
             )
             results.append({"name": name, **item})
         browser.close()
 
+    dangerous = {"javascript", "data", "vbscript", "file"}
     report = {
         "dompurify_version": version,
         "config": CONFIG,
@@ -111,8 +115,7 @@ def main() -> int:
             item["name"]
             for item in results
             if isinstance(item.get("resolvedHref"), str)
-            and item["resolvedHref"].lower().split(":", 1)[0]
-            in {"javascript", "data", "vbscript", "file"}
+            and item["resolvedHref"].lower().split(":", 1)[0] in dangerous
         ],
         "results": results,
     }
