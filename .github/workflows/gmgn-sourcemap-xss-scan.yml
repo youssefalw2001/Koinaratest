@@ -1,4 +1,4 @@
-name: GMGN Pump live URL survey
+name: GMGN RainbowKit provider trace
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  survey:
+  trace:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Survey Pump detail URLs
-        run: python gmgn_pump_url_survey.py
+      - name: Trace RainbowKit provider props
+        run: python gmgn_rainbowkit_provider_trace.py
 
-      - name: Upload Pump URL survey
+      - name: Upload RainbowKit trace
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-pump-url-survey
-          path: gmgn_pump_url_survey.json
+          name: gmgn-rainbowkit-provider-trace
+          path: gmgn_rainbowkit_provider_trace.json
           if-no-files-found: error
           retention-days: 3
