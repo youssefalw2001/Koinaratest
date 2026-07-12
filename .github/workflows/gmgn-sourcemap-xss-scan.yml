@@ -1,4 +1,4 @@
-name: GMGN metadata URL sink scan
+name: GMGN SimulateLink metadata trace
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  trace:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan URL navigation sinks
-        run: python gmgn_url_navigation_sink_scan.py
+      - name: Trace SimulateLink call sites
+        run: python gmgn_simulatelink_callsites.py
 
-      - name: Upload navigation sink report
+      - name: Upload call-site report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-url-navigation-sink-report
-          path: gmgn_url_navigation_sink_scan.json
+          name: gmgn-simulatelink-callsites
+          path: gmgn_simulatelink_callsites.json
           if-no-files-found: error
           retention-days: 3
