@@ -1,4 +1,4 @@
-name: GMGN DOMPurify version trace
+name: GMGN Html component call-site trace
 
 on:
   pull_request:
@@ -22,15 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract bundled DOMPurify module
-        run: |
-          python -m py_compile gmgn_dompurify_direct_extract.py
-          python gmgn_dompurify_direct_extract.py
+      - name: Trace Html component call sites
+        run: python gmgn_html_component_callsites.py
 
-      - name: Upload DOMPurify module
+      - name: Upload call-site report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-dompurify-direct-module
-          path: gmgn_dompurify_direct_module.json
+          name: gmgn-html-component-callsites
+          path: gmgn_html_component_callsites.json
           if-no-files-found: error
           retention-days: 3
