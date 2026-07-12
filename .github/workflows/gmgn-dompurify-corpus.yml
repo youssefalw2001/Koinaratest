@@ -1,0 +1,43 @@
+name: GMGN DOMPurify corpus
+
+on:
+  push:
+    branches:
+      - agent/gmgn-dompurify-corpus
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact sanitizer and browser library
+        run: |
+          npm install --no-save --ignore-scripts dompurify@3.4.10
+          python -m pip install --disable-pip-version-check playwright
+
+      - name: Run exact GMGN sanitizer policy corpus
+        run: python gmgn_dompurify_corpus.py
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmgn-dompurify-corpus
+          path: gmgn_dompurify_corpus_report.json
+          if-no-files-found: error
+          retention-days: 3
