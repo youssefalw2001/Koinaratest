@@ -3,6 +3,7 @@ name: GMGN public XSS static recon
 on:
   push:
     branches:
+      - main
       - agent/gmgn-public-xss-recon
   pull_request:
     branches:
