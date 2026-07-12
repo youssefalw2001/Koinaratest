@@ -1,4 +1,4 @@
-name: GMGN community media producer trace
+name: GMGN public community media survey
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  trace:
+  survey:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Locate producer modules
-        run: python gmgn_module_locator.py
+      - name: Survey public community media
+        run: python gmgn_public_media_survey.py
 
-      - name: Upload producer modules
+      - name: Upload media survey
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-community-producer-modules
-          path: gmgn_community_producer_modules.json
+          name: gmgn-public-media-survey
+          path: gmgn_public_media_survey.json
           if-no-files-found: error
           retention-days: 3
