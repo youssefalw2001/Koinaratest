@@ -1,4 +1,4 @@
-name: GMGN redirect dataflow scan
+name: GMGN DOMPurify version trace
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  trace:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Trace redirect query flows
-        run: python gmgn_redirect_dataflow_scan.py
+      - name: Extract bundled DOMPurify
+        run: python gmgn_dompurify_locator.py
 
-      - name: Upload redirect report
+      - name: Upload DOMPurify module
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-redirect-dataflow-report
-          path: gmgn_redirect_dataflow_scan.json
+          name: gmgn-dompurify-module
+          path: gmgn_dompurify_module.json
           if-no-files-found: error
           retention-days: 3
