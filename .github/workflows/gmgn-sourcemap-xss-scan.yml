@@ -1,4 +1,4 @@
-name: GMGN minified XSS taint scan
+name: GMGN AutoPauseVideo XSS trace
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  trace:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,66 +22,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Normalize scanner quoting
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('gmgn_minified_xss_scan.py')
-          lines = path.read_text().splitlines()
-          for index, line in enumerate(lines):
-              if 'sentry = re.search' in line:
-                  lines[index] = '    sentry = re.search(r"data-sentry-source-file:[\\\"\u0027]([^\\\"\u0027]+)[\\\"\u0027]", module)'
-          path.write_text('\n'.join(lines) + '\n')
-          PY
-          python -m py_compile gmgn_minified_xss_scan.py
-
-      - name: Scan minified Webpack modules
-        run: python gmgn_minified_xss_scan.py
-
-      - name: Extract targeted candidate modules
-        run: python gmgn_targeted_xss_extract.py
-
       - name: Trace AutoPauseVideo callers
         run: python gmgn_autopause_callsites.py
 
-      - name: Print focused candidates
+      - name: Print call-site summary
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          report = json.loads(Path('gmgn_minified_xss_report.json').read_text())
-          print(json.dumps(report['summary'], indent=2))
-          for key in (
-              'browser_probe_candidates',
-              'direct_url_to_sink_candidates',
-              'direct_postmessage_to_sink_candidates',
-              'direct_tainted_sink_candidates',
-          ):
-              print('\n###', key)
-              for candidate in report[key][:30]:
-                  print(json.dumps({
-                      'score': candidate['score'],
-                      'script_url': candidate['script_url'],
-                      'module_id': candidate['module_id'],
-                      'route_hint': candidate['route_hint'],
-                      'sink': candidate['sink'],
-                      'expression': candidate['expression'][:600],
-                      'expression_sources': candidate['expression_sources'],
-                      'alias_sources': candidate['alias_sources'],
-                      'module_sources': candidate['module_sources'],
-                      'parameter_flow': candidate['parameter_flow'],
-                      'query_keys': candidate['query_keys'],
-                      'sanitizers': candidate['sanitizers_in_context'],
-                  }, ensure_ascii=False, sort_keys=True))
+          report = json.loads(Path('gmgn_autopause_callsites.json').read_text())
+          print('scripts_fetched', report['scripts_fetched'])
+          for hit in report['hits']:
+              print('\nTERM', hit['term'], 'COUNT', hit['count'], 'SCRIPT', hit['script_url'])
+              for ctx in hit['contexts'][:10]:
+                  print(ctx['context'][:5000])
           PY
 
-      - name: Upload XSS analysis artifacts
+      - name: Upload call-site trace
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-xss-analysis
-          path: |
-            gmgn_minified_xss_report.json
-            gmgn_targeted_xss_extract.json
-            gmgn_autopause_callsites.json
+          name: gmgn-autopause-callsites
+          path: gmgn_autopause_callsites.json
           if-no-files-found: error
           retention-days: 3
