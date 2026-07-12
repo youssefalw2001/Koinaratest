@@ -1,4 +1,4 @@
-name: GMGN AutoPauseVideo module trace
+name: GMGN community media source trace
 
 on:
   pull_request:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract activity module
+      - name: Extract community media modules
         run: python gmgn_activity_module_extract.py
 
-      - name: Upload activity module
+      - name: Upload community media modules
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-activity-module
-          path: gmgn_activity_module_542550.json
+          name: gmgn-community-media-modules
+          path: gmgn_community_media_modules.json
           if-no-files-found: error
           retention-days: 3
