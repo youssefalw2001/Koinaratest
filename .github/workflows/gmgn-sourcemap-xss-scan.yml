@@ -1,4 +1,4 @@
-name: GMGN TokenSocial URL trace
+name: GMGN TokenSocial runtime trace
 
 on:
   pull_request:
@@ -22,20 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract TokenSocial URL flows
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          python -m py_compile gmgn_tokensocial_extract.py
-          python gmgn_tokensocial_extract.py 2>&1 | tee gmgn_tokensocial_extract.log
+      - name: Locate current TokenSocial runtime module
+        run: python gmgn_tokensocial_runtime_locator.py
 
-      - name: Upload TokenSocial diagnostics
-        if: always()
+      - name: Upload TokenSocial runtime report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-tokensocial-extract
-          path: |
-            gmgn_tokensocial_extract.json
-            gmgn_tokensocial_extract.log
-          if-no-files-found: warn
+          name: gmgn-tokensocial-runtime-report
+          path: gmgn_tokensocial_runtime_locator.json
+          if-no-files-found: error
           retention-days: 3
