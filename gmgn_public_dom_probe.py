@@ -44,8 +44,7 @@ def build_cases() -> list[dict[str, str]]:
             index += 1
             marker = f"GMGNHTML{index}"
             payload = (
-                '"><img src=x onerror="parent.document.documentElement.'
-                f"setAttribute('data-gmgn-xss','{marker}')">"
+                f'''"><img src=x onerror="parent.document.documentElement.setAttribute('data-gmgn-xss','{marker}')">'''
             )
             query = urllib.parse.urlencode({param: payload})
             cases.append(
