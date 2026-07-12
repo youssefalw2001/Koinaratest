@@ -5,7 +5,7 @@ from pathlib import Path
 
 BASE='https://gmgn.ai/'
 UA='Mozilla/5.0 Chrome/124 Safari/537.36'
-TARGETS={'851736','381304','582551','259896','933978','961002','118418','410221','277891','149781','943347'}
+TARGETS={'851736','381304','582551','259896','933978','961002','118418','410221','277891','149781','943347','692696','451154','593195'}
 
 
 def get(url,limit=20_000_000):
@@ -67,7 +67,7 @@ def main():
     status,body,error=get(BASE,3_000_000);page=body.decode(errors='replace');manifest_url,routes=manifest(page)
     queue=deque(scripts(page,BASE));[queue.extend(values) for values in routes.values()]
     seen=set();found={};callers={target:[] for target in TARGETS}
-    while queue and len(seen)<340:
+    while queue and len(seen)<360:
         url=queue.popleft()
         if url in seen or not url.startswith('https://gmgn.ai/'):continue
         seen.add(url);b_status,b_body,b_error=get(url)
@@ -82,7 +82,7 @@ def main():
         time.sleep(.08)
     report={'generated_at':int(time.time()),'scope':'public static helper extraction','root':{'status':status,'error':error},'manifest':{'url':manifest_url,'routes':len(routes)},'bundles_scanned':len(seen),'modules':found,'callers':callers,'summary':{'targets':len(TARGETS),'found':len(found),'bundles':len(seen)},'candidates':[],'canaries':[]}
     Path('gmgn_xss_focus_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
-    lines=['# GMGN URL Helper Extraction','',f"Targets found: **{len(found)}/{len(TARGETS)}**",'']
+    lines=['# GMGN WebSocket Protocol Extraction','',f"Targets found: **{len(found)}/{len(TARGETS)}**",'']
     for target in sorted(TARGETS):lines.append(f"- `{target}`: {'found' if target in found else 'missing'}, callers={len(callers[target])}")
     Path('gmgn_xss_focus_verdict.md').write_text('\n'.join(lines)+'\n')
     print(json.dumps(report['summary'],indent=2))
