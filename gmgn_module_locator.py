@@ -31,7 +31,7 @@ ROUTES = (
     "/base",
     "/eth",
 )
-TARGET_IDS = ("704108", "170051", "593862")
+TARGET_IDS = ("143966",)
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 MAX_SCRIPTS = 340
 MAX_BYTES = 20_000_000
@@ -203,15 +203,35 @@ def main() -> int:
         "found": found,
         "missing": [module_id for module_id in TARGET_IDS if module_id not in found],
     }
-    out = Path("gmgn_community_producer_modules.json")
+    out = Path("gmgn_callout_publish_module.json")
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("SCRIPTS_FETCHED", len(scripts))
     for module_id in TARGET_IDS:
         module = found.get(module_id)
-        print("MODULE", module_id, "URL", module.get("script_url") if module else None, "BYTES", module.get("bytes") if module else None)
+        print(
+            "MODULE",
+            module_id,
+            "URL",
+            module.get("script_url") if module else None,
+            "BYTES",
+            module.get("bytes") if module else None,
+        )
         if module:
-            for value in sorted(set(re.findall(r'[\"\']([^\"\']{1,220})[\"\']', module["body"]))):
-                if any(term in value.lower() for term in ("/api", "/tapi", "/xapi", "call_out", "community", "media", "upload")):
+            for value in sorted(set(re.findall(r'[\"\']([^\"\']{1,240})[\"\']', module["body"]))):
+                if any(
+                    term in value.lower()
+                    for term in (
+                        "/api",
+                        "/tapi",
+                        "/xapi",
+                        "call_out",
+                        "community",
+                        "media",
+                        "upload",
+                        "publish",
+                        "content",
+                    )
+                ):
                     print("STRING", value)
     print("MISSING", report["missing"])
     print(f"WROTE {out} ({out.stat().st_size} bytes)")
