@@ -1,4 +1,4 @@
-name: GMGN Pump live URL trace
+name: GMGN Pump live hook trace
 
 on:
   pull_request:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Trace Pump detail URL
-        run: python gmgn_pump_url_trace.py
+      - name: Extract Pump hook module
+        run: python gmgn_module_locator.py
 
-      - name: Upload Pump URL trace
+      - name: Upload Pump hook module
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-pump-url-trace
-          path: gmgn_pump_url_trace.json
+          name: gmgn-pump-hook-module
+          path: gmgn_pump_hook_module.json
           if-no-files-found: error
           retention-days: 3
