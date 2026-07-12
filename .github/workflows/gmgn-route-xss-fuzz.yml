@@ -28,14 +28,14 @@ jobs:
       - name: Install browser control library
         run: python -m pip install --disable-pip-version-check playwright
 
-      - name: Map highest-risk reflections with WAF-safe markers
-        run: python gmgn_route_reflection_fast.py
+      - name: Validate reflected XSS candidates
+        run: python gmgn_targeted_reflection_xss.py
 
-      - name: Upload structural report
+      - name: Upload targeted result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-route-reflection-map
-          path: gmgn_route_reflection_map.json
+          name: gmgn-targeted-reflection-xss
+          path: gmgn_targeted_reflection_xss.json
           if-no-files-found: error
           retention-days: 3
