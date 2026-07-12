@@ -1,4 +1,4 @@
-name: GMGN Pump live request trace
+name: GMGN Pump live URL survey
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  trace:
+  survey:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract Pump request helper
-        run: python gmgn_pump_fetch_locator.py
+      - name: Survey Pump detail URLs
+        run: python gmgn_pump_url_survey.py
 
-      - name: Upload Pump request helper
+      - name: Upload Pump URL survey
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-pump-request-helper
-          path: gmgn_pump_hook_module.json
+          name: gmgn-pump-url-survey
+          path: gmgn_pump_url_survey.json
           if-no-files-found: error
           retention-days: 3
