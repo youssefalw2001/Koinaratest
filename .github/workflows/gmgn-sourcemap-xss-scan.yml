@@ -1,4 +1,4 @@
-name: GMGN AutoPauseVideo XSS trace
+name: GMGN AutoPauseVideo module trace
 
 on:
   pull_request:
@@ -22,26 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Trace AutoPauseVideo callers
-        run: python gmgn_autopause_callsites.py
+      - name: Extract activity module
+        run: python gmgn_activity_module_extract.py
 
-      - name: Print call-site summary
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          report = json.loads(Path('gmgn_autopause_callsites.json').read_text())
-          print('scripts_fetched', report['scripts_fetched'])
-          for hit in report['hits']:
-              print('\nTERM', hit['term'], 'COUNT', hit['count'], 'SCRIPT', hit['script_url'])
-              for ctx in hit['contexts'][:10]:
-                  print(ctx['context'][:5000])
-          PY
-
-      - name: Upload call-site trace
+      - name: Upload activity module
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-autopause-callsites
-          path: gmgn_autopause_callsites.json
+          name: gmgn-activity-module
+          path: gmgn_activity_module_542550.json
           if-no-files-found: error
           retention-days: 3
