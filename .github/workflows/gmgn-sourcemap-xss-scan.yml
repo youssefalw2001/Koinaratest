@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Extract bundled DOMPurify
-        run: python gmgn_dompurify_locator.py
+        run: python gmgn_dompurify_actual_locator.py
 
       - name: Upload DOMPurify module
         uses: actions/upload-artifact@v4
