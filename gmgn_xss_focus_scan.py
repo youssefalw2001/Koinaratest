@@ -5,7 +5,7 @@ from pathlib import Path
 
 BASE='https://gmgn.ai/'
 UA='Mozilla/5.0 Chrome/124 Safari/537.36'
-TARGETS={'851736','381304','582551','259896','933978','961002'}
+TARGETS={'851736','381304','582551','259896','933978','961002','118418'}
 
 
 def get(url,limit=20_000_000):
