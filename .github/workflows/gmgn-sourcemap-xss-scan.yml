@@ -38,6 +38,9 @@ jobs:
       - name: Scan minified Webpack modules
         run: python gmgn_minified_xss_scan.py
 
+      - name: Extract targeted candidate modules
+        run: python gmgn_targeted_xss_extract.py
+
       - name: Print focused candidates
         run: |
           python - <<'PY'
@@ -69,10 +72,12 @@ jobs:
                   }, ensure_ascii=False, sort_keys=True))
           PY
 
-      - name: Upload minified taint report
+      - name: Upload XSS analysis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-minified-xss-report
-          path: gmgn_minified_xss_report.json
+          name: gmgn-xss-analysis
+          path: |
+            gmgn_minified_xss_report.json
+            gmgn_targeted_xss_extract.json
           if-no-files-found: error
           retention-days: 3
