@@ -1,4 +1,4 @@
-name: GMGN callout publish trace
+name: GMGN media URL flow scan
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  trace:
+  scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract callout publish module
-        run: python gmgn_module_locator.py
+      - name: Scan media URL mappings
+        run: python gmgn_media_url_flow_scan.py
 
-      - name: Upload callout publish module
+      - name: Upload media URL flow report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-callout-publish-module
-          path: gmgn_callout_publish_module.json
+          name: gmgn-media-url-flow-report
+          path: gmgn_media_url_flow_scan.json
           if-no-files-found: error
           retention-days: 3
