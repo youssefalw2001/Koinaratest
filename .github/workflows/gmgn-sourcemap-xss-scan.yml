@@ -41,6 +41,9 @@ jobs:
       - name: Extract targeted candidate modules
         run: python gmgn_targeted_xss_extract.py
 
+      - name: Trace AutoPauseVideo callers
+        run: python gmgn_autopause_callsites.py
+
       - name: Print focused candidates
         run: |
           python - <<'PY'
@@ -79,5 +82,6 @@ jobs:
           path: |
             gmgn_minified_xss_report.json
             gmgn_targeted_xss_extract.json
+            gmgn_autopause_callsites.json
           if-no-files-found: error
           retention-days: 3
