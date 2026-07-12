@@ -1,4 +1,4 @@
-name: GMGN RainbowKit provider trace
+name: GMGN postMessage receiver scan
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  trace:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Trace RainbowKit provider props
-        run: python gmgn_rainbowkit_provider_trace.py
+      - name: Scan public message receivers
+        run: python gmgn_postmessage_receiver_scan.py
 
-      - name: Upload RainbowKit trace
+      - name: Upload receiver report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-rainbowkit-provider-trace
-          path: gmgn_rainbowkit_provider_trace.json
+          name: gmgn-postmessage-receiver-report
+          path: gmgn_postmessage_receiver_scan.json
           if-no-files-found: error
           retention-days: 3
