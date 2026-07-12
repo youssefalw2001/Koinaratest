@@ -1,4 +1,4 @@
-name: GMGN Html component call-site trace
+name: GMGN TokenSocial URL trace
 
 on:
   pull_request:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Trace Html component call sites
-        run: python gmgn_html_component_callsites.py
+      - name: Extract TokenSocial URL flows
+        run: python gmgn_tokensocial_extract.py
 
-      - name: Upload call-site report
+      - name: Upload TokenSocial report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-html-component-callsites
-          path: gmgn_html_component_callsites.json
+          name: gmgn-tokensocial-extract
+          path: gmgn_tokensocial_extract.json
           if-no-files-found: error
           retention-days: 3
