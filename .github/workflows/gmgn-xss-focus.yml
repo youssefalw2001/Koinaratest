@@ -1,0 +1,54 @@
+name: GMGN XSS focused scan
+
+on:
+  push:
+    branches:
+      - main
+      - agent/gmgn-xss-taint-scan
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run focused scan
+        run: python gmgn_xss_focus_scan.py
+
+      - name: Print verdict
+        if: always()
+        run: |
+          test -f gmgn_xss_focus_verdict.md && cat gmgn_xss_focus_verdict.md || true
+          test -f gmgn_xss_focus_report.json && python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('gmgn_xss_focus_report.json').read_text())
+          print(json.dumps(r.get('summary',{}),indent=2))
+          for x in r.get('candidates',[])[:25]:
+              print('CAND',json.dumps({k:x.get(k) for k in ('score','bundle','module','sink','sources','near_sources','sanitizers','fields','postmessage','origin_check','markdown')},ensure_ascii=False))
+          for x in r.get('canaries',[]):
+              if x.get('reflected') or x.get('browser',{}).get('executed'):
+                  print('CANARY',json.dumps({'kind':x.get('kind'),'url':x.get('url'),'status':x.get('status'),'reflected':x.get('reflected'),'executed':x.get('browser',{}).get('executed')},ensure_ascii=False))
+          PY
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmgn-xss-focus-scan
+          path: |
+            gmgn_xss_focus_report.json
+            gmgn_xss_focus_verdict.md
+          if-no-files-found: warn
+          retention-days: 3
