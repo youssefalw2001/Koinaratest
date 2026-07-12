@@ -1,4 +1,4 @@
-name: GMGN postMessage receiver scan
+name: GMGN redirect dataflow scan
 
 on:
   pull_request:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan public message receivers
-        run: python gmgn_postmessage_receiver_scan.py
+      - name: Trace redirect query flows
+        run: python gmgn_redirect_dataflow_scan.py
 
-      - name: Upload receiver report
+      - name: Upload redirect report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-postmessage-receiver-report
-          path: gmgn_postmessage_receiver_scan.json
+          name: gmgn-redirect-dataflow-report
+          path: gmgn_redirect_dataflow_scan.json
           if-no-files-found: error
           retention-days: 3
