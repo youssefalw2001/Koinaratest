@@ -22,20 +22,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract bundled DOMPurify
-        continue-on-error: true
+      - name: Extract bundled DOMPurify module
         run: |
-          set -o pipefail
-          python -m py_compile gmgn_dompurify_locator.py gmgn_dompurify_actual_locator.py
-          python gmgn_dompurify_actual_locator.py 2>&1 | tee gmgn_dompurify_locator.log
+          python -m py_compile gmgn_dompurify_direct_extract.py
+          python gmgn_dompurify_direct_extract.py
 
-      - name: Upload DOMPurify diagnostics
-        if: always()
+      - name: Upload DOMPurify module
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-dompurify-module
-          path: |
-            gmgn_dompurify_module.json
-            gmgn_dompurify_locator.log
-          if-no-files-found: warn
+          name: gmgn-dompurify-direct-module
+          path: gmgn_dompurify_direct_module.json
+          if-no-files-found: error
           retention-days: 3
