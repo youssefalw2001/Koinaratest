@@ -1,4 +1,4 @@
-name: GMGN media URL flow scan
+name: GMGN historical community media survey
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  survey:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan media URL mappings
-        run: python gmgn_media_url_flow_scan.py
+      - name: Paginate historical public media
+        run: python gmgn_historical_media_survey.py
 
-      - name: Upload media URL flow report
+      - name: Upload historical media survey
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-media-url-flow-report
-          path: gmgn_media_url_flow_scan.json
+          name: gmgn-historical-media-survey
+          path: gmgn_historical_media_survey.json
           if-no-files-found: error
           retention-days: 3
