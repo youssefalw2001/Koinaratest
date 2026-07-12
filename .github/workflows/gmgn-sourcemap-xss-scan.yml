@@ -1,4 +1,4 @@
-name: GMGN public community media survey
+name: GMGN public DOM XSS probe
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  survey:
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,13 +22,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Survey public community media
-        run: python gmgn_public_media_survey.py
+      - name: Install browser runtime
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
 
-      - name: Upload media survey
+      - name: Run harmless DOM marker probe
+        run: python gmgn_public_dom_probe.py
+
+      - name: Upload DOM probe report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-public-media-survey
-          path: gmgn_public_media_survey.json
+          name: gmgn-public-dom-probe
+          path: gmgn_public_dom_probe.json
           if-no-files-found: error
           retention-days: 3
