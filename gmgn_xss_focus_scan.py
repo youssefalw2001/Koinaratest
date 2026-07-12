@@ -12,16 +12,20 @@ from pathlib import Path
 
 BASE = "https://gmgn.ai/"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
-MAX_BUNDLES = 380
+MAX_BUNDLES = 420
 MAX_BYTES = 22_000_000
 NEEDLES = (
-    "961002",
-    "track_the_wallet_of_you_twitter_friends",
-    "data-sentry-component:\"FollowTwitter\"",
     "twitter/oauth_url",
-    "fromurl",
-    "bind_address",
+    "r(582551)",
+    ".WC(",
+    "FollowTwitter",
+    "track_the_wallet_of_you_twitter_friends",
+    "fromurl:",
+    "before:",
+    "bind_address:",
     "storeCurrentUrlInLocalStorage",
+    "window.location.href=",
+    "window.open(",
 )
 
 
@@ -90,7 +94,7 @@ def dynamic_chunks(text: str, url: str) -> set[str]:
     return output
 
 
-def snippets(text: str, needle: str, radius: int = 10_000, limit: int = 40):
+def snippets(text: str, needle: str, radius: int = 14_000, limit: int = 80):
     output = []
     start = 0
     while len(output) < limit:
@@ -144,11 +148,11 @@ def main() -> int:
                     "needles": needle_hits,
                 }
             )
-        time.sleep(0.06)
+        time.sleep(0.05)
 
     report = {
         "generated_at": int(time.time()),
-        "scope": "Public static literal extraction for FollowTwitter OAuth call sites",
+        "scope": "Public static literal extraction for current Twitter OAuth helper callers",
         "root": {"status": root_status, "error": root_error},
         "manifest": {"url": manifest_url, "routes": len(routes)},
         "bundles_scanned": len(seen),
@@ -172,7 +176,7 @@ def main() -> int:
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     lines = [
-        "# GMGN FollowTwitter Literal Trace",
+        "# GMGN Current Twitter OAuth Caller Trace",
         "",
         f"Bundles scanned: **{len(seen)}**",
         f"Bundles with hits: **{len(hits)}**",
