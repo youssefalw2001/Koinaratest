@@ -1,4 +1,4 @@
-name: GMGN TokenSocial runtime trace
+name: GMGN live Pump media survey
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  trace:
+  survey:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Locate current TokenSocial runtime module
-        run: python gmgn_tokensocial_runtime_locator.py
+      - name: Survey live Pump community media
+        run: python gmgn_live_pump_media_survey.py
 
-      - name: Upload TokenSocial runtime report
+      - name: Upload live Pump media survey
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-tokensocial-runtime-report
-          path: gmgn_tokensocial_runtime_locator.json
+          name: gmgn-live-pump-media-survey
+          path: gmgn_live_pump_media_survey.json
           if-no-files-found: error
           retention-days: 3
