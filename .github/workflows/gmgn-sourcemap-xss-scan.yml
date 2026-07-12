@@ -1,0 +1,61 @@
+name: GMGN source-map XSS scan
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scan public source maps
+        run: python gmgn_sourcemap_xss_scan.py
+
+      - name: Print focused candidates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('gmgn_sourcemap_xss_report.json').read_text())
+          print(json.dumps(report['summary'], indent=2))
+          for key in (
+              'high_confidence_candidates',
+              'direct_url_to_sink_candidates',
+              'direct_postmessage_to_sink_candidates',
+              'direct_referral_to_sink_candidates',
+          ):
+              print('\n###', key)
+              for candidate in report[key][:25]:
+                  print(json.dumps({
+                      'score': candidate['score'],
+                      'source_file': candidate['source_file'],
+                      'script_url': candidate['script_url'],
+                      'sink': candidate['sink'],
+                      'expression': candidate['expression'][:500],
+                      'expression_sources': candidate['expression_sources'],
+                      'file_sources': candidate['file_sources'],
+                      'sanitizers': candidate['sanitizers_in_context'],
+                  }, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload source-map report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmgn-sourcemap-xss-report
+          path: gmgn_sourcemap_xss_report.json
+          if-no-files-found: error
+          retention-days: 3
