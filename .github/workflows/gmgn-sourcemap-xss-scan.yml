@@ -1,4 +1,4 @@
-name: GMGN source-map XSS scan
+name: GMGN minified XSS taint scan
 
 on:
   pull_request:
@@ -22,40 +22,44 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan public source maps
-        run: python gmgn_sourcemap_xss_scan.py
+      - name: Scan minified Webpack modules
+        run: python gmgn_minified_xss_scan.py
 
       - name: Print focused candidates
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          report = json.loads(Path('gmgn_sourcemap_xss_report.json').read_text())
+          report = json.loads(Path('gmgn_minified_xss_report.json').read_text())
           print(json.dumps(report['summary'], indent=2))
           for key in (
-              'high_confidence_candidates',
+              'browser_probe_candidates',
               'direct_url_to_sink_candidates',
               'direct_postmessage_to_sink_candidates',
-              'direct_referral_to_sink_candidates',
+              'direct_tainted_sink_candidates',
           ):
               print('\n###', key)
-              for candidate in report[key][:25]:
+              for candidate in report[key][:30]:
                   print(json.dumps({
                       'score': candidate['score'],
-                      'source_file': candidate['source_file'],
                       'script_url': candidate['script_url'],
+                      'module_id': candidate['module_id'],
+                      'route_hint': candidate['route_hint'],
                       'sink': candidate['sink'],
-                      'expression': candidate['expression'][:500],
+                      'expression': candidate['expression'][:600],
                       'expression_sources': candidate['expression_sources'],
-                      'file_sources': candidate['file_sources'],
+                      'alias_sources': candidate['alias_sources'],
+                      'module_sources': candidate['module_sources'],
+                      'parameter_flow': candidate['parameter_flow'],
+                      'query_keys': candidate['query_keys'],
                       'sanitizers': candidate['sanitizers_in_context'],
                   }, ensure_ascii=False, sort_keys=True))
           PY
 
-      - name: Upload source-map report
+      - name: Upload minified taint report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-sourcemap-xss-report
-          path: gmgn_sourcemap_xss_report.json
+          name: gmgn-minified-xss-report
+          path: gmgn_minified_xss_report.json
           if-no-files-found: error
           retention-days: 3
