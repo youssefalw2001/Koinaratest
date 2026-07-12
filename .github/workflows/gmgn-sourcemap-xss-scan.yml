@@ -22,6 +22,19 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Normalize scanner quoting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('gmgn_minified_xss_scan.py')
+          lines = path.read_text().splitlines()
+          for index, line in enumerate(lines):
+              if 'sentry = re.search' in line:
+                  lines[index] = '    sentry = re.search(r"data-sentry-source-file:[\\\"\u0027]([^\\\"\u0027]+)[\\\"\u0027]", module)'
+          path.write_text('\n'.join(lines) + '\n')
+          PY
+          python -m py_compile gmgn_minified_xss_scan.py
+
       - name: Scan minified Webpack modules
         run: python gmgn_minified_xss_scan.py
 
