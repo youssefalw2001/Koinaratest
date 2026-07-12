@@ -1,4 +1,4 @@
-name: GMGN ECharts formatter analysis
+name: GMGN callout publish trace
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  trace:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan application tooltip formatters
-        run: python gmgn_echarts_formatter_scan.py
+      - name: Extract callout publish module
+        run: python gmgn_module_locator.py
 
-      - name: Upload formatter analysis
+      - name: Upload callout publish module
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-echarts-formatter-analysis
-          path: gmgn_echarts_formatter_scan.json
+          name: gmgn-callout-publish-module
+          path: gmgn_callout_publish_module.json
           if-no-files-found: error
           retention-days: 3
