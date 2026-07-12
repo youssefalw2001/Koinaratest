@@ -1,4 +1,4 @@
-name: GMGN historical community media survey
+name: GMGN metadata URL sink scan
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  survey:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Paginate historical public media
-        run: python gmgn_historical_media_survey.py
+      - name: Scan URL navigation sinks
+        run: python gmgn_url_navigation_sink_scan.py
 
-      - name: Upload historical media survey
+      - name: Upload navigation sink report
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-historical-media-survey
-          path: gmgn_historical_media_survey.json
+          name: gmgn-url-navigation-sink-report
+          path: gmgn_url_navigation_sink_scan.json
           if-no-files-found: error
           retention-days: 3
