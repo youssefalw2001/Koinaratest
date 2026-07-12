@@ -15,7 +15,7 @@ permissions:
 jobs:
   sample:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -25,17 +25,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install WebSocket client
-        run: python -m pip install --disable-pip-version-check websockets==12.0
+      - name: Install browser control library
+        run: python -m pip install --disable-pip-version-check playwright
 
-      - name: Sample public broadcast URL classes
-        run: python gmgn_public_broadcast_sample.py
+      - name: Observe GMGN browser WebSocket URL classes
+        run: python gmgn_browser_broadcast_sample.py
 
       - name: Upload structural result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-public-broadcast-sample
-          path: gmgn_public_broadcast_sample.json
+          name: gmgn-public-broadcast-browser-sample
+          path: gmgn_browser_broadcast_sample.json
           if-no-files-found: error
           retention-days: 3
