@@ -31,10 +31,10 @@ ROUTES = (
     "/base",
     "/eth",
 )
-TARGET_IDS = ("143966",)
+TARGET_IDS = ("374086",)
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
-MAX_SCRIPTS = 340
-MAX_BYTES = 20_000_000
+MAX_SCRIPTS = 360
+MAX_BYTES = 22_000_000
 WORKERS = 16
 
 
@@ -47,23 +47,23 @@ def fetch(url: str) -> tuple[int | None, bytes, str | None]:
         with urllib.request.urlopen(request, timeout=35) as response:
             return response.status, response.read(MAX_BYTES), None
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read(200_000), str(exc)
+        return exc.code, exc.read(250_000), str(exc)
     except Exception as exc:  # noqa: BLE001
         return None, b"", f"{type(exc).__name__}: {exc}"
 
 
 def fetch_many(urls: Iterable[str]) -> dict[str, tuple[int | None, bytes, str | None]]:
     unique = list(dict.fromkeys(urls))
-    out: dict[str, tuple[int | None, bytes, str | None]] = {}
+    output: dict[str, tuple[int | None, bytes, str | None]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as executor:
         futures = {executor.submit(fetch, url): url for url in unique}
         for future in concurrent.futures.as_completed(futures):
             url = futures[future]
             try:
-                out[url] = future.result()
+                output[url] = future.result()
             except Exception as exc:  # noqa: BLE001
-                out[url] = (None, b"", f"{type(exc).__name__}: {exc}")
-    return out
+                output[url] = (None, b"", f"{type(exc).__name__}: {exc}")
+    return output
 
 
 def normalize_js_url(raw: str, base_url: str) -> str | None:
@@ -203,7 +203,7 @@ def main() -> int:
         "found": found,
         "missing": [module_id for module_id in TARGET_IDS if module_id not in found],
     }
-    out = Path("gmgn_callout_publish_module.json")
+    out = Path("gmgn_pump_hook_module.json")
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("SCRIPTS_FETCHED", len(scripts))
     for module_id in TARGET_IDS:
@@ -217,20 +217,11 @@ def main() -> int:
             module.get("bytes") if module else None,
         )
         if module:
-            for value in sorted(set(re.findall(r'[\"\']([^\"\']{1,240})[\"\']', module["body"]))):
-                if any(
-                    term in value.lower()
-                    for term in (
-                        "/api",
-                        "/tapi",
-                        "/xapi",
-                        "call_out",
-                        "community",
-                        "media",
-                        "upload",
-                        "publish",
-                        "content",
-                    )
+            for value in sorted(set(re.findall(r'[\"\']([^\"\']{1,320})[\"\']', module["body"]))):
+                lower = value.lower()
+                if (
+                    value.startswith("/")
+                    or any(term in lower for term in ("pump", "live", "detail_url", "thumbnail"))
                 ):
                     print("STRING", value)
     print("MISSING", report["missing"])
