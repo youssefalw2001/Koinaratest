@@ -1,4 +1,4 @@
-name: GMGN public DOM XSS probe
+name: GMGN ECharts formatter analysis
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,24 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install browser runtime
-        run: |
-          python -m pip install --disable-pip-version-check playwright
-          python -m playwright install --with-deps chromium
+      - name: Scan application tooltip formatters
+        run: python gmgn_echarts_formatter_scan.py
 
-      - name: Run harmless DOM marker probe
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          python gmgn_public_dom_probe.py 2>&1 | tee gmgn_public_dom_probe.log
-
-      - name: Upload DOM probe evidence
-        if: always()
+      - name: Upload formatter analysis
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-public-dom-probe
-          path: |
-            gmgn_public_dom_probe.json
-            gmgn_public_dom_probe.log
-          if-no-files-found: warn
+          name: gmgn-echarts-formatter-analysis
+          path: gmgn_echarts_formatter_scan.json
+          if-no-files-found: error
           retention-days: 3
