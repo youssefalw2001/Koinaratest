@@ -28,12 +28,18 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Run harmless DOM marker probe
-        run: python gmgn_public_dom_probe.py
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python gmgn_public_dom_probe.py 2>&1 | tee gmgn_public_dom_probe.log
 
-      - name: Upload DOM probe report
+      - name: Upload DOM probe evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gmgn-public-dom-probe
-          path: gmgn_public_dom_probe.json
-          if-no-files-found: error
+          path: |
+            gmgn_public_dom_probe.json
+            gmgn_public_dom_probe.log
+          if-no-files-found: warn
           retention-days: 3
