@@ -23,12 +23,19 @@ jobs:
           python-version: "3.12"
 
       - name: Extract TokenSocial URL flows
-        run: python gmgn_tokensocial_extract.py
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python -m py_compile gmgn_tokensocial_extract.py
+          python gmgn_tokensocial_extract.py 2>&1 | tee gmgn_tokensocial_extract.log
 
-      - name: Upload TokenSocial report
+      - name: Upload TokenSocial diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gmgn-tokensocial-extract
-          path: gmgn_tokensocial_extract.json
-          if-no-files-found: error
+          path: |
+            gmgn_tokensocial_extract.json
+            gmgn_tokensocial_extract.log
+          if-no-files-found: warn
           retention-days: 3
