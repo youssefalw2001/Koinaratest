@@ -1,4 +1,4 @@
-name: GMGN community media source trace
+name: GMGN community media producer trace
 
 on:
   pull_request:
@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract community media modules
-        run: python gmgn_activity_module_extract.py
+      - name: Locate producer modules
+        run: python gmgn_module_locator.py
 
-      - name: Upload community media modules
+      - name: Upload producer modules
         uses: actions/upload-artifact@v4
         with:
-          name: gmgn-community-media-modules
-          path: gmgn_community_media_modules.json
+          name: gmgn-community-producer-modules
+          path: gmgn_community_producer_modules.json
           if-no-files-found: error
           retention-days: 3
