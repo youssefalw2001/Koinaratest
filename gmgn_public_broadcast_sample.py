@@ -90,8 +90,6 @@ def sample(endpoint: str) -> dict:
             origin="https://gmgn.ai",
             open_timeout=20,
             close_timeout=5,
-            ping_interval=20,
-            ping_timeout=20,
             max_size=4_000_000,
         ) as websocket:
             result["connected"] = True
